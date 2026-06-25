@@ -3,6 +3,7 @@ import { useAuth } from "../auth/auth-context";
 import { SafeActionButton } from "../shared/SafeActionButton";
 import { SearchableSelect } from "../shared/SearchableSelect";
 import { useToast } from "../shared/toast-context";
+import { formatIstLocaleDateTime } from "../shared/ist-time";
 import { PaginatedResponse, Section } from "../structure/structure-types";
 
 type PromotionStudent = { id: string; rollNumber: string; fullName: string };
@@ -23,7 +24,7 @@ type PromotionHistoryItem = {
   promotionType?: string;
 };
 
-const inputClass = "w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100";
+const inputClass = "db-input";
 
 export function PromotionPanel() {
   const { authFetch } = useAuth();
@@ -141,7 +142,7 @@ export function PromotionPanel() {
               <strong>{item.student.rollNumber}</strong> {item.student.fullName}: {item.fromSection} to {item.toSection}
               <span className="block text-xs text-slate-500">
                 {item.promotionType ? `${item.promotionType} · ` : ""}
-                By {item.promotedBy} on {new Date(item.promotedAt).toLocaleString()}
+                By {item.promotedBy} on {formatIstLocaleDateTime(item.promotedAt)}
               </span>
             </p>
           ))}

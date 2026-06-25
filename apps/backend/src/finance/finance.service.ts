@@ -1,13 +1,21 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { formatIstDate, istDayRangeFromIso, todayIstDate } from "../common/ist-time.util";
 import { FeePaymentMode, FeePaymentStatus, PermissionAction, Prisma, StructureStatus, StudentFeePaymentStatus, UserStatus, UserType } from "@prisma/client";
+import { Response } from "express";
 import { AuthUser, ScopeRef } from "../auth/auth.types";
+import { buildExportBasename } from "../common/export-filename.util";
 import { toPagination, PaginationQueryDto } from "../common/pagination.dto";
+import { sendTabularExport } from "../common/tabular-export.util";
+import { CampusScopeService, isInstitutionWideAdmin } from "../permissions/campus-scope.service";
 import { PermissionsService } from "../permissions/permissions.service";
+import { assertStudentSelfProfile, studentProfileToScope } from "../permissions/operational-scope.util";
+import { SharedGroupAcademicService } from "../permissions/shared-group-academic.service";
 import { PrismaService } from "../prisma/prisma.service";
 import {
   AssignFeeDto,
   CreateFeeHeadDto,
   CreateFeeStructureDto,
+  FeeExportQueryDto,
   FeeQueryDto,
   FeeStudentSearchQueryDto,
   MarkFeePaymentDto,
@@ -18,11 +26,45 @@ import {
   UpdateAssignedFeeDto
 } from "./finance.dto";
 
+const financeStudentSectionInclude = {
+  section: {
+    include: {
+      class: {
+        include: {
+          batch: {
+            include: {
+              branch: {
+                include: { program: true }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+} satisfies Prisma.StudentProfileInclude;
+
+const financeSectionTreeInclude = {
+  class: {
+    include: {
+      batch: {
+        include: {
+          branch: {
+            include: { program: { include: { campus: true } } }
+          }
+        }
+      }
+    }
+  }
+} satisfies Prisma.SectionInclude;
+
 @Injectable()
 export class FinanceService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly permissions: PermissionsService
+    private readonly permissions: PermissionsService,
+    private readonly campusScope: CampusScopeService,
+    private readonly sharedGroup: SharedGroupAcademicService
   ) {}
 
   async listHeads() {
@@ -45,9 +87,20 @@ export class FinanceService {
     }
   }
 
-  async listStructures(query: FeeQueryDto) {
+  async listStructures(query: FeeQueryDto, user: AuthUser) {
+    if (user.type === UserType.STUDENT) {
+      throw new ForbiddenException("Students must use their personal finance endpoint.");
+    }
+    if (user.type === UserType.ADMIN && query.campusId) await this.campusScope.assertCampusAllowed(user, query.campusId);
     const pagination = toPagination(query);
-    const where: Prisma.FeeStructureWhereInput = { isActive: true, isArchived: false, campusId: query.campusId, sectionId: query.sectionId };
+    const scopeFs = this.campusScope.feeStructureWhere(user);
+    const where: Prisma.FeeStructureWhereInput = {
+      isActive: true,
+      isArchived: false,
+      ...(query.campusId ? { campusId: query.campusId } : {}),
+      ...(query.sectionId ? { sectionId: query.sectionId } : {}),
+      ...(Object.keys(scopeFs).length ? scopeFs : {})
+    };
     const [items, total] = await Promise.all([
       this.prisma.feeStructure.findMany({
         where,
@@ -63,6 +116,11 @@ export class FinanceService {
 
   async createStructure(user: AuthUser, dto: CreateFeeStructureDto) {
     if (user.type !== UserType.ADMIN) throw new ForbiddenException("Only admin can create fee structures.");
+    await this.campusScope.assertCampusAllowed(user, dto.campusId);
+    if (dto.branchId) await this.campusScope.assertBranchInScope(user, dto.branchId);
+    if (dto.batchId) await this.campusScope.assertBatchInScope(user, dto.batchId);
+    if (dto.classId) await this.campusScope.assertAcademicClassInScope(user, dto.classId);
+    if (dto.sectionId) await this.campusScope.assertSectionInScope(user, dto.sectionId);
     await this.ensureFeeHead(dto.feeHeadId);
     const structure = await this.prisma.feeStructure.create({
       data: {
@@ -84,18 +142,24 @@ export class FinanceService {
 
   async deactivateStructure(user: AuthUser, id: string) {
     if (user.type !== UserType.ADMIN) throw new ForbiddenException("Only admin can deactivate fee structures.");
+    const existing = await this.prisma.feeStructure.findUnique({ where: { id }, select: { campusId: true } });
+    if (!existing) throw new NotFoundException("Fee structure not found.");
+    await this.campusScope.assertCampusAllowed(user, existing.campusId);
     await this.prisma.feeStructure.update({ where: { id }, data: { isActive: false } });
     await this.audit(user, "DEACTIVATE_FEE_STRUCTURE", "FeeStructure", id);
     return { ok: true };
   }
 
-  async searchFeeStudents(query: FeeStudentSearchQueryDto) {
+  async searchFeeStudents(query: FeeStudentSearchQueryDto, user: AuthUser) {
+    await this.campusScope.assertSectionInScope(user, query.sectionId);
     const section = await this.getActiveSectionTree(query.sectionId);
     const pagination = toPagination(query as unknown as PaginationQueryDto);
+    const adminStudentScope = this.adminStudentScopeWhere(user);
     const where: Prisma.StudentProfileWhereInput = {
       sectionId: section.id,
       currentStatus: UserStatus.ACTIVE,
       isArchived: false,
+      ...(Object.keys(adminStudentScope).length ? adminStudentScope : {}),
       ...(query.search
         ? {
             OR: [
@@ -134,11 +198,16 @@ export class FinanceService {
 
   async assignFee(user: AuthUser, dto: AssignFeeDto) {
     if (user.type !== UserType.ADMIN) throw new ForbiddenException("Only admin can assign fee structures.");
+    await this.campusScope.assertCampusAllowed(user, dto.campusId);
+    await this.campusScope.assertSectionInScope(user, dto.sectionId);
     const deadline = new Date(dto.deadline);
     if (Number.isNaN(deadline.getTime())) throw new BadRequestException("Invalid fee deadline.");
-    if (deadline < new Date(new Date().toDateString())) throw new BadRequestException("Fee deadline cannot be in the past.");
+    if (formatIstDate(deadline) < todayIstDate()) throw new BadRequestException("Fee deadline cannot be in the past.");
     const section = await this.getActiveSectionTree(dto.sectionId);
-    this.assertFeeHierarchy(section, dto);
+    await this.assertFeeHierarchy(section, dto);
+    if (dto.targetType === "STUDENT" && dto.studentId && user.type === UserType.ADMIN && !isInstitutionWideAdmin(user)) {
+      await this.campusScope.assertStudentInScope(user, dto.studentId);
+    }
     const students = await this.studentsForFeeTarget(dto);
     if (!students.length) throw new BadRequestException("No active unarchived students found for fee assignment.");
     const duplicateAssignments = await this.prisma.studentFeeAssignment.count({
@@ -148,7 +217,7 @@ export class FinanceService {
           isArchived: false,
           isActive: true,
           sectionId: dto.sectionId,
-          feeName: { equals: dto.feeName.trim(), mode: "insensitive" },
+          feeHeadName: { equals: dto.feeHead.trim(), mode: "insensitive" },
           dueDate: deadline
         }
       }
@@ -159,9 +228,9 @@ export class FinanceService {
       sectionId: dto.sectionId,
       targetType: dto.targetType,
       studentId: dto.studentId ?? "",
-      feeName: dto.feeName.trim().toUpperCase(),
+      feeHeadName: dto.feeHead.trim().toUpperCase(),
       feeAmount: dto.feeAmount,
-      deadline: deadline.toISOString().slice(0, 10)
+      deadline: formatIstDate(deadline)
     });
     const route = "POST /api/fees/assign";
     const existingKey = await this.prisma.idempotencyKey.findUnique({ where: { key: dto.idempotencyKey } });
@@ -182,7 +251,7 @@ export class FinanceService {
           expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
         }
       });
-      const feeHead = await this.upsertFeeHead(tx, dto.feeName);
+      const feeHead = await this.upsertFeeHead(tx, dto.feeHead);
       const structure = await tx.feeStructure.create({
         data: {
           feeHeadId: feeHead.id,
@@ -192,7 +261,7 @@ export class FinanceService {
           batchId: section.class.batchId,
           classId: dto.classId,
           sectionId: dto.sectionId,
-          feeName: dto.feeName.trim(),
+          feeHeadName: dto.feeHead.trim(),
           amount: dto.feeAmount,
           remarks: dto.remarks?.trim(),
           dueDate: deadline,
@@ -205,7 +274,7 @@ export class FinanceService {
       });
       await tx.auditLog.create({
         data: {
-          userId: user.id,
+          userId: user.auditUserId,
           action: "ASSIGN_FEE_STRUCTURE",
           entity: "FeeStructure",
           entityId: structure.id,
@@ -219,17 +288,20 @@ export class FinanceService {
     return response;
   }
 
-  async listAssignedStructures(query: FeeQueryDto) {
+  async listAssignedStructures(query: FeeQueryDto, user: AuthUser) {
+    if (user.type === UserType.ADMIN && query.campusId) await this.campusScope.assertCampusAllowed(user, query.campusId);
     const pagination = toPagination(query);
+    const scopeFs = this.campusScope.feeStructureWhere(user);
     const where: Prisma.FeeStructureWhereInput = {
       isActive: true,
       isArchived: false,
-      campusId: query.campusId,
-      sectionId: query.sectionId,
+      ...(query.campusId ? { campusId: query.campusId } : {}),
+      ...(query.sectionId ? { sectionId: query.sectionId } : {}),
+      ...(Object.keys(scopeFs).length ? scopeFs : {}),
       ...(query.search
         ? {
             OR: [
-              { feeName: { contains: query.search, mode: "insensitive" } },
+              { feeHeadName: { contains: query.search, mode: "insensitive" } },
               { feeHead: { name: { contains: query.search, mode: "insensitive" } } },
               { feeHead: { code: { contains: query.search, mode: "insensitive" } } }
             ]
@@ -262,14 +334,15 @@ export class FinanceService {
     if (user.type !== UserType.ADMIN) throw new ForbiddenException("Only admin can update fee structures.");
     const existing = await this.prisma.feeStructure.findUnique({ where: { id } });
     if (!existing || existing.isArchived) throw new NotFoundException("Fee structure not found.");
+    await this.campusScope.assertCampusAllowed(user, existing.campusId);
     const deadline = dto.deadline ? new Date(dto.deadline) : undefined;
     if (deadline && Number.isNaN(deadline.getTime())) throw new BadRequestException("Invalid fee deadline.");
-    const feeHead = dto.feeName ? await this.upsertFeeHead(this.prisma, dto.feeName) : undefined;
+    const feeHead = dto.feeHead ? await this.upsertFeeHead(this.prisma, dto.feeHead) : undefined;
     const structure = await this.prisma.feeStructure.update({
       where: { id },
       data: {
         feeHeadId: feeHead?.id,
-        feeName: dto.feeName?.trim(),
+        feeHeadName: dto.feeHead?.trim(),
         amount: dto.feeAmount,
         remarks: dto.remarks?.trim(),
         dueDate: deadline
@@ -284,6 +357,7 @@ export class FinanceService {
     if (user.type !== UserType.ADMIN) throw new ForbiddenException("Only admin can archive fee structures.");
     const existing = await this.prisma.feeStructure.findUnique({ where: { id } });
     if (!existing || existing.isArchived) throw new NotFoundException("Fee structure not found.");
+    await this.campusScope.assertCampusAllowed(user, existing.campusId);
     await this.prisma.feeStructure.update({ where: { id }, data: { isActive: false, isArchived: true, archivedAt: new Date() } });
     await this.audit(user, "ARCHIVE_FEE_STRUCTURE", "FeeStructure", id);
     return { ok: true };
@@ -291,33 +365,26 @@ export class FinanceService {
 
   async listPayments(user: AuthUser, query: FeeQueryDto) {
     if (user.type === UserType.STUDENT) throw new ForbiddenException("Students must use their personal finance endpoint.");
+    if (user.type === UserType.ADMIN && query.campusId) await this.campusScope.assertCampusAllowed(user, query.campusId);
     const pagination = toPagination(query);
     const scope = this.queryToScope(query);
     this.assertAllowed(user, PermissionAction.VIEW_FEES, scope);
     const paidAtFilter: Prisma.DateTimeFilter = {};
     if (query.paidFrom) {
-      const from = new Date(query.paidFrom);
-      if (!Number.isNaN(from.getTime())) paidAtFilter.gte = from;
+      const { start } = istDayRangeFromIso(query.paidFrom.slice(0, 10));
+      paidAtFilter.gte = start;
     }
     if (query.paidTo) {
-      const to = new Date(query.paidTo);
-      if (!Number.isNaN(to.getTime())) {
-        to.setUTCHours(23, 59, 59, 999);
-        paidAtFilter.lte = to;
-      }
+      const { end } = istDayRangeFromIso(query.paidTo.slice(0, 10));
+      paidAtFilter.lte = end;
     }
+    const studentClause = this.paymentsStudentProfileWhere(query, user);
     const where: Prisma.FeePaymentWhereInput = {
       studentProfileId: query.studentProfileId,
       feeHeadId: query.feeHeadId,
       paymentMode: query.paymentMode,
       ...(Object.keys(paidAtFilter).length ? { paidAt: paidAtFilter } : {}),
-      studentProfile: {
-        sectionId: query.sectionId,
-        ...(query.campusId ? { section: { class: { batch: { branch: { program: { campusId: query.campusId } } } } } } : {}),
-        ...(query.rollNumber?.trim()
-          ? { rollNumber: { contains: query.rollNumber.trim(), mode: "insensitive" } }
-          : {})
-      },
+      studentProfile: studentClause,
       status: query.status,
       ...(query.search
         ? {
@@ -326,7 +393,7 @@ export class FinanceService {
               { studentProfile: { rollNumber: { contains: query.search, mode: "insensitive" } } },
               { studentProfile: { user: { fullName: { contains: query.search, mode: "insensitive" } } } },
               { feeHead: { name: { contains: query.search, mode: "insensitive" } } },
-              { studentFeeAssignment: { feeStructure: { feeName: { contains: query.search, mode: "insensitive" } } } }
+              { studentFeeAssignment: { feeStructure: { feeHeadName: { contains: query.search, mode: "insensitive" } } } }
             ]
           }
         : {})
@@ -353,7 +420,7 @@ export class FinanceService {
     if (!dto.studentFeeAssignmentId) {
       return this.markLegacyPayment(user, dto);
     }
-    const assignment = await this.getAssignmentForPayment(dto.studentFeeAssignmentId);
+    const assignment = await this.getAssignmentForPayment(dto.studentFeeAssignmentId, user);
     const scope = this.studentToScope(assignment.student);
     this.assertAllowed(user, PermissionAction.MARK_FEES, scope);
     const balance = this.assignmentBalance(assignment);
@@ -362,11 +429,13 @@ export class FinanceService {
     const paidAt = dto.paidAt ? new Date(dto.paidAt) : undefined;
     if (paidAt && Number.isNaN(paidAt.getTime())) throw new BadRequestException("Invalid payment date.");
     const receiptNo = dto.receiptNo?.trim().toUpperCase() || this.buildReceiptNo();
+    const transactionId = this.buildTransactionId(receiptNo, dto.transactionId);
     try {
       const payment = await this.prisma.$transaction(async (tx) => {
         const created = await tx.feePayment.create({
           data: {
             receiptNo,
+            transactionId,
             studentProfileId: assignment.studentId,
             studentFeeAssignmentId: assignment.id,
             feeHeadId: assignment.feeStructure.feeHeadId,
@@ -386,7 +455,7 @@ export class FinanceService {
         await this.recalculateAssignmentStatus(tx, assignment.id, Number(assignment.feeStructure.amount));
         await tx.auditLog.create({
           data: {
-            userId: user.id,
+            userId: user.auditUserId,
             action: "MARK_FEE_PAYMENT",
             entity: "FeePayment",
             entityId: created.id,
@@ -394,7 +463,7 @@ export class FinanceService {
               receiptNo,
               studentFeeAssignmentId: assignment.id,
               studentProfileId: assignment.studentId,
-              feeName: assignment.feeStructure.feeName ?? assignment.feeStructure.feeHead.name,
+              feeHeadName: assignment.feeStructure.feeHeadName ?? assignment.feeStructure.feeHead.name,
               amount: dto.amount,
               paymentMode: dto.paymentMode
             }
@@ -413,17 +482,19 @@ export class FinanceService {
 
   private async markLegacyPayment(user: AuthUser, dto: MarkFeePaymentDto) {
     if (!dto.studentProfileId || !dto.feeHeadId) throw new BadRequestException("Select an assigned fee before recording payment.");
-    const student = await this.getStudentForFinance(dto.studentProfileId);
+    const student = await this.getStudentForFinance(dto.studentProfileId, user);
     const scope = this.studentToScope(student);
     this.assertAllowed(user, PermissionAction.MARK_FEES, scope);
     await this.ensureFeeHead(dto.feeHeadId);
     const paidAt = dto.paidAt ? new Date(dto.paidAt) : undefined;
     if (paidAt && Number.isNaN(paidAt.getTime())) throw new BadRequestException("Invalid payment date.");
     const receiptNo = dto.receiptNo?.trim().toUpperCase() || this.buildReceiptNo();
+    const transactionId = this.buildTransactionId(receiptNo, dto.transactionId);
     try {
       const payment = await this.prisma.feePayment.create({
         data: {
           receiptNo,
+          transactionId,
           studentProfileId: dto.studentProfileId,
           feeHeadId: dto.feeHeadId,
           amount: dto.amount,
@@ -452,7 +523,7 @@ export class FinanceService {
   async reversePayment(user: AuthUser, id: string, dto: ReverseFeePaymentDto) {
     const payment = await this.prisma.feePayment.findUnique({
       where: { id },
-      include: { studentProfile: { include: { section: { include: { class: { include: { batch: { include: { branch: { include: { program: true } } } } } } } } } }, studentFeeAssignment: { include: { feeStructure: true } } }
+      include: { studentProfile: { include: financeStudentSectionInclude }, studentFeeAssignment: { include: { feeStructure: true } } }
     });
     if (!payment) throw new NotFoundException("Fee payment not found.");
     if (payment.status !== FeePaymentStatus.ACTIVE) throw new BadRequestException("Payment is already reversed.");
@@ -467,7 +538,7 @@ export class FinanceService {
       }
       await tx.auditLog.create({
         data: {
-          userId: user.id,
+          userId: user.auditUserId,
           action: "REVERSE_FEE_PAYMENT",
           entity: "FeePayment",
           entityId: id,
@@ -482,20 +553,20 @@ export class FinanceService {
     if (user.type !== UserType.STUDENT) throw new ForbiddenException("Only students can view their own fee summary.");
     const student = await this.prisma.studentProfile.findUnique({
       where: { userId: user.id },
-      include: { section: { include: { class: { include: { batch: { include: { branch: { include: { program: true } } } } } } } } }
+      include: financeStudentSectionInclude
     });
     if (!student) throw new NotFoundException("Student profile not found.");
     return this.financeSummary(student.id);
   }
 
   async studentFinance(user: AuthUser, studentProfileId: string) {
-    const student = await this.getStudentForFinance(studentProfileId);
+    const student = await this.getStudentForFinance(studentProfileId, user);
     this.assertAllowed(user, PermissionAction.VIEW_FEES, this.studentToScope(student));
     return this.financeSummary(studentProfileId);
   }
 
   async studentAssignedFees(user: AuthUser, studentProfileId: string) {
-    const student = await this.getStudentForFinance(studentProfileId);
+    const student = await this.getStudentForFinance(studentProfileId, user);
     this.assertAllowed(user, PermissionAction.VIEW_FEES, this.studentToScope(student));
     const assignments = await this.prisma.studentFeeAssignment.findMany({
       where: {
@@ -512,24 +583,30 @@ export class FinanceService {
     return { items: assignments.map((assignment) => this.toStudentAssignedFeeObject(assignment)) };
   }
 
-  async export(user: AuthUser, query: FeeQueryDto) {
+  async export(user: AuthUser, query: FeeExportQueryDto, response: Response) {
     const page = await this.listPayments(user, { ...query, page: 1, pageSize: 100 });
-    const rows = [
+    const rows: (string | number)[][] = [
       ["Receipt", "Student", "Roll", "Fee", "Due Amount", "Paid Amount", "Mode", "Status", "Paid At", "Received By"],
       ...page.items.map((item) => [
         item.receiptNo,
         item.student.fullName,
         item.student.rollNumber,
-        item.assignment?.feeName ?? item.feeHead.name,
+        item.assignment?.feeHeadName ?? item.feeHead.name,
         item.assignment?.dueAmount ?? "",
         String(item.amount),
         item.paymentMode,
         item.status,
-        item.paidAt,
+        item.paidAt instanceof Date ? item.paidAt.toISOString() : String(item.paidAt ?? ""),
         item.receivedBy
       ])
     ];
-    return { filename: "fee-payments-export.csv", csv: rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n") };
+    await sendTabularExport(
+      response,
+      query.format,
+      buildExportBasename("Finance", "FeePayments"),
+      "Fee payments export",
+      rows
+    );
   }
 
   private async financeSummary(studentProfileId: string) {
@@ -547,7 +624,7 @@ export class FinanceService {
     });
     const dueByHead = assignments.reduce<Record<string, { feeHeadId: string; name: string; due: number; paid: number }>>((acc, assignment) => {
       const key = assignment.feeStructure.feeHeadId;
-      acc[key] = acc[key] ?? { feeHeadId: key, name: assignment.feeStructure.feeName ?? assignment.feeStructure.feeHead.name, due: 0, paid: 0 };
+      acc[key] = acc[key] ?? { feeHeadId: key, name: assignment.feeStructure.feeHeadName ?? assignment.feeStructure.feeHead.name, due: 0, paid: 0 };
       acc[key].due += Number(assignment.feeStructure.amount);
       acc[key].paid += assignment.payments.reduce((sum, payment) => sum + Number(payment.amount), 0);
       return acc;
@@ -568,7 +645,7 @@ export class FinanceService {
       payments: payments.map((payment) => ({
         id: payment.id,
         receiptNo: payment.receiptNo,
-        feeHead: payment.studentFeeAssignment?.feeStructure.feeName ?? payment.feeHead.name,
+        feeHead: payment.studentFeeAssignment?.feeStructure.feeHeadName ?? payment.feeHead.name,
         amount: Number(payment.amount),
         paymentMode: payment.paymentMode,
         paidAt: payment.paidAt,
@@ -577,11 +654,11 @@ export class FinanceService {
     };
   }
 
-  private async getAssignmentForPayment(studentFeeAssignmentId: string) {
+  private async getAssignmentForPayment(studentFeeAssignmentId: string, user: AuthUser) {
     const assignment = await this.prisma.studentFeeAssignment.findUnique({
       where: { id: studentFeeAssignmentId },
       include: {
-        student: { include: { user: true, section: { include: { class: { include: { batch: { include: { branch: { include: { program: true } } } } } } } } } },
+        student: { include: { user: true, ...financeStudentSectionInclude } },
         feeStructure: { include: { feeHead: true, campus: true, program: true, branch: true, class: true, section: true } },
         payments: { where: { status: FeePaymentStatus.ACTIVE }, select: { amount: true } }
       }
@@ -589,6 +666,9 @@ export class FinanceService {
     if (!assignment) throw new NotFoundException("Assigned fee not found.");
     if (!assignment.feeStructure.isActive || assignment.feeStructure.isArchived) throw new BadRequestException("Selected fee is archived or inactive.");
     if (assignment.student.currentStatus !== UserStatus.ACTIVE || assignment.student.isArchived) throw new BadRequestException("Selected student is inactive or archived.");
+    if (user.type === UserType.ADMIN && !isInstitutionWideAdmin(user)) {
+      await this.campusScope.assertStudentInScope(user, assignment.studentId);
+    }
     return assignment;
   }
 
@@ -608,19 +688,58 @@ export class FinanceService {
     return paymentStatus;
   }
 
-  private async getStudentForFinance(studentProfileId: string) {
-    const student = await this.prisma.studentProfile.findUnique({
-      where: { id: studentProfileId },
-      include: { user: true, section: { include: { class: { include: { batch: { include: { branch: { include: { program: true } } } } } } } } }
+  private adminStudentScopeWhere(user: AuthUser): Prisma.StudentProfileWhereInput {
+    if (user.type !== UserType.ADMIN || isInstitutionWideAdmin(user)) return {};
+    const w = this.campusScope.studentProfileWhere(user);
+    return Object.keys(w).length ? w : {};
+  }
+
+  private teacherStudentScopeWhere(user: AuthUser): Prisma.StudentProfileWhereInput {
+    if (user.type !== UserType.TEACHER) return {};
+    const OR = user.assignments.map((assignment) => {
+      if (assignment.sectionId) return { sectionId: assignment.sectionId };
+      if (assignment.classId) return { section: { classId: assignment.classId } };
+      if (assignment.batchId) return { section: { class: { batchId: assignment.batchId } } };
+      if (assignment.branchId) return { section: { class: { branchId: assignment.branchId } } };
+      if (assignment.programId) return { section: { class: { branch: { programId: assignment.programId } } } };
+      if (assignment.campusId) return { section: { campusId: assignment.campusId } };
+      return { id: "__none__" };
+    });
+    return OR.length ? { OR } : { id: "__none__" };
+  }
+
+  private scopedStudentWhere(user: AuthUser): Prisma.StudentProfileWhereInput {
+    if (user.type === UserType.TEACHER) return this.teacherStudentScopeWhere(user);
+    return this.adminStudentScopeWhere(user);
+  }
+
+  private paymentsStudentProfileWhere(query: FeeQueryDto, user: AuthUser): Prisma.StudentProfileWhereInput {
+    const filters: Prisma.StudentProfileWhereInput[] = [];
+    const scoped = this.scopedStudentWhere(user);
+    if (Object.keys(scoped).length) filters.push(scoped);
+    const q: Prisma.StudentProfileWhereInput = {};
+    if (query.sectionId) q.sectionId = query.sectionId;
+    if (query.campusId) Object.assign(q, this.sharedGroup.studentProfileWhereOperationalCampus(query.campusId));
+    if (query.rollNumber?.trim()) q.rollNumber = { contains: query.rollNumber.trim(), mode: "insensitive" };
+    if (Object.keys(q).length) filters.push(q);
+    return filters.length === 0 ? {} : filters.length === 1 ? filters[0]! : { AND: filters };
+  }
+
+  private async getStudentForFinance(studentProfileId: string, user: AuthUser) {
+    const scoped = this.scopedStudentWhere(user);
+    const student = await this.prisma.studentProfile.findFirst({
+      where: { id: studentProfileId, ...(Object.keys(scoped).length ? scoped : {}) },
+      include: { user: { select: { campusId: true, fullName: true } }, ...financeStudentSectionInclude }
     });
     if (!student) throw new NotFoundException("Student not found.");
+    assertStudentSelfProfile(user, student);
     return student;
   }
 
   private async getActiveSectionTree(sectionId: string) {
     const section = await this.prisma.section.findUnique({
       where: { id: sectionId },
-      include: { class: { include: { batch: { include: { branch: { include: { program: true } } } } } } }
+      include: { class: { include: { batch: { include: { branch: { include: { program: { include: { campus: true } } } } } } } } }
     });
     if (
       !section ||
@@ -640,8 +759,12 @@ export class FinanceService {
     return section;
   }
 
-  private assertFeeHierarchy(section: Awaited<ReturnType<FinanceService["getActiveSectionTree"]>>, dto: Pick<AssignFeeDto, "branchId" | "campusId" | "classId" | "programId" | "sectionId">) {
-    if (dto.campusId !== section.class.batch.branch.program.campusId) throw new BadRequestException("Campus does not match selected section.");
+  private async assertFeeHierarchy(section: Awaited<ReturnType<FinanceService["getActiveSectionTree"]>>, dto: Pick<AssignFeeDto, "branchId" | "campusId" | "classId" | "programId" | "sectionId">) {
+    const operationalCampus = await this.sharedGroup.loadCampus(dto.campusId);
+    if (!operationalCampus || operationalCampus.status !== StructureStatus.ACTIVE) {
+      throw new BadRequestException("Campus does not exist or is archived.");
+    }
+    this.sharedGroup.assertScopeCampusMatchesSectionProgram(section.class.batch.branch.program, dto.campusId, operationalCampus);
     if (dto.programId !== section.class.batch.branch.programId) throw new BadRequestException("Department does not match selected section.");
     if (dto.branchId !== section.class.batch.branchId) throw new BadRequestException("Branch does not match selected section.");
     if (dto.classId !== section.classId) throw new BadRequestException("Class does not match selected section.");
@@ -665,8 +788,8 @@ export class FinanceService {
     });
   }
 
-  private async upsertFeeHead(tx: Prisma.TransactionClient | PrismaService, feeName: string) {
-    const name = feeName.trim();
+  private async upsertFeeHead(tx: Prisma.TransactionClient | PrismaService, feeHeadName: string) {
+    const name = feeHeadName.trim();
     const code = name.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 30) || `FEE_${Date.now()}`;
     return tx.feeHead.upsert({
       where: { code },
@@ -691,12 +814,18 @@ export class FinanceService {
     return { campusId: query.campusId, sectionId: query.sectionId };
   }
 
-  private studentToScope(student: { sectionId: string; section: { class: { id: string; batch: { branch: { program: { campusId: string } } } } } }): ScopeRef {
-    return { campusId: student.section.class.batch.branch.program.campusId, classId: student.section.class.id, sectionId: student.sectionId };
+  private studentToScope(student: Parameters<typeof studentProfileToScope>[0]): ScopeRef {
+    return studentProfileToScope(student);
   }
 
   private buildReceiptNo() {
     return `RCPT-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+  }
+
+  private buildTransactionId(receiptNo: string, custom?: string | null) {
+    const trimmed = custom?.trim();
+    if (trimmed) return trimmed.toUpperCase();
+    return `TXN-${receiptNo.replace(/[^\w.-]+/g, "-").toUpperCase()}`;
   }
 
   private toPaymentObject(payment: {
@@ -708,7 +837,7 @@ export class FinanceService {
     status: FeePaymentStatus;
     feeHead: { id: string; name: string; code: string };
     studentFeeAssignmentId?: string | null;
-    studentFeeAssignment?: { feeStructure: { id: string; feeName: string | null; amount: Prisma.Decimal; dueDate: Date | null; feeHead: { id: string; name: string; code: string } } } | null;
+    studentFeeAssignment?: { feeStructure: { id: string; feeHeadName: string | null; amount: Prisma.Decimal; dueDate: Date | null; feeHead: { id: string; name: string; code: string } } } | null;
     studentProfile: { id: string; rollNumber: string; user: { fullName: string }; section: { name: string } };
     receivedBy: { fullName: string };
   }) {
@@ -725,9 +854,9 @@ export class FinanceService {
         ? {
             id: payment.studentFeeAssignmentId,
             feeStructureId: feeStructure.id,
-            feeName: feeStructure.feeName ?? feeStructure.feeHead.name,
+            feeHeadName: feeStructure.feeHeadName ?? feeStructure.feeHead.name,
             dueAmount: Number(feeStructure.amount),
-            deadline: feeStructure.dueDate?.toISOString().slice(0, 10) ?? null
+            deadline: feeStructure.dueDate ? formatIstDate(feeStructure.dueDate) : null
           }
         : null,
       student: {
@@ -746,7 +875,7 @@ export class FinanceService {
     assignedAt: Date;
     feeStructure: {
       id: string;
-      feeName: string | null;
+      feeHeadName: string | null;
       amount: Prisma.Decimal;
       dueDate: Date | null;
       remarks: string | null;
@@ -764,13 +893,13 @@ export class FinanceService {
     return {
       id: assignment.id,
       feeStructureId: assignment.feeStructure.id,
-      feeName: assignment.feeStructure.feeName ?? assignment.feeStructure.feeHead.name,
+      feeHeadName: assignment.feeStructure.feeHeadName ?? assignment.feeStructure.feeHead.name,
       feeHead: assignment.feeStructure.feeHead,
       dueAmount,
       paidAmount,
       balance: Math.max(dueAmount - paidAmount, 0),
       status: assignment.paymentStatus,
-      deadline: assignment.feeStructure.dueDate?.toISOString().slice(0, 10) ?? null,
+      deadline: assignment.feeStructure.dueDate ? formatIstDate(assignment.feeStructure.dueDate) : null,
       remarks: assignment.feeStructure.remarks,
       campus: assignment.feeStructure.campus,
       department: assignment.feeStructure.program,
@@ -783,7 +912,7 @@ export class FinanceService {
 
   private toAssignedFeeObject(structure: {
     id: string;
-    feeName: string | null;
+    feeHeadName: string | null;
     amount: Prisma.Decimal | number;
     remarks: string | null;
     dueDate: Date | null;
@@ -806,11 +935,11 @@ export class FinanceService {
     }, { PAID: 0, PARTIAL: 0, UNPAID: 0 });
     return {
       id: structure.id,
-      feeName: structure.feeName ?? structure.feeHead.name,
+      feeHeadName: structure.feeHeadName ?? structure.feeHead.name,
       feeHead: structure.feeHead,
       feeAmount: Number(structure.amount),
       remarks: structure.remarks,
-      deadline: structure.dueDate?.toISOString().slice(0, 10) ?? null,
+      deadline: structure.dueDate ? formatIstDate(structure.dueDate) : null,
       campus: structure.campus,
       department: structure.program,
       branch: structure.branch,
@@ -835,9 +964,12 @@ export class FinanceService {
       include: { branch: { include: { program: { select: { campusId: true } } } } }
     });
     if (!batch) throw new BadRequestException("Invalid batch.");
+    await this.campusScope.assertBatchInScope(user, query.batchId);
     this.assertAllowed(user, PermissionAction.VIEW_FEES, { campusId: batch.branch.program.campusId });
+    const adminScope = this.adminStudentScopeWhere(user);
     const students = await this.prisma.studentProfile.findMany({
       where: {
+        ...(Object.keys(adminScope).length ? adminScope : {}),
         currentStatus: UserStatus.ACTIVE,
         isArchived: false,
         rollNumber: { startsWith: q, mode: "insensitive" },
@@ -867,7 +999,7 @@ export class FinanceService {
 
   async getStudentPaymentContext(user: AuthUser, studentProfileId: string, batchId: string) {
     await this.assertStudentInBatch(studentProfileId, batchId);
-    const student = await this.getStudentForFinance(studentProfileId);
+    const student = await this.getStudentForFinance(studentProfileId, user);
     this.assertAllowed(user, PermissionAction.VIEW_FEES, this.studentToScope(student));
     const payable = await this.listPayableFeeLinesInternal(student.id);
     const recentPayments = await this.prisma.feePayment.findMany({
@@ -882,7 +1014,7 @@ export class FinanceService {
         paidAt: true,
         status: true,
         feeHead: { select: { id: true, name: true, code: true } },
-        studentFeeAssignment: { select: { feeStructure: { select: { feeName: true } } } }
+        studentFeeAssignment: { select: { feeStructure: { select: { feeHeadName: true } } } }
       }
     });
     const prog = student.section.class.batch.branch.program;
@@ -912,20 +1044,20 @@ export class FinanceService {
         paymentMode: p.paymentMode,
         paidAt: p.paidAt.toISOString(),
         status: p.status,
-        feeLabel: p.studentFeeAssignment?.feeStructure.feeName ?? p.feeHead.name
+        feeLabel: p.studentFeeAssignment?.feeStructure.feeHeadName ?? p.feeHead.name
       }))
     };
   }
 
   async listPayableFeeLinesForStudent(user: AuthUser, studentProfileId: string) {
-    const student = await this.getStudentForFinance(studentProfileId);
+    const student = await this.getStudentForFinance(studentProfileId, user);
     this.assertAllowed(user, PermissionAction.VIEW_FEES, this.studentToScope(student));
     return { items: await this.listPayableFeeLinesInternal(studentProfileId) };
   }
 
   async previewPhysicalPayment(user: AuthUser, dto: PreviewPhysicalFeeDto) {
     await this.assertStudentInBatch(dto.studentProfileId, dto.batchId);
-    const student = await this.getStudentForFinance(dto.studentProfileId);
+    const student = await this.getStudentForFinance(dto.studentProfileId, user);
     this.assertAllowed(user, PermissionAction.VIEW_FEES, this.studentToScope(student));
     if (dto.feeLineKind === "OTHER") {
       return {
@@ -941,7 +1073,7 @@ export class FinanceService {
       };
     }
     if (!dto.studentFeeAssignmentId) throw new BadRequestException("Select a fee line.");
-    const assignment = await this.getAssignmentForPayment(dto.studentFeeAssignmentId);
+    const assignment = await this.getAssignmentForPayment(dto.studentFeeAssignmentId, user);
     if (assignment.studentId !== dto.studentProfileId) throw new BadRequestException("Selected fee does not belong to this student.");
     const due = Number(assignment.feeStructure.amount);
     const paidBefore = assignment.payments.reduce((sum, row) => sum + Number(row.amount), 0);
@@ -953,7 +1085,7 @@ export class FinanceService {
     return {
       feeLineKind: "ASSIGNMENT" as const,
       studentFeeAssignmentId: assignment.id,
-      feeDisplayName: assignment.feeStructure.feeName ?? assignment.feeStructure.feeHead.name,
+      feeDisplayName: assignment.feeStructure.feeHeadName ?? assignment.feeStructure.feeHead.name,
       totalDue: due,
       paidBefore,
       amount: dto.amount,
@@ -967,7 +1099,7 @@ export class FinanceService {
   async registerPhysicalPayment(user: AuthUser, dto: RegisterPhysicalFeeDto) {
     if (user.type === UserType.STUDENT) throw new ForbiddenException("Students cannot register counter payments.");
     await this.assertStudentInBatch(dto.studentProfileId, dto.batchId);
-    const student = await this.getStudentForFinance(dto.studentProfileId);
+    const student = await this.getStudentForFinance(dto.studentProfileId, user);
     this.assertAllowed(user, PermissionAction.MARK_FEES, this.studentToScope(student));
     const paidAt = dto.paidAt ? new Date(dto.paidAt) : undefined;
     if (paidAt && Number.isNaN(paidAt.getTime())) throw new BadRequestException("Invalid payment date.");
@@ -991,6 +1123,7 @@ export class FinanceService {
       throw new BadRequestException("Payment request key was already used for a different operation.");
     }
     const receiptNo = this.buildReceiptNo();
+    const transactionId = this.buildTransactionId(receiptNo);
     try {
       const response = await this.prisma.$transaction(async (tx) => {
         await tx.idempotencyKey.create({
@@ -1013,7 +1146,7 @@ export class FinanceService {
         };
         if (dto.feeLineKind === "ASSIGNMENT") {
           if (!dto.studentFeeAssignmentId) throw new BadRequestException("Select a fee line.");
-          const assignment = await this.getAssignmentForPayment(dto.studentFeeAssignmentId);
+          const assignment = await this.getAssignmentForPayment(dto.studentFeeAssignmentId, user);
           if (assignment.studentId !== dto.studentProfileId) throw new BadRequestException("Selected fee does not belong to this student.");
           const balance = this.assignmentBalance(assignment);
           if (balance <= 0) throw new BadRequestException("Selected fee is already fully paid.");
@@ -1023,6 +1156,7 @@ export class FinanceService {
           created = await tx.feePayment.create({
             data: {
               receiptNo,
+              transactionId,
               studentProfileId: assignment.studentId,
               studentFeeAssignmentId: assignment.id,
               feeHeadId: assignment.feeStructure.feeHeadId,
@@ -1042,7 +1176,7 @@ export class FinanceService {
           await this.recalculateAssignmentStatus(tx, assignment.id, Number(assignment.feeStructure.amount));
           const progress = this.feeLedgerProgress(due, paidBefore + dto.amount);
           summary = {
-            feeDisplayName: assignment.feeStructure.feeName ?? assignment.feeStructure.feeHead.name,
+            feeDisplayName: assignment.feeStructure.feeHeadName ?? assignment.feeStructure.feeHead.name,
             paymentSource: dto.paymentMode,
             paidAtIso: created.paidAt.toISOString(),
             amountPaid: Number(created.amount),
@@ -1051,11 +1185,12 @@ export class FinanceService {
           };
         } else {
           const spec = dto.otherFeeSpecification?.trim();
-          if (!spec) throw new BadRequestException("Specify the fee name for Other.");
+          if (!spec) throw new BadRequestException("Specify the fee head for Other.");
           const head = await this.upsertFeeHead(tx, spec);
           created = await tx.feePayment.create({
             data: {
               receiptNo,
+              transactionId,
               studentProfileId: dto.studentProfileId,
               feeHeadId: head.id,
               amount: dto.amount,
@@ -1082,7 +1217,7 @@ export class FinanceService {
         }
         await tx.auditLog.create({
           data: {
-            userId: user.id,
+            userId: user.auditUserId,
             action: "REGISTER_PHYSICAL_FEE_PAYMENT",
             entity: "FeePayment",
             entityId: created.id,
@@ -1157,7 +1292,7 @@ export class FinanceService {
         kind: "ASSIGNMENT",
         studentFeeAssignmentId: row.id,
         feeStructureId: row.feeStructure.id,
-        feeDisplayName: row.feeStructure.feeName ?? row.feeStructure.feeHead.name,
+        feeDisplayName: row.feeStructure.feeHeadName ?? row.feeStructure.feeHead.name,
         feeHeadId: row.feeStructure.feeHeadId,
         totalDue: due,
         paidAmount: paid,
@@ -1171,6 +1306,6 @@ export class FinanceService {
   }
 
   private async audit(user: AuthUser, action: string, entity: string, entityId?: string, metadata?: Prisma.InputJsonObject) {
-    await this.prisma.auditLog.create({ data: { action, entity, entityId, userId: user.id, metadata } });
+    await this.prisma.auditLog.create({ data: { action, entity, entityId, userId: user.auditUserId, metadata } });
   }
 }

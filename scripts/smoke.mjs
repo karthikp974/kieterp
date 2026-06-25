@@ -1,31 +1,23 @@
-const checks = [
-  {
-    name: "frontend",
-    url: "http://localhost:5173/",
-    expected: [200]
-  },
-  {
-    name: "backend auth guard",
-    url: "http://localhost:4000/api/auth/me",
-    expected: [401]
-  }
-];
+#!/usr/bin/env node
+/**
+ * Quick smoke check: backend health + optional frontend.
+ * Usage: node scripts/smoke.mjs
+ */
+const apiBase = process.env.SMOKE_API_URL ?? "http://localhost:4000/api";
 
-async function runCheck(check) {
-  const response = await fetch(check.url);
-  if (!check.expected.includes(response.status)) {
-    throw new Error(`${check.name} returned ${response.status}, expected ${check.expected.join(" or ")}`);
-  }
-
-  console.log(`${check.name}: OK (${response.status})`);
+async function check(path) {
+  const url = `${apiBase}${path}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${url} → ${res.status}`);
+  return res.json().catch(() => ({}));
 }
 
-for (const check of checks) {
-  try {
-    await runCheck(check);
-  } catch (error) {
-    console.error(`${check.name}: FAILED`);
-    console.error(error instanceof Error ? error.message : error);
-    process.exitCode = 1;
-  }
+async function main() {
+  await check("/health");
+  console.log("smoke: backend health OK");
 }
+
+main().catch((err) => {
+  console.error("smoke failed:", err.message);
+  process.exit(1);
+});

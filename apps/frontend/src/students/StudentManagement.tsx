@@ -1,9 +1,13 @@
-import { FormEvent, ReactNode, useEffect, useState } from "react";
+import { Trash2 } from "lucide-react";
+import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../auth/auth-context";
 import { SafeActionButton } from "../shared/SafeActionButton";
 import { SearchableSelect } from "../shared/SearchableSelect";
+import { useConfirm } from "../shared/ConfirmDialog";
 import { useToast } from "../shared/toast-context";
 import { AcademicClass, Batch, Branch, Campus, PaginatedResponse, Program, Section } from "../structure/structure-types";
+import { programsForOperationalCampus } from "../shared/academic-catalog";
+import { formatIstLocaleDateTime } from "../shared/ist-time";
 
 type StudentStatus = "ACTIVE" | "INACTIVE" | "SUSPENDED";
 
@@ -13,11 +17,13 @@ type StudentListItem = {
     fullName: string;
     email?: string | null;
     phone?: string | null;
+    fatherName?: string | null;
     rollNumber: string;
     status: StudentStatus;
   };
   structure: {
     campus: Campus;
+    operationalCampus?: Campus | null;
     program: Program;
     branch: Branch;
     batch: Batch;
@@ -34,11 +40,12 @@ type AuditLogItem = {
   createdAt: string;
 };
 
-const inputClass = "w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100";
+const inputClass = "db-input";
 
 export function StudentManagement() {
   const { authFetch } = useAuth();
   const { showToast } = useToast();
+  const { confirm, dialog } = useConfirm();
   const [students, setStudents] = useState<StudentListItem[]>([]);
   const [campuses, setCampuses] = useState<Campus[]>([]);
   const [programs, setPrograms] = useState<Program[]>([]);
@@ -57,9 +64,10 @@ export function StudentManagement() {
   const [form, setForm] = useState({
     rollNumber: "",
     fullName: "",
+    fatherName: "",
     email: "",
     phone: "",
-    password: "Student@123",
+    password: "",
     campusId: "",
     sectionId: ""
   });
@@ -80,7 +88,31 @@ export function StudentManagement() {
       const payload = (await response.json().catch(() => null)) as { message?: string } | null;
       throw new Error(payload?.message ?? "Student action failed.");
     }
+    if (response.status === 204) return undefined as T;
     return (await response.json().catch(() => ({}))) as T;
+  }
+
+  type ImportJob = {
+    status: "queued" | "running" | "completed" | "failed";
+    created: number | null;
+    errors: { rollNumber: string; message: string }[];
+    error: string | null;
+    progress: { processed: number; total: number; percent: number };
+  };
+
+  async function pollImportJob(jobId: string): Promise<ImportJob> {
+    const deadline = Date.now() + 5 * 60 * 1000;
+    let lastPercent = -1;
+    while (Date.now() < deadline) {
+      const { job } = await fetchJson<{ job: ImportJob }>(`/api/students/imports/${jobId}`);
+      if (job.status === "completed" || job.status === "failed") return job;
+      if (job.progress && job.progress.percent !== lastPercent) {
+        lastPercent = job.progress.percent;
+        showToast(`Importing students… ${job.progress.processed}/${job.progress.total}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+    }
+    throw new Error("Import is taking longer than expected — check back shortly.");
   }
 
   async function loadData() {
@@ -123,16 +155,23 @@ export function StudentManagement() {
     if (editingStudentId) {
       await sendJson(`/api/students/${editingStudentId}`, "PATCH", {
         fullName: form.fullName,
+        fatherName: form.fatherName.trim() || undefined,
         email: form.email || undefined,
         phone: form.phone || undefined,
         sectionId: form.sectionId
       });
       showToast("Student updated");
     } else {
+      if (!form.fatherName.trim()) {
+        showToast("Father name is required.", "error");
+        return;
+      }
       await sendJson("/api/students", "POST", {
         ...form,
+        fatherName: form.fatherName.trim(),
         email: form.email || undefined,
-        phone: form.phone || undefined
+        phone: form.phone || undefined,
+        password: form.password.trim() || normalizeStudentRoll(form.rollNumber)
       });
       showToast("Student created");
     }
@@ -141,7 +180,14 @@ export function StudentManagement() {
   }
 
   async function deactivateStudent(id: string) {
-    const ok = window.confirm("Deactivate this student? Their login sessions will be revoked, but old records stay safe.");
+    const student = students.find((row) => row.id === id);
+    const ok = await confirm({
+      title: "Deactivate student?",
+      message: "Their login sessions will be revoked, but old records stay safe.",
+      itemName: student?.identity.fullName,
+      confirmLabel: "Deactivate",
+      icon: Trash2
+    });
     if (!ok) return;
 
     await sendJson(`/api/students/${id}/deactivate`, "POST");
@@ -166,9 +212,16 @@ export function StudentManagement() {
     const parsed = JSON.parse(bulkText) as unknown;
     const students = Array.isArray(parsed) ? parsed : (parsed as { students?: unknown }).students;
     if (!Array.isArray(students)) throw new Error("Paste a JSON array of students or { students: [...] }.");
-    const result = await sendJson<{ created: number; errors: { rollNumber: string; message: string }[] }>("/api/students/bulk", "POST", { students });
+    const { job } = await sendJson<{ job: { id: string } }>("/api/students/bulk", "POST", { students });
+    showToast("Import started — processing in the background…");
+
+    const finished = await pollImportJob(job.id);
     await loadData();
-    showToast(`Imported ${result.created} student(s), ${result.errors.length} failed`, result.errors.length ? "error" : "success");
+    if (finished.status === "failed") {
+      throw new Error(finished.error ?? "Import failed.");
+    }
+    const failed = finished.errors?.length ?? 0;
+    showToast(`Imported ${finished.created ?? 0} student(s), ${failed} failed`, failed ? "error" : "success");
   }
 
   function editStudent(student: StudentListItem) {
@@ -176,10 +229,11 @@ export function StudentManagement() {
     setForm({
       rollNumber: student.identity.rollNumber,
       fullName: student.identity.fullName,
+      fatherName: student.identity.fatherName ?? "",
       email: student.identity.email ?? "",
       phone: student.identity.phone ?? "",
       password: "",
-      campusId: student.structure.campus.id,
+      campusId: student.structure.operationalCampus?.id ?? student.structure.campus.id,
       sectionId: student.structure.section.id
     });
   }
@@ -190,11 +244,32 @@ export function StudentManagement() {
       ...current,
       rollNumber: "",
       fullName: "",
+      fatherName: "",
       email: "",
       phone: "",
-      password: "Student@123"
+      password: ""
     }));
   }
+
+  const sectionOptions = useMemo(() => {
+    const allowedProgramIds = new Set(
+      programsForOperationalCampus(programs, form.campusId, campuses).map((p) => p.id)
+    );
+    return sections
+      .filter((section) => {
+        const cls = classes.find((item) => item.id === section.classId);
+        const batch = batches.find((item) => item.id === cls?.batchId);
+        const branch = branches.find((item) => item.id === batch?.branchId);
+        return Boolean(branch?.programId && allowedProgramIds.has(branch.programId));
+      })
+      .map((section) => {
+        const cls = classes.find((item) => item.id === section.classId);
+        const batch = batches.find((item) => item.id === cls?.batchId);
+        const branch = branches.find((item) => item.id === batch?.branchId);
+        const program = programs.find((item) => item.id === branch?.programId);
+        return [section.id, `${program?.code} / ${branch?.code} / Sem ${cls?.semesterNumber} / ${section.name}`] as [string, string];
+      });
+  }, [sections, classes, batches, branches, programs, form.campusId, campuses]);
 
   return (
     <section className="student-management-root rounded-2xl border bg-white p-5 shadow-sm">
@@ -212,31 +287,38 @@ export function StudentManagement() {
       </div>
 
       <form className="student-management-panel grid gap-3 rounded-xl border bg-slate-50 p-4 md:grid-cols-4" onSubmit={(event) => void saveStudent(event)}>
-        <input className={inputClass} placeholder="Roll number" value={form.rollNumber} onChange={(event) => setForm({ ...form, rollNumber: event.target.value })} required disabled={Boolean(editingStudentId)} />
+        <input
+          className={inputClass}
+          placeholder="Roll / admission number"
+          value={form.rollNumber}
+          onChange={(event) => {
+            const rollNumber = event.target.value;
+            setForm({ ...form, rollNumber, password: normalizeStudentRoll(rollNumber) });
+          }}
+          required
+          disabled={Boolean(editingStudentId)}
+        />
         <input className={inputClass} placeholder="Full name" value={form.fullName} onChange={(event) => setForm({ ...form, fullName: event.target.value })} required />
+        <input className={inputClass} placeholder="Father name" value={form.fatherName} onChange={(event) => setForm({ ...form, fatherName: event.target.value })} required={!editingStudentId} />
         <input className={inputClass} placeholder="Email optional" type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} />
         <input className={inputClass} placeholder="Phone" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} />
-        {!editingStudentId ? <input className={inputClass} placeholder="Temporary password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} required /> : null}
+        {!editingStudentId ? (
+          <input className={inputClass} placeholder="Initial password (same as roll)" value={form.password} readOnly required />
+        ) : null}
         <SearchableSelect value={form.campusId} options={campuses.map((campus) => [campus.id, campus.code])} onChange={(campusId) => setForm({ ...form, campusId })} required />
         <SearchableSelect
           value={form.sectionId}
           onChange={(sectionId) => setForm({ ...form, sectionId })}
           required
-          options={sections.map((section) => {
-            const cls = classes.find((item) => item.id === section.classId);
-            const batch = batches.find((item) => item.id === cls?.batchId);
-            const branch = branches.find((item) => item.id === batch?.branchId);
-            const program = programs.find((item) => item.id === branch?.programId);
-            return [section.id, `${program?.code} / ${branch?.code} / Sem ${cls?.semesterNumber} / ${section.name}`];
-          })}
+          options={sectionOptions}
         />
-        <button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white">{editingStudentId ? "Update Student" : "Add Student"}</button>
+        <button className="erp-panel-submit">{editingStudentId ? "Update Student" : "Add Student"}</button>
         {editingStudentId ? <button type="button" className="rounded-lg bg-slate-200 px-4 py-2 text-sm font-bold text-slate-700" onClick={resetForm}>Cancel Edit</button> : null}
       </form>
 
       <div className="student-management-panel mt-5 rounded-xl border bg-slate-50 p-4">
         <h3 className="mb-2 text-sm font-bold text-slate-700">Bulk Import Students</h3>
-        <textarea className={`${inputClass} min-h-24`} placeholder='Paste JSON array: [{"rollNumber":"24CS001","fullName":"Ravi","password":"Student@123","sectionId":"..."}]' value={bulkText} onChange={(event) => setBulkText(event.target.value)} />
+        <textarea className={`${inputClass} min-h-24`} placeholder='Paste JSON array: [{"rollNumber":"24CS001","fullName":"Ravi","fatherName":"Ravi Kumar Sr","sectionId":"..."}]' value={bulkText} onChange={(event) => setBulkText(event.target.value)} />
         <SafeActionButton run={bulkImportStudents} busyLabel="Importing...">Import Students</SafeActionButton>
       </div>
 
@@ -246,7 +328,7 @@ export function StudentManagement() {
           <div key={student.id} className="grid gap-2 border-b px-4 py-3 text-sm text-slate-700 md:grid-cols-9">
             <span>{student.identity.rollNumber}</span>
             <span>{student.identity.fullName}</span>
-            <span>{student.structure.campus.code}</span>
+            <span>{student.structure.operationalCampus?.code ?? student.structure.campus.code}</span>
             <span>{student.structure.branch.code}</span>
             <span>Sem {student.structure.class.semesterNumber} / {student.structure.section.name}</span>
             <button type="button" className="text-left font-semibold text-slate-700" onClick={() => setSelectedStudent(student)}>Details</button>
@@ -269,7 +351,7 @@ export function StudentManagement() {
           <div key={log.id} className="grid gap-2 border-b px-4 py-3 text-sm text-slate-600 md:grid-cols-3">
             <span>{log.action}</span>
             <span>{log.entityId ?? "-"}</span>
-            <span>{new Date(log.createdAt).toLocaleString()}</span>
+            <span>{formatIstLocaleDateTime(log.createdAt)}</span>
           </div>
         )) : <p className="px-4 py-6 text-sm text-slate-500">No audit records yet.</p>}
       </div>
@@ -277,12 +359,14 @@ export function StudentManagement() {
       {selectedStudent ? (
         <DetailModal title="Student Details" onClose={() => setSelectedStudent(null)}>
           <p><strong>Name:</strong> {selectedStudent.identity.fullName}</p>
+          <p><strong>Father name:</strong> {selectedStudent.identity.fatherName ?? "-"}</p>
           <p><strong>Roll:</strong> {selectedStudent.identity.rollNumber}</p>
           <p><strong>Email:</strong> {selectedStudent.identity.email ?? "-"}</p>
           <p><strong>Phone:</strong> {selectedStudent.identity.phone ?? "-"}</p>
           <p><strong>Structure:</strong> {selectedStudent.structure.campus.code} / {selectedStudent.structure.program.code} / {selectedStudent.structure.branch.code} / Sem {selectedStudent.structure.class.semesterNumber} / {selectedStudent.structure.section.name}</p>
         </DetailModal>
       ) : null}
+      {dialog}
     </section>
   );
 }
@@ -298,6 +382,10 @@ function Pager({ page, pageSize, total, onPage }: { page: number; pageSize: numb
       </div>
     </div>
   );
+}
+
+function normalizeStudentRoll(value: string) {
+  return value.trim().toUpperCase().replace(/\s+/g, "");
 }
 
 function DetailModal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {

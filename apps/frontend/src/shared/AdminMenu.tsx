@@ -1,6 +1,20 @@
-import { Bell, BookOpen, CalendarDays, GraduationCap, LayoutDashboard, Layers3, MessageSquare, School, UserRoundCog, Users, WalletCards, X } from "lucide-react";
+import {
+  Bell,
+  BookOpen,
+  CalendarDays,
+  GraduationCap,
+  LayoutDashboard,
+  Layers3,
+  MessageSquare,
+  School,
+  UserRoundCog,
+  Users,
+  WalletCards,
+  X
+} from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/auth-context";
+import { CurrentUserAvatar } from "./UserAvatar";
 
 const adminMenuGroups = [
   {
@@ -52,9 +66,11 @@ export function AdminMenuContent({ onAfterNavigate, onClose, onSignOut }: AdminM
   const { user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  const initials = user?.fullName?.split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "CA";
-
   function go(module: string) {
+    if (isModuleActive(location.pathname, location.search, module)) {
+      onAfterNavigate?.();
+      return;
+    }
     onAfterNavigate?.();
     void navigate(modulePath(module));
   }
@@ -71,7 +87,7 @@ export function AdminMenuContent({ onAfterNavigate, onClose, onSignOut }: AdminM
         </button>
       </div>
       <div className="erp-dark-profile">
-        <div className="erp-dark-avatar">{initials}</div>
+        <CurrentUserAvatar size="md" className="erp-dark-avatar" />
         <div>
           <p className="erp-dark-profile-name">{user?.fullName ?? "Chairman Admin"}</p>
           <p className="erp-dark-profile-meta">Chairman control</p>
@@ -121,12 +137,14 @@ function modulePath(module: string) {
   if (module === "payments") return "/payments";
   if (module === "announcements") return "/announcements";
   if (module === "feedback") return "/feedback";
+  if (module === "reports") return "/reports";
   return `/admin/modules?module=${module}`;
 }
 
 function isModuleActive(pathname: string, search: string, module: string) {
   const activeModule = new URLSearchParams(search).get("module");
   if (module === "dashboard") return pathname === "/admin";
+  if (module === "reports") return pathname === "/reports" || pathname.startsWith("/reports/");
   if (pathname === "/admin/modules") return activeModule === module;
   return pathname.startsWith(modulePath(module));
 }

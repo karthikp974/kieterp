@@ -1,15 +1,20 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { PermissionAction, Prisma, ResultEntryStatus, UserStatus, UserType } from "@prisma/client";
 import { randomUUID } from "crypto";
+import { Response } from "express";
 import { mkdir, writeFile } from "fs/promises";
 import { join } from "path";
 import { AuthUser, ScopeRef } from "../auth/auth.types";
+import { buildExportBasename } from "../common/export-filename.util";
 import { toPagination } from "../common/pagination.dto";
+import { sendTabularExport } from "../common/tabular-export.util";
 import { PermissionsService } from "../permissions/permissions.service";
+import { assertStudentSelfProfile, operationalCampusIdForStudent, studentProfileToScope, studentScopeProfileInclude } from "../permissions/operational-scope.util";
+import { SharedGroupAcademicService } from "../permissions/shared-group-academic.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { QueueService } from "../queues/queues.module";
 import { RESULT_PDF_IMPORT_JOB } from "../queues/queue.constants";
-import { ResultPdfImportDto, ResultsQueryDto, UpsertResultEntryDto } from "./results.dto";
+import { ResultPdfImportDto, ResultsExportQueryDto, ResultsQueryDto, UpsertResultEntryDto } from "./results.dto";
 
 type UploadedResultFile = {
   buffer: Buffer;
@@ -23,7 +28,8 @@ export class ResultsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly permissions: PermissionsService,
-    private readonly queues: QueueService
+    private readonly queues: QueueService,
+    private readonly sharedGroup: SharedGroupAcademicService
   ) {}
 
   async list(user: AuthUser, query: ResultsQueryDto) {
@@ -46,7 +52,7 @@ export class ResultsService {
       status: query.status,
       studentProfile: {
         sectionId: query.sectionId,
-        ...(query.campusId ? { section: { class: { batch: { branch: { program: { campusId: query.campusId } } } } } } : {}),
+        ...(query.campusId ? this.sharedGroup.studentProfileWhereOperationalCampus(query.campusId) : {}),
         ...(query.search
           ? {
               OR: [
@@ -73,20 +79,22 @@ export class ResultsService {
     return { items: visibleItems.map((entry) => this.toResultObject(entry)), total: user.type === UserType.TEACHER ? visibleItems.length : total, page: pagination.page, pageSize: pagination.pageSize };
   }
 
-  async upsert(user: AuthUser, dto: UpsertResultEntryDto) {
+  async upsert(user: AuthUser, dto: UpsertResultEntryDto, options?: { isPublished?: boolean; importJobId?: string | null }) {
     const student = await this.getStudent(dto.studentProfileId);
     const subject = await this.prisma.subject.findUnique({ where: { id: dto.subjectId } });
     if (!subject || subject.status !== "ACTIVE") throw new BadRequestException("Subject does not exist or is archived.");
-    const scope = this.studentToScope(student, subject.id);
+    const scope = studentProfileToScope(student, subject.id);
     this.assertAllowed(user, PermissionAction.UPLOAD_RESULTS, scope);
 
-    if (subject.branchId !== student.section.class.batch.branchId || subject.semesterNumber !== dto.semesterNumber) {
-      throw new BadRequestException("Subject does not match the student's branch and semester.");
+    if (subject.branchId !== student.section.class.batch.branchId) {
+      throw new BadRequestException("Subject does not match the student's branch.");
     }
     if (student.user.status !== UserStatus.ACTIVE) throw new BadRequestException("Inactive student results cannot be changed.");
 
     const examType = dto.examType?.trim().toUpperCase() || "SEMESTER";
     const marks = this.normalizeMarks(dto);
+    const isPublished = options?.isPublished ?? true;
+    const importJobId = options?.importJobId ?? null;
     const entry = await this.prisma.resultEntry.upsert({
       where: { studentProfileId_subjectId_examType: { studentProfileId: dto.studentProfileId, subjectId: dto.subjectId, examType } },
       create: {
@@ -100,6 +108,8 @@ export class ResultsService {
         grade: marks.grade,
         credits: marks.credits,
         status: dto.status,
+        isPublished,
+        importJobId,
         createdById: user.id
       },
       update: {
@@ -109,7 +119,9 @@ export class ResultsService {
         totalMarks: marks.totalMarks,
         grade: marks.grade,
         credits: marks.credits,
-        status: dto.status
+        status: dto.status,
+        ...(options?.isPublished !== undefined ? { isPublished: options.isPublished } : {}),
+        ...(options?.importJobId !== undefined ? { importJobId: options.importJobId } : {})
       },
       include: this.include
     });
@@ -118,9 +130,12 @@ export class ResultsService {
   }
 
   async importPdf(user: AuthUser, file: UploadedResultFile | undefined, dto: ResultPdfImportDto) {
-    if (!file) throw new BadRequestException("PDF file is required.");
-    if (file.mimetype !== "application/pdf" && !file.originalname.toLowerCase().endsWith(".pdf")) {
-      throw new BadRequestException("Only PDF result files are allowed.");
+    if (!file) throw new BadRequestException("Result file is required.");
+    const lowerName = file.originalname.toLowerCase();
+    const isPdf = file.mimetype === "application/pdf" || lowerName.endsWith(".pdf");
+    const isTxt = file.mimetype === "text/plain" || lowerName.endsWith(".txt");
+    if (!isPdf && !isTxt) {
+      throw new BadRequestException("Only PDF or TXT result files are allowed.");
     }
     if (!this.canUploadSomeResults(user)) {
       throw new ForbiddenException("No active teacher assignment allows result upload.");
@@ -128,7 +143,7 @@ export class ResultsService {
 
     const importDir = join(process.cwd(), "uploads", "result-imports");
     await mkdir(importDir, { recursive: true });
-    const storedFilename = `${Date.now()}-${randomUUID()}.pdf`;
+    const storedFilename = `${Date.now()}-${randomUUID()}${lowerName.endsWith(".txt") ? ".txt" : ".pdf"}`;
     const storedPath = join(importDir, storedFilename);
     await writeFile(storedPath, file.buffer);
 
@@ -147,14 +162,20 @@ export class ResultsService {
       throw new ForbiddenException("No active assignment allows result import jobs.");
     }
     const pagination = toPagination(query);
+    const jobWhere: Prisma.BackgroundJobRecordWhereInput = {
+      jobName: RESULT_PDF_IMPORT_JOB,
+      ...(user.type === UserType.TEACHER
+        ? { payload: { path: ["user", "id"], equals: user.id } }
+        : {})
+    };
     const [items, total] = await Promise.all([
       this.prisma.backgroundJobRecord.findMany({
-        where: { jobName: RESULT_PDF_IMPORT_JOB },
+        where: jobWhere,
         orderBy: { createdAt: "desc" },
         skip: pagination.skip,
         take: pagination.take
       }),
-      this.prisma.backgroundJobRecord.count({ where: { jobName: RESULT_PDF_IMPORT_JOB } })
+      this.prisma.backgroundJobRecord.count({ where: jobWhere })
     ]);
     return { items, total, page: pagination.page, pageSize: pagination.pageSize };
   }
@@ -207,7 +228,7 @@ export class ResultsService {
     const student = await this.prisma.studentProfile.findUnique({ where: { userId: user.id }, include: this.studentInclude });
     if (!student) throw new NotFoundException("Student profile not found.");
     const entries = await this.prisma.resultEntry.findMany({
-      where: { studentProfileId: student.id },
+      where: { studentProfileId: student.id, isPublished: true },
       include: this.include,
       orderBy: [{ semesterNumber: "asc" }, { subject: { code: "asc" } }]
     });
@@ -216,9 +237,13 @@ export class ResultsService {
 
   async studentResults(user: AuthUser, studentProfileId: string) {
     const student = await this.getStudent(studentProfileId);
-    this.assertAllowed(user, PermissionAction.VIEW_RESULTS, this.studentToScope(student));
+    assertStudentSelfProfile(user, student);
+    this.assertAllowed(user, PermissionAction.VIEW_RESULTS, studentProfileToScope(student));
     const entries = await this.prisma.resultEntry.findMany({
-      where: { studentProfileId },
+      where: {
+        studentProfileId,
+        ...(user.type === UserType.STUDENT ? { isPublished: true } : {})
+      },
       include: this.include,
       orderBy: [{ semesterNumber: "asc" }, { subject: { code: "asc" } }]
     });
@@ -226,10 +251,10 @@ export class ResultsService {
     return this.buildStudentSummary(visibleEntries.map((entry) => this.toResultObject(entry)));
   }
 
-  async export(user: AuthUser, query: ResultsQueryDto) {
+  async export(user: AuthUser, query: ResultsExportQueryDto, response: Response) {
     const page = await this.list(user, { ...query, page: 1, pageSize: 100 });
     const items = "items" in page ? page.items : page.results;
-    const rows = [
+    const rows: (string | number)[][] = [
       ["Roll", "Student", "Semester", "Exam", "Subject Code", "Subject", "Internals", "Externals", "Total", "Grade", "Credits", "Status"],
       ...items.map((item) => [
         item.student.rollNumber,
@@ -246,7 +271,13 @@ export class ResultsService {
         item.status
       ])
     ];
-    return { filename: "results-export.csv", csv: rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n") };
+    await sendTabularExport(
+      response,
+      query.format,
+      buildExportBasename("Results", "ResultEntries"),
+      "Results export",
+      rows
+    );
   }
 
   private normalizeMarks(dto: UpsertResultEntryDto) {
@@ -276,7 +307,7 @@ export class ResultsService {
   }
 
   private async scopeForQuery(query: ResultsQueryDto): Promise<ScopeRef | undefined> {
-    if (query.studentProfileId) return this.studentToScope(await this.getStudent(query.studentProfileId), query.subjectId);
+    if (query.studentProfileId) return studentProfileToScope(await this.getStudent(query.studentProfileId), query.subjectId);
     if (query.campusId || query.sectionId || query.subjectId) return { campusId: query.campusId, sectionId: query.sectionId, subjectId: query.subjectId };
     return undefined;
   }
@@ -293,7 +324,7 @@ export class ResultsService {
     if (scope.batchId) return { section: { class: { batchId: scope.batchId } } };
     if (scope.branchId) return { section: { class: { batch: { branchId: scope.branchId } } } };
     if (scope.programId) return { section: { class: { batch: { branch: { programId: scope.programId } } } } };
-    if (scope.campusId) return { section: { class: { batch: { branch: { program: { campusId: scope.campusId } } } } } };
+    if (scope.campusId) return this.sharedGroup.studentProfileWhereOperationalCampus(scope.campusId);
     if (scope.campusGroupId) return { section: { class: { batch: { branch: { program: { campus: { groupId: scope.campusGroupId } } } } } } };
     return { id: "__no_scope__" };
   }
@@ -303,7 +334,7 @@ export class ResultsService {
       id: student.id,
       identity: { rollNumber: student.rollNumber, fullName: student.user.fullName },
       structure: {
-        campusId: student.section.class.batch.branch.program.campusId,
+        campusId: operationalCampusIdForStudent(student),
         branchId: student.section.class.batch.branchId,
         semesterNumber: student.section.class.semesterNumber,
         sectionId: student.sectionId,
@@ -313,19 +344,7 @@ export class ResultsService {
   }
 
   private canViewEntry(user: AuthUser, entry: Prisma.ResultEntryGetPayload<{ include: ResultsService["include"] }>) {
-    return this.permissions.can(user, { action: PermissionAction.VIEW_RESULTS, scope: this.studentToScope(entry.studentProfile, entry.subjectId) }).allowed;
-  }
-
-  private studentToScope(student: Awaited<ReturnType<ResultsService["getStudent"]>>, subjectId?: string): ScopeRef {
-    return {
-      campusId: student.section.class.batch.branch.program.campusId,
-      programId: student.section.class.batch.branch.programId,
-      branchId: student.section.class.batch.branchId,
-      batchId: student.section.class.batchId,
-      classId: student.section.classId,
-      sectionId: student.sectionId,
-      subjectId
-    };
+    return this.permissions.can(user, { action: PermissionAction.VIEW_RESULTS, scope: studentProfileToScope(entry.studentProfile, entry.subjectId) }).allowed;
   }
 
   private toResultObject(entry: Prisma.ResultEntryGetPayload<{ include: ResultsService["include"] }>) {
@@ -342,7 +361,7 @@ export class ResultsService {
       student: { id: entry.studentProfile.id, rollNumber: entry.studentProfile.rollNumber, fullName: entry.studentProfile.user.fullName },
       subject: { id: entry.subject.id, code: entry.subject.code, name: entry.subject.name },
       structure: {
-        campus: entry.studentProfile.section.class.batch.branch.program.campusId,
+        campus: operationalCampusIdForStudent(entry.studentProfile),
         section: entry.studentProfile.section.name,
         semester: entry.studentProfile.section.class.semesterNumber
       },
@@ -363,13 +382,10 @@ export class ResultsService {
   }
 
   private audit(user: AuthUser, action: string, entityType: string, entityId: string, metadata?: Prisma.InputJsonObject) {
-    return this.prisma.auditLog.create({ data: { userId: user.id, action, entity: entityType, entityId, metadata } });
+    return this.prisma.auditLog.create({ data: { userId: user.auditUserId, action, entity: entityType, entityId, metadata } });
   }
 
-  private readonly studentInclude = {
-    user: true,
-    section: { include: { class: { include: { batch: { include: { branch: { include: { program: true } } } } } } } }
-  } satisfies Prisma.StudentProfileInclude;
+  private readonly studentInclude = studentScopeProfileInclude;
 
   private readonly include = {
     studentProfile: {

@@ -1,0 +1,11 @@
+-- One-time, per-environment setup: make the database DEFAULT timezone IST.
+-- The app already pins each connection to Asia/Kolkata (see prisma.service.ts), so this is only
+-- needed so raw tools (psql, Prisma Studio, external scripts) also read/write in IST.
+--
+-- ALTER DATABASE cannot run inside a transaction, so it is NOT part of the Prisma migrations.
+-- Run it once against each environment (replace the name if your DB differs):
+--
+--   psql "$DATABASE_URL" -c "ALTER DATABASE college_erp SET timezone = 'Asia/Kolkata';"
+--
+-- Already applied to the local dev database.
+ALTER DATABASE college_erp SET timezone = 'Asia/Kolkata';

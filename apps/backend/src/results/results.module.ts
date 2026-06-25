@@ -6,6 +6,7 @@ import { ResultsService } from "./results.service";
 @Module({
   imports: [QueuesModule],
   controllers: [ResultsController],
-  providers: [ResultsService]
+  providers: [ResultsService],
+  exports: [ResultsService]
 })
 export class ResultsModule {}

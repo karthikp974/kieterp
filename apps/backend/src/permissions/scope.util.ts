@@ -11,6 +11,16 @@ const SCOPE_KEYS: (keyof ScopeRef)[] = [
   "subjectId"
 ];
 
+export function pickScopeRef(source?: ScopeRef | null): ScopeRef {
+  if (!source) return {};
+  const scope: ScopeRef = {};
+  for (const key of SCOPE_KEYS) {
+    const value = source[key];
+    if (value) scope[key] = value;
+  }
+  return scope;
+}
+
 export function scopeContains(assignmentScope: ScopeRef, targetScope: ScopeRef = {}): boolean {
   let matchedBoundary = false;
 
@@ -26,7 +36,17 @@ export function scopeContains(assignmentScope: ScopeRef, targetScope: ScopeRef =
       matchedBoundary = true;
     }
 
-    if (target && key === "campusGroupId" && assignmentScope.campusId && !assignmentScope.campusGroupId) {
+    // A campus-scoped assignment (campusId, no group) must not satisfy a request that targets a
+    // DIFFERENT specific campus. When the request omits campusId (shared-group structure) or targets
+    // the same campus, structural boundaries + the campus-group check decide access.
+    if (
+      target &&
+      key === "campusGroupId" &&
+      assignmentScope.campusId &&
+      !assignmentScope.campusGroupId &&
+      targetScope.campusId &&
+      assignmentScope.campusId !== targetScope.campusId
+    ) {
       return false;
     }
   }

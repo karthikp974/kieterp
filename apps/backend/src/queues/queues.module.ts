@@ -1,8 +1,9 @@
 import { BullModule, InjectQueue } from "@nestjs/bullmq";
-import { Injectable, Module } from "@nestjs/common";
+import { Injectable, Module, forwardRef } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { Queue } from "bullmq";
 import { PrismaService } from "../prisma/prisma.service";
+import { StudentsModule } from "../students/students.module";
 import { SYSTEM_QUEUE } from "./queue.constants";
 import { SystemProcessor } from "./system.processor";
 
@@ -14,13 +15,45 @@ export class QueueService {
     private readonly prisma: PrismaService
   ) {}
 
+  async cancelBackgroundJob(recordId: string, reason: string) {
+    const record = await this.prisma.backgroundJobRecord.findUnique({ where: { id: recordId } });
+    if (!record || record.status === "completed") {
+      return { cancelled: false as const, reason: "not_active" as const };
+    }
+
+    if (record.externalId) {
+      const job = await this.systemQueue.getJob(record.externalId);
+      if (job) {
+        const state = await job.getState();
+        if (state === "waiting" || state === "delayed") {
+          await job.remove();
+        }
+      }
+    }
+
+    const existingResult = (record.result ?? {}) as Record<string, unknown>;
+    await this.prisma.backgroundJobRecord.update({
+      where: { id: recordId },
+      data: {
+        status: "failed",
+        error: reason,
+        result: { ...existingResult, cancelled: true } as Prisma.InputJsonObject
+      }
+    });
+
+    return { cancelled: true as const, reason: "cancelled" as const };
+  }
+
   async enqueueSystemJob(name: string, payload: Record<string, unknown>) {
     const record = await this.prisma.backgroundJobRecord.create({
       data: {
         queueName: SYSTEM_QUEUE,
         jobName: name,
         status: "queued",
-        payload: payload as Prisma.InputJsonObject
+        payload: payload as Prisma.InputJsonObject,
+        result: {
+          progress: { phase: "queued", processed: 0, total: 0, percent: 6 }
+        } as Prisma.InputJsonObject
       }
     });
 
@@ -42,7 +75,7 @@ export class QueueService {
 }
 
 @Module({
-  imports: [BullModule.registerQueue({ name: SYSTEM_QUEUE })],
+  imports: [BullModule.registerQueue({ name: SYSTEM_QUEUE }), forwardRef(() => StudentsModule)],
   providers: [QueueService, SystemProcessor],
   exports: [QueueService]
 })

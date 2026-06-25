@@ -27,6 +27,7 @@ export type Program = {
   name: string;
   durationValue: number;
   semesters: number;
+  structureScope?: "CAMPUS_OWNED" | "GROUP_SHARED";
   status?: "ACTIVE" | "ARCHIVED";
   campus?: Campus;
 };

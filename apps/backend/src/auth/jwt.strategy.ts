@@ -3,19 +3,28 @@ import { ConfigService } from "@nestjs/config";
 import { PassportStrategy } from "@nestjs/passport";
 import { AuthSessionStatus, UserStatus } from "@prisma/client";
 import { ExtractJwt, Strategy } from "passport-jwt";
+import { getJwtAccessSecret } from "../common/jwt-secret.util";
 import { PrismaService } from "../prisma/prisma.service";
+import { AuditIdentityService } from "./audit-identity.service";
 import { AuthUser, JwtAccessPayload } from "./auth.types";
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
     config: ConfigService,
-    private readonly prisma: PrismaService
+    private readonly prisma: PrismaService,
+    private readonly auditIdentity: AuditIdentityService
   ) {
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        ExtractJwt.fromAuthHeaderAsBearerToken(),
+        (request) => {
+          const token = (request as { query?: { accessToken?: string | string[] } }).query?.accessToken;
+          return typeof token === "string" && token.trim() ? token.trim() : null;
+        }
+      ]),
       ignoreExpiration: false,
-      secretOrKey: config.get<string>("JWT_ACCESS_SECRET") ?? "dev-only-change-me"
+      secretOrKey: getJwtAccessSecret(config)
     });
   }
 
@@ -52,6 +61,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException("User no longer exists or is inactive.");
     }
 
+    const avatarUrl = user.avatarPath
+      ? `/api/auth/me/avatar?v=${new Date(user.updatedAt).getTime()}`
+      : null;
+
+    const auditUserId = session.auditAsAdmin
+      ? (await this.auditIdentity.resolveAdminUserId()) ?? user.id
+      : user.id;
+
     return {
       id: user.id,
       sessionId: session.id,
@@ -59,7 +76,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       campusId: user.campusId,
       campusGroupId: user.campus?.groupId,
       email: user.email,
+      username: user.username,
       fullName: user.fullName,
+      avatarUrl,
+      auditUserId,
       assignments: user.teacherAssignments.map((assignment) => ({
         id: assignment.id,
         role: assignment.role,

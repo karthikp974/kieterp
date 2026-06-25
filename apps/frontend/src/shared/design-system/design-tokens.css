@@ -1,0 +1,237 @@
+/**
+ * Global ERP design tokens — typography + buttons.
+ * Import once from main.tsx; do not hardcode sizes on pages.
+ */
+
+:root {
+  --erp-type-page-title-size: 1.65rem;
+  --erp-type-page-title-weight: 900;
+  --erp-type-page-title-line: 1.15;
+
+  --erp-type-section-title-size: 1.0625rem;
+  --erp-type-section-title-weight: 800;
+
+  --erp-type-card-title-size: 0.9375rem;
+  --erp-type-card-title-weight: 800;
+
+  --erp-type-meta-size: 0.8125rem;
+  --erp-type-meta-weight: 500;
+
+  --erp-type-table-head-size: 0.6875rem;
+  --erp-type-table-head-weight: 800;
+
+  --erp-type-table-data-size: 0.8125rem;
+  --erp-type-table-data-weight: 600;
+
+  --erp-type-label-size: 0.75rem;
+  --erp-type-label-weight: 700;
+
+  --erp-type-input-size: 0.8125rem;
+  --erp-type-input-weight: 600;
+
+  --erp-type-body-size: 0.875rem;
+  --erp-type-body-weight: 500;
+
+  --erp-btn-sm-height: 32px;
+  --erp-btn-sm-font-size: 12px;
+  --erp-btn-sm-font-weight: 700;
+  --erp-btn-sm-padding-x: 12px;
+
+  --erp-btn-md-height: 40px;
+  --erp-btn-md-font-size: 14px;
+  --erp-btn-md-font-weight: 700;
+  --erp-btn-md-padding-x: 16px;
+
+  --erp-btn-lg-height: 48px;
+  --erp-btn-lg-font-size: 15px;
+  --erp-btn-lg-font-weight: 800;
+  --erp-btn-lg-padding-x: 20px;
+
+  --erp-btn-icon-size: 40px;
+}
+
+.erp-type-page-title {
+  margin: 0;
+  font-size: var(--erp-type-page-title-size);
+  font-weight: var(--erp-type-page-title-weight);
+  line-height: var(--erp-type-page-title-line);
+  letter-spacing: -0.03em;
+  color: var(--t1, var(--erp-text, #0f172a));
+}
+
+.erp-type-section-title {
+  margin: 0;
+  font-size: var(--erp-type-section-title-size);
+  font-weight: var(--erp-type-section-title-weight);
+  letter-spacing: -0.02em;
+  color: var(--t1, var(--erp-text, #0f172a));
+}
+
+.erp-type-card-title {
+  margin: 0;
+  font-size: var(--erp-type-card-title-size);
+  font-weight: var(--erp-type-card-title-weight);
+  color: var(--t1, var(--erp-text, #0f172a));
+}
+
+.erp-type-table-head {
+  font-size: var(--erp-type-table-head-size);
+  font-weight: var(--erp-type-table-head-weight);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.erp-type-table-data {
+  font-size: var(--erp-type-table-data-size);
+  font-weight: var(--erp-type-table-data-weight);
+}
+
+.erp-type-label {
+  font-size: var(--erp-type-label-size);
+  font-weight: var(--erp-type-label-weight);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--t3, var(--erp-muted, #64748b));
+}
+
+.erp-type-input {
+  font-size: var(--erp-type-input-size);
+  font-weight: var(--erp-type-input-weight);
+}
+
+.erp-type-body {
+  font-size: var(--erp-type-body-size);
+  font-weight: var(--erp-type-body-weight);
+  line-height: 1.5;
+  color: var(--t2, var(--erp-text, #334155));
+}
+
+.erp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-sizing: border-box;
+  border-radius: 12px;
+  border: 1px solid var(--bd2, rgb(var(--erp-blue-rgb) / 28%));
+  background: var(--bg2, #fff);
+  color: var(--t1, #0f172a);
+  font-family: var(--font-body);
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+}
+
+.erp-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.erp-btn--sm {
+  min-height: var(--erp-btn-sm-height);
+  height: var(--erp-btn-sm-height);
+  padding: 0 var(--erp-btn-sm-padding-x);
+  font-size: var(--erp-btn-sm-font-size);
+  font-weight: var(--erp-btn-sm-font-weight);
+}
+
+.erp-btn--md {
+  min-height: var(--erp-btn-md-height);
+  height: var(--erp-btn-md-height);
+  padding: 0 var(--erp-btn-md-padding-x);
+  font-size: var(--erp-btn-md-font-size);
+  font-weight: var(--erp-btn-md-font-weight);
+}
+
+.erp-btn--lg {
+  min-height: var(--erp-btn-lg-height);
+  height: var(--erp-btn-lg-height);
+  padding: 0 var(--erp-btn-lg-padding-x);
+  font-size: var(--erp-btn-lg-font-size);
+  font-weight: var(--erp-btn-lg-font-weight);
+}
+
+.erp-btn--icon-size {
+  width: var(--erp-btn-icon-size);
+  height: var(--erp-btn-icon-size);
+  min-height: var(--erp-btn-icon-size);
+  padding: 0;
+}
+
+.erp-btn--primary {
+  border-color: var(--inv, var(--erp-blue, #004b8d));
+  background: var(--inv, var(--erp-blue, #004b8d));
+  color: var(--inv-t, #fff);
+}
+
+.erp-btn--secondary:hover:not(:disabled) {
+  border-color: rgb(var(--erp-blue-rgb) / 35%);
+  background: var(--accent-bg, rgb(var(--erp-blue-rgb) / 6%));
+}
+
+.erp-btn--primary:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+
+.erp-btn--danger {
+  border-color: rgb(220 38 38 / 35%);
+  color: #b91c1c;
+  background: rgb(254 242 242);
+}
+
+.portal-root[data-portal-theme="dark"] .erp-btn--danger {
+  border-color: rgb(248 113 113 / 35%);
+  color: #fca5a5;
+  background: rgb(127 29 29 / 22%);
+}
+
+.db-wf-btn {
+  min-height: var(--erp-btn-md-height);
+  height: auto;
+  padding: 0 var(--erp-btn-md-padding-x);
+  font-size: var(--erp-btn-md-font-size);
+  font-weight: var(--erp-btn-md-font-weight);
+}
+
+.erp-export-option.erp-export-option-btn,
+.erp-export-trigger {
+  width: 100%;
+}
+
+.erp-export-option.erp-export-option-btn {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.erp-export-trigger {
+  width: auto;
+}
+
+.finance-export-button,
+.sp-att-export-btn,
+.sp-marks-pdf-btn,
+.sp-fee-download-btn {
+  min-height: var(--erp-btn-md-height) !important;
+  font-size: var(--erp-btn-md-font-size) !important;
+  font-weight: var(--erp-btn-md-font-weight) !important;
+}
+
+.sp-rcpt-download-btn {
+  min-height: var(--erp-btn-sm-height) !important;
+  font-size: var(--erp-btn-sm-font-size) !important;
+  font-weight: var(--erp-btn-sm-font-weight) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .erp-btn--secondary,
+.portal-root[data-portal-theme="dark"] .erp-export-option.erp-export-option-btn {
+  background: var(--bg2) !important;
+  border-color: var(--bd2) !important;
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .erp-btn--primary {
+  background: var(--inv) !important;
+  color: var(--inv-t) !important;
+  border-color: var(--inv) !important;
+}

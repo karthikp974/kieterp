@@ -1,6 +1,9 @@
+import { TimetableSlotType } from "@prisma/client";
+import { IntersectionType } from "@nestjs/mapped-types";
 import { Type } from "class-transformer";
-import { IsInt, IsOptional, IsString, Max, MaxLength, Min } from "class-validator";
+import { IsEnum, IsInt, IsOptional, IsString, Max, MaxLength, Min } from "class-validator";
 import { PaginationQueryDto } from "../common/pagination.dto";
+import { TabularExportFormatQueryDto } from "../common/export-query.dto";
 
 export class CreateTimetableSlotDto {
   @IsString()
@@ -47,6 +50,10 @@ export class CreateTimetableSlotDto {
   @IsString()
   @MaxLength(40)
   room?: string;
+
+  @IsOptional()
+  @IsEnum(TimetableSlotType)
+  slotType?: TimetableSlotType;
 }
 
 export class UpdateTimetableSlotDto {
@@ -79,6 +86,10 @@ export class UpdateTimetableSlotDto {
   @IsString()
   @MaxLength(40)
   room?: string;
+
+  @IsOptional()
+  @IsEnum(TimetableSlotType)
+  slotType?: TimetableSlotType;
 }
 
 export class TimetableQueryDto extends PaginationQueryDto {
@@ -98,3 +109,5 @@ export class TimetableQueryDto extends PaginationQueryDto {
   @IsString()
   teacherProfileId?: string;
 }
+
+export class TimetableExportQueryDto extends IntersectionType(TimetableQueryDto, TabularExportFormatQueryDto) {}

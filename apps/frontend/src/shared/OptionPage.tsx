@@ -1,8 +1,9 @@
-import { ChevronRight, History, Menu, Pencil, Plus, Trash2, type LucideIcon } from "lucide-react";
+import { ChevronRight, History, List, Menu, Pencil, Plus, Trash2, X, type LucideIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/auth-context";
 import { AdminMenuContent } from "./AdminMenu";
+import { usePortalMobileMenuOpen } from "./portal-mobile-menu";
 
 type OptionActionButtonProps = {
   children: ReactNode;
@@ -20,6 +21,16 @@ type QuickStat = {
   label: string;
   value: string | number;
 };
+
+/** Standard admin workflow section — white card, blue heading, 2-column action grid. */
+export function WorkflowSection({ children, title }: { children: ReactNode; title: string }) {
+  return (
+    <section className="db-section">
+      <h2>{title}</h2>
+      <div className="db-module-grid">{children}</div>
+    </section>
+  );
+}
 
 export function OptionActionButton({ children, onClick, tone = "default", icon: iconOverride, description: descriptionOverride, active }: OptionActionButtonProps) {
   const label = typeof children === "string" ? children : "Open action";
@@ -61,6 +72,7 @@ export function QuickStatsBar({ stats }: { stats: QuickStat[] }) {
 
 export function AdminWorkflowMenuButton() {
   const [isOpen, setIsOpen] = useState(false);
+  usePortalMobileMenuOpen(isOpen);
   const { logout } = useAuth();
   const navigate = useNavigate();
 
@@ -72,8 +84,14 @@ export function AdminWorkflowMenuButton() {
 
   return (
     <>
-      <button className="db-icon-button" type="button" onClick={() => setIsOpen(true)} aria-label="Open menu">
-        <Menu size={20} />
+      <button
+        className="db-icon-button"
+        type="button"
+        onClick={() => setIsOpen((open) => !open)}
+        aria-label={isOpen ? "Close menu" : "Open menu"}
+        aria-expanded={isOpen}
+      >
+        {isOpen ? <X size={20} aria-hidden /> : <Menu size={20} aria-hidden />}
       </button>
       {isOpen ? (
         <div className="workflow-menu-overlay" onClick={() => setIsOpen(false)}>
@@ -100,6 +118,9 @@ function actionMeta(label: string, tone: "default" | "danger"): { description: s
   }
   if (normalized === "history" || normalized.endsWith(" history")) {
     return { Icon: History, description: "View recent activity and audit records." };
+  }
+  if (normalized.includes("existing record")) {
+    return { Icon: List, description: "Browse what is already saved in KIET ERP." };
   }
   return { Icon: ChevronRight, description: "Open this workspace and continue setup." };
 }

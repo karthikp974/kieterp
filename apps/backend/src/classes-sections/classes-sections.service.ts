@@ -3,16 +3,20 @@ import { Prisma, TeacherRoleKind, StructureStatus } from "@prisma/client";
 import { Response } from "express";
 import { toPagination } from "../common/pagination.dto";
 import { normalizeCode, normalizeName } from "../core/structure.util";
+import { SharedGroupAcademicService } from "../permissions/shared-group-academic.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { ClassSearchQueryDto, CreateClassDto, CreateSectionsDto, ExportQueryDto, SectionRowDto, SectionSearchQueryDto, UpdateClassDto, UpdateSectionDto } from "./classes-sections.dto";
 
 @Injectable()
 export class ClassesSectionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly sharedGroup: SharedGroupAcademicService
+  ) {}
 
   async listClasses(query: ClassSearchQueryDto) {
     const pagination = toPagination(query);
-    const where = this.classWhere(query);
+    const where = await this.classWhere(query);
     const [items, total] = await Promise.all([
       this.prisma.academicClass.findMany({
         where,
@@ -32,7 +36,7 @@ export class ClassesSectionsService {
 
   async listSections(query: SectionSearchQueryDto) {
     const pagination = toPagination(query);
-    const where = this.sectionWhere(query);
+    const where = await this.sectionWhere(query);
     const [items, total] = await Promise.all([
       this.prisma.section.findMany({
         where,
@@ -199,7 +203,9 @@ export class ClassesSectionsService {
     response.send(csv);
   }
 
-  private classWhere(query: ClassSearchQueryDto): Prisma.AcademicClassWhereInput {
+  private async classWhere(query: ClassSearchQueryDto): Promise<Prisma.AcademicClassWhereInput> {
+    const campusScope = query.campusScope ?? "shared";
+    const programFilter = await this.sharedGroup.programCatalogFilter(query.campusId, query.departmentId, campusScope);
     return {
       status: StructureStatus.ACTIVE,
       isArchived: false,
@@ -207,12 +213,7 @@ export class ClassesSectionsService {
         status: StructureStatus.ACTIVE,
         isArchived: false,
         ...(query.branchId ? { id: query.branchId } : {}),
-        program: {
-          status: StructureStatus.ACTIVE,
-          isArchived: false,
-          ...(query.departmentId ? { id: query.departmentId } : {}),
-          ...(query.campusId ? { campusId: query.campusId } : {})
-        }
+        ...(programFilter ? { program: programFilter } : {})
       },
       ...(query.search
         ? { OR: [{ label: { contains: query.search, mode: "insensitive" } }, { code: { contains: query.search, mode: "insensitive" } }] }
@@ -220,12 +221,15 @@ export class ClassesSectionsService {
     };
   }
 
-  private sectionWhere(query: SectionSearchQueryDto): Prisma.SectionWhereInput {
+  private async sectionWhere(query: SectionSearchQueryDto): Promise<Prisma.SectionWhereInput> {
+    const campusScope = query.campusScope ?? "shared";
+    const ownedCampusFilter = await this.sharedGroup.sectionCatalogFilter(query.campusId, campusScope);
     return {
       status: StructureStatus.ACTIVE,
       isArchived: false,
-      classId: query.classId,
-      class: this.classWhere(query),
+      ...ownedCampusFilter,
+      ...(query.classId ? { classId: query.classId } : {}),
+      class: await this.classWhere(query),
       ...(query.search
         ? { OR: [{ name: { contains: query.search, mode: "insensitive" } }, { code: { contains: query.search, mode: "insensitive" } }] }
         : {})
@@ -245,10 +249,21 @@ export class ClassesSectionsService {
   }
 
   private async ensureRelationship(campusId: string, departmentId: string, branchId: string) {
+    const programFilter = await this.sharedGroup.programRelationFilter(campusId, departmentId);
     const branch = await this.prisma.branch.findFirst({
-      where: { id: branchId, programId: departmentId, status: StructureStatus.ACTIVE, isArchived: false, program: { campusId, status: StructureStatus.ACTIVE, isArchived: false } }
+      where: {
+        id: branchId,
+        programId: departmentId,
+        status: StructureStatus.ACTIVE,
+        isArchived: false,
+        ...(programFilter ? { program: programFilter } : {})
+      },
+      include: { program: { include: { campus: true } } }
     });
     if (!branch) throw new BadRequestException("Invalid campus, department, and branch relationship.");
+    const operationalCampus = await this.sharedGroup.loadCampus(campusId);
+    if (!operationalCampus) throw new BadRequestException("Campus does not exist or is archived.");
+    this.sharedGroup.assertOperationalCampusMatchesStructure(branch.program, operationalCampus);
   }
 
   private async nextSemesterNumber(branchId: string) {

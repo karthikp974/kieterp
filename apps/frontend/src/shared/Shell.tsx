@@ -1,8 +1,10 @@
-import { Bell, Database, GraduationCap, LayoutDashboard, Menu, School, UserRoundCog, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ArrowLeft, Database, GraduationCap, LayoutDashboard, Menu, School, UserRoundCog, X } from "lucide-react";
+import { useState } from "react";
+import { usePortalMobileMenuOpen } from "./portal-mobile-menu";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/auth-context";
 import { AdminMenuContent } from "./AdminMenu";
+import { ProfileMenuButton } from "./ProfileMenu";
 
 const navItems = [
   { to: "/admin", label: "Admin Portal", icon: LayoutDashboard },
@@ -13,7 +15,6 @@ const navItems = [
 
 const moduleTitles: Record<string, string> = {
   announcements: "Announcements",
-  applications: "Applications",
   batches: "Batches",
   classes: "Classes",
   dashboard: "Dashboard",
@@ -37,6 +38,9 @@ export function Shell() {
   const location = useLocation();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
+  usePortalMobileMenuOpen(isMenuOpen);
+
   const visibleNavItems = navItems.filter((item) => {
     if (!user) {
       return false;
@@ -50,29 +54,39 @@ export function Shell() {
       return item.to === "/teacher";
     }
 
-    return item.to === "/student";
+    return false;
   });
-  const initials = user?.fullName
-    ? user.fullName
-        .split(" ")
-        .filter(Boolean)
-        .slice(0, 2)
-        .map((part) => part[0]?.toUpperCase())
-        .join("")
-    : "U";
-
-  useEffect(() => {
-    document.documentElement.classList.remove("dark");
-    localStorage.removeItem("erp.theme");
-  }, []);
 
   async function handleLogout() {
     await logout();
     void navigate("/login", { replace: true });
   }
 
+  function closeSidebar() {
+    if (window.matchMedia("(min-width: 1024px)").matches) {
+      setIsSidebarCollapsed(true);
+    }
+    setIsMenuOpen(false);
+  }
+
+  function toggleMenu() {
+    if (window.matchMedia("(min-width: 1024px)").matches) {
+      if (isSidebarCollapsed) {
+        setIsSidebarCollapsed(false);
+        setIsMenuOpen(false);
+      } else {
+        closeSidebar();
+      }
+    } else {
+      setIsMenuOpen((open) => !open);
+    }
+  }
+
   const isAdmin = user?.type === "ADMIN";
   const activeModule = new URLSearchParams(location.search).get("module") ?? "";
+  const feeDayMatch = location.pathname.match(/^\/admin\/fees\/collected\/(\d{4}-\d{2}-\d{2})$/);
+  const feeListPage = location.pathname === "/admin/fees/collected";
+  const adminSubBackHref = feeDayMatch ? "/admin/fees/collected" : feeListPage ? "/admin" : null;
   const pageTitle =
     location.pathname === "/admin"
       ? "Dashboard"
@@ -82,13 +96,9 @@ export function Shell() {
           ? "Database"
           : location.pathname === "/teacher"
             ? "Teacher Portal"
-            : location.pathname.startsWith("/student/feedback")
+            : location.pathname.startsWith("/feedback")
               ? "Feedback"
-              : location.pathname === "/student"
-                ? "Student Portal"
-                : location.pathname.startsWith("/feedback")
-                  ? "Feedback"
-                  : "ERP Control Center";
+              : "ERP Control Center";
   const sidebar = isAdmin ? (
     <AdminMenuContent
       onClose={() => {
@@ -150,14 +160,14 @@ export function Shell() {
   );
 
   return (
-    <div className={`erp-shell min-h-screen bg-[#f3f6fb] text-slate-950 transition-colors ${isSidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+    <div className={`erp-shell portal-no-footer min-h-screen bg-[rgb(255,255,255)] text-slate-950 transition-colors ${isSidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       {!isSidebarCollapsed ? (
-      <aside className="erp-sidebar fixed inset-y-0 left-0 hidden overflow-y-auto bg-[#1c2737] p-3 shadow-xl lg:block">
+      <aside className="erp-sidebar fixed inset-y-0 left-0 hidden overflow-y-auto p-3 shadow-xl lg:block">
         {sidebar}
       </aside>
       ) : null}
       {isMenuOpen ? (
-        <div className="erp-mobile-overlay fixed inset-0 z-40 h-screen bg-slate-950/40 lg:hidden" onClick={() => setIsMenuOpen(false)}>
+        <div className="erp-mobile-overlay fixed inset-0 z-[110] h-screen lg:hidden" onClick={() => setIsMenuOpen(false)}>
           <aside
             className="erp-mobile-drawer fixed inset-y-0 left-0 h-screen overflow-y-auto bg-white shadow-xl"
             onClick={(event) => event.stopPropagation()}
@@ -167,37 +177,47 @@ export function Shell() {
         </div>
       ) : null}
       <main className="erp-main">
-        <header className="erp-topbar sticky top-0 z-30 border-b border-slate-200 bg-white/95">
+        <header className="erp-topbar sticky top-0 z-[100] border-b border-slate-200 bg-white/95">
           <div className="erp-topbar-inner flex items-center justify-between gap-3">
             <div className="erp-app-header-left">
-              <button
-                type="button"
-                className="erp-menu-toggle"
-                onClick={() => {
-                  if (window.matchMedia("(min-width: 768px)").matches) {
-                    setIsSidebarCollapsed(false);
-                  } else {
-                    setIsMenuOpen(true);
-                  }
-                }}
-                aria-label="Open menu"
-              >
-                <Menu size={20} />
-              </button>
-              <img className="erp-header-logo" src="/kiet-logo.png" alt="KIET Group of Institutions" />
-              <div className="erp-header-copy">
-                <p className="erp-header-title">KIET ERP</p>
-                <p className="erp-header-subtitle">Group of Institutions</p>
-              </div>
-              {location.pathname !== "/admin" ? <span className="erp-page-pill">{pageTitle}</span> : null}
+              {adminSubBackHref ? (
+                <>
+                  <button
+                    type="button"
+                    className="erp-menu-toggle"
+                    onClick={() => navigate(adminSubBackHref)}
+                    aria-label="Go back"
+                  >
+                    <ArrowLeft size={20} aria-hidden />
+                  </button>
+                  <img className="erp-header-logo" src="/kiet-logo.png" alt="KIET Group of Institutions" />
+                  <div className="erp-header-copy">
+                    <p className="erp-header-title">KIET ERP</p>
+                    <p className="erp-header-subtitle">Group of Institutions</p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="erp-menu-toggle"
+                    onClick={toggleMenu}
+                    aria-label={isMenuOpen ? "Close menu" : "Open menu"}
+                    aria-expanded={isMenuOpen || !isSidebarCollapsed}
+                  >
+                    {isMenuOpen ? <X size={20} aria-hidden /> : <Menu size={20} aria-hidden />}
+                  </button>
+                  <img className="erp-header-logo" src="/kiet-logo.png" alt="KIET Group of Institutions" />
+                  <div className="erp-header-copy">
+                    <p className="erp-header-title">KIET ERP</p>
+                    <p className="erp-header-subtitle">Group of Institutions</p>
+                  </div>
+                  {location.pathname !== "/admin" ? <span className="erp-page-pill">{pageTitle}</span> : null}
+                </>
+              )}
             </div>
             <div className="erp-topbar-actions">
-              <button type="button" className="erp-icon-button" aria-label="Notifications">
-                <Bell size={20} />
-              </button>
-              <div className="erp-top-avatar" aria-label="Profile">
-                {initials}
-              </div>
+              <ProfileMenuButton className="erp-top-avatar" />
             </div>
           </div>
         </header>

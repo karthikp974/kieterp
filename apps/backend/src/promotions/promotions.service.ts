@@ -9,6 +9,7 @@ import {
   semesterPairsForBranch
 } from "./promotion-semester.util";
 import { toPagination } from "../common/pagination.dto";
+import { CampusScopeService } from "../permissions/campus-scope.service";
 import { PermissionsService } from "../permissions/permissions.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { PromoteSelectedStudentsDto, PromoteStudentsDto, PromotionClassQueryDto, PromotionHistoryQueryDto, PromotionSectionQueryDto, PromotionStudentsQueryDto } from "./promotions.dto";
@@ -19,11 +20,16 @@ type SectionWithTree = Prisma.SectionGetPayload<{ include: PromotionsService["se
 export class PromotionsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly permissions: PermissionsService
+    private readonly permissions: PermissionsService,
+    private readonly campusScope: CampusScopeService
   ) {}
 
-  async classes(query: PromotionClassQueryDto) {
+  async classes(user: AuthUser, query: PromotionClassQueryDto) {
     const pagination = toPagination(query);
+    if (query.batchId) {
+      await this.campusScope.assertBatchInScope(user, query.batchId);
+    }
+    const treeScope = await this.campusScope.academicClassWhere(user);
     const pairSemesters =
       query.academicYearIndex !== undefined && query.academicYearIndex !== null
         ? linearSemestersForAcademicYear(query.academicYearIndex)
@@ -31,6 +37,7 @@ export class PromotionsService {
     const where: Prisma.AcademicClassWhereInput = {
       status: StructureStatus.ACTIVE,
       isArchived: false,
+      ...(Object.keys(treeScope).length ? treeScope : {}),
       ...(query.batchId ? { batchId: query.batchId } : {}),
       ...(pairSemesters ? { semesterNumber: { in: [...pairSemesters] } } : {}),
       ...(query.search
@@ -62,7 +69,8 @@ export class PromotionsService {
     };
   }
 
-  async sections(query: PromotionSectionQueryDto) {
+  async sections(user: AuthUser, query: PromotionSectionQueryDto) {
+    await this.campusScope.assertAcademicClassInScope(user, query.classId);
     const classItem = await this.prisma.academicClass.findUnique({ where: { id: query.classId }, include: { batch: { include: { branch: { include: { program: { include: { campus: true } } } } } } } });
     if (!classItem) throw new NotFoundException("Class not found.");
     this.assertActiveClass(classItem);
@@ -87,7 +95,9 @@ export class PromotionsService {
     return { items: items.map((item) => this.toSectionObject(item)), total, page: pagination.page, pageSize: pagination.pageSize };
   }
 
-  async students(query: PromotionStudentsQueryDto) {
+  async students(user: AuthUser, query: PromotionStudentsQueryDto) {
+    await this.campusScope.assertAcademicClassInScope(user, query.classId);
+    await this.campusScope.assertSectionInScope(user, query.sectionId);
     const section = await this.prisma.section.findUnique({ where: { id: query.sectionId }, include: this.sectionInclude });
     if (!section || section.classId !== query.classId) throw new BadRequestException("Section does not belong to selected class.");
     this.assertActiveSection(section);
@@ -124,7 +134,8 @@ export class PromotionsService {
     };
   }
 
-  async semesterPairs(branchId: string) {
+  async semesterPairs(user: AuthUser, branchId: string) {
+    await this.campusScope.assertBranchInScope(user, branchId);
     const branch = await this.prisma.branch.findFirst({
       where: { id: branchId, status: StructureStatus.ACTIVE, isArchived: false },
       include: { program: true }
@@ -139,7 +150,9 @@ export class PromotionsService {
     };
   }
 
-  async preview(fromSectionId: string, toSectionId: string) {
+  async preview(user: AuthUser, fromSectionId: string, toSectionId: string) {
+    await this.campusScope.assertSectionInScope(user, fromSectionId);
+    await this.campusScope.assertSectionInScope(user, toSectionId);
     const { fromSection, toSection } = await this.validateSectionPair(fromSectionId, toSectionId);
     const students = await this.prisma.studentProfile.findMany({
       where: { sectionId: fromSectionId, currentStatus: UserStatus.ACTIVE, isArchived: false },
@@ -160,6 +173,8 @@ export class PromotionsService {
       throw new ForbiddenException("Only admin can run student promotions.");
     }
     const { fromSection, toSection } = await this.validateSectionPair(dto.fromSectionId, dto.toSectionId);
+    await this.campusScope.assertSectionInScope(user, fromSection.id);
+    await this.campusScope.assertSectionInScope(user, toSection.id);
     const uniqueStudentIds = [...new Set(dto.studentProfileIds)];
     if (uniqueStudentIds.length !== dto.studentProfileIds.length) throw new BadRequestException("Duplicate student IDs found.");
 
@@ -195,7 +210,7 @@ export class PromotionsService {
       }
       await tx.auditLog.create({
         data: {
-          userId: user.id,
+          userId: user.auditUserId,
           action: "PROMOTE_STUDENTS",
           entity: "StudentPromotionHistory",
           metadata: { fromSectionId: fromSection.id, toSectionId: toSection.id, count: uniqueStudentIds.length }
@@ -238,10 +253,12 @@ export class PromotionsService {
     const fromSection = await this.prisma.section.findUnique({ where: { id: dto.fromSectionId }, include: this.sectionInclude });
     if (!fromSection || fromSection.classId !== dto.fromClassId) throw new BadRequestException("Selected section does not belong to selected class.");
     this.assertActiveSection(fromSection);
+    await this.campusScope.assertSectionInScope(user, fromSection.id);
 
     let toSection: SectionWithTree | null = null;
     if (promotedUnique.length) {
       if (!dto.toSectionId) throw new BadRequestException("Destination section is required when promoting students.");
+      await this.campusScope.assertSectionInScope(user, dto.toSectionId);
       const target = await this.prisma.section.findUnique({ where: { id: dto.toSectionId }, include: this.sectionInclude });
       if (!target) throw new NotFoundException("Destination section not found.");
       this.assertActiveSection(target);
@@ -251,6 +268,7 @@ export class PromotionsService {
 
     const reassignmentSectionById = new Map<string, SectionWithTree>();
     for (const row of dto.nonPromotedReassignments) {
+      await this.campusScope.assertSectionInScope(user, row.toSectionId);
       if (reassignmentSectionById.has(row.toSectionId)) continue;
       const target = await this.prisma.section.findUnique({ where: { id: row.toSectionId }, include: this.sectionInclude });
       if (!target) throw new NotFoundException("Reassignment section not found.");
@@ -384,7 +402,7 @@ export class PromotionsService {
 
       await tx.auditLog.create({
         data: {
-          userId: user.id,
+          userId: user.auditUserId,
           action: "PROMOTE_SELECTED_STUDENTS",
           entity: "StudentPromotionHistory",
           metadata: {
@@ -416,12 +434,14 @@ export class PromotionsService {
     return response;
   }
 
-  async history(query: PromotionHistoryQueryDto) {
+  async history(user: AuthUser, query: PromotionHistoryQueryDto) {
     const pagination = toPagination(query);
+    const scopeStudent = this.campusScope.studentProfileWhere(user);
     const where: Prisma.StudentPromotionHistoryWhereInput = {
       studentProfileId: query.studentProfileId,
       fromSectionId: query.fromSectionId,
-      toSectionId: query.toSectionId
+      toSectionId: query.toSectionId,
+      ...(Object.keys(scopeStudent).length ? { studentProfile: { is: scopeStudent } } : {})
     };
     const [items, total] = await Promise.all([
       this.prisma.studentPromotionHistory.findMany({

@@ -1,7 +1,10 @@
 import { BullModule } from "@nestjs/bullmq";
 import { Module } from "@nestjs/common";
+import { APP_INTERCEPTOR } from "@nestjs/core";
 import { AnnouncementsModule } from "./announcements/announcements.module";
 import { ConfigModule, ConfigService } from "@nestjs/config";
+import { AuditContextInterceptor } from "./common/audit-context.interceptor";
+import { AuditLogPatchService } from "./common/audit-log-patch.service";
 import { ApplicationsModule } from "./applications/applications.module";
 import { AuditModule } from "./audit/audit.module";
 import { AttendanceModule } from "./attendance/attendance.module";
@@ -25,9 +28,12 @@ import { SubjectsModule } from "./subjects/subjects.module";
 import { SyllabusModule } from "./syllabus/syllabus.module";
 import { TeamsModule } from "./teams/teams.module";
 import { TeachersModule } from "./teachers/teachers.module";
+import { SpectatorModule } from "./spectator/spectator.module";
 import { TimetableModule } from "./timetable/timetable.module";
+import { HealthController, ApiRootController } from "./health.controller";
 
 @Module({
+  controllers: [ApiRootController, HealthController],
   imports: [
     ConfigModule.forRoot({ isGlobal: true, envFilePath: [".env", "../../.env"] }),
     BullModule.forRootAsync({
@@ -63,7 +69,12 @@ import { TimetableModule } from "./timetable/timetable.module";
     ReportsModule,
     ResultsModule,
     PortalsModule,
-    QueuesModule
+    QueuesModule,
+    SpectatorModule
+  ],
+  providers: [
+    AuditLogPatchService,
+    { provide: APP_INTERCEPTOR, useClass: AuditContextInterceptor }
   ]
 })
 export class AppModule {}

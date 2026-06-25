@@ -1,8 +1,12 @@
 import { FormEvent, ReactElement, useEffect, useMemo, useState } from "react";
+import { istYear } from "../shared/ist-time";
 import { useAuth } from "../auth/auth-context";
 import { SafeActionButton } from "../shared/SafeActionButton";
 import { SearchableSelect } from "../shared/SearchableSelect";
+import { Trash2 } from "lucide-react";
+import { useConfirm } from "../shared/ConfirmDialog";
 import { useToast } from "../shared/toast-context";
+import { programsForOperationalCampus } from "../shared/academic-catalog";
 import {
   AcademicClass,
   Batch,
@@ -27,8 +31,7 @@ const tabs: { id: StructureTab; label: string }[] = [
   { id: "subjects", label: "Subjects" }
 ];
 
-const inputClass =
-  "w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100";
+const inputClass = "db-input";
 
 type StructureRow = {
   id: string;
@@ -51,6 +54,7 @@ export function StructureManagement({
 }: StructureManagementProps = {}) {
   const { authFetch } = useAuth();
   const { showToast } = useToast();
+  const { confirm, dialog } = useConfirm();
   const [activeTab, setActiveTab] = useState<StructureTab>(initialTab);
   const [campusGroups, setCampusGroups] = useState<CampusGroup[]>([]);
   const [campuses, setCampuses] = useState<Campus[]>([]);
@@ -65,7 +69,7 @@ export function StructureManagement({
   const [campusForm, setCampusForm] = useState({ code: "", name: "", groupId: "" });
   const [programForm, setProgramForm] = useState({ campusId: "", code: "", name: "", durationValue: 4, semesters: 8 });
   const [branchForm, setBranchForm] = useState({ programId: "", code: "", name: "" });
-  const [batchForm, setBatchForm] = useState({ branchId: "", startYear: new Date().getFullYear(), endYear: new Date().getFullYear() + 4 });
+  const [batchForm, setBatchForm] = useState({ branchId: "", startYear: istYear(new Date()), endYear: istYear(new Date()) + 4 });
   const [classForm, setClassForm] = useState({ batchId: "", yearNumber: 1, semesterNumber: 1, label: "1st Year / Sem 1" });
   const [sectionForm, setSectionForm] = useState({ classId: "", name: "A", capacity: 60 });
   const [subjectForm, setSubjectForm] = useState({ branchId: "", code: "", name: "", semesterNumber: 1 });
@@ -95,7 +99,12 @@ export function StructureManagement({
   }
 
   async function archiveRecord(path: string) {
-    const ok = window.confirm("Archive this record? Existing linked data stays safe, but it will be hidden from future selections.");
+    const ok = await confirm({
+      title: "Archive record?",
+      message: "Existing linked data stays safe, but it will be hidden from future selections.",
+      confirmLabel: "Archive",
+      icon: Trash2
+    });
     if (!ok) return;
 
     await postJson(path, {});
@@ -165,6 +174,15 @@ export function StructureManagement({
     [visibleTabs]
   );
 
+  const branchProgramOptions = useMemo(
+    () =>
+      programsForOperationalCampus(programs, programForm.campusId || campuses[0]?.id || "", campuses).map((program) => [
+        program.id,
+        `${program.campus?.code ?? "-"} / ${program.code}`
+      ] as [string, string]),
+    [programs, programForm.campusId, campuses]
+  );
+
   useEffect(() => {
     if (!visibleStructureTabs.some((tab) => tab.id === activeTab)) {
       setActiveTab(visibleStructureTabs[0]?.id ?? initialTab);
@@ -191,7 +209,7 @@ export function StructureManagement({
             type="button"
             onClick={() => setActiveTab(tab.id)}
             className={`whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold ${
-              activeTab === tab.id ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              activeTab === tab.id ? "erp-admin-tab-active" : "erp-admin-tab-idle"
             }`}
           >
             {tab.label} ({activeCount[tab.id]})
@@ -210,7 +228,7 @@ export function StructureManagement({
               <input className={inputClass} placeholder="Code" value={campusForm.code} onChange={(event) => setCampusForm({ ...campusForm, code: event.target.value })} required />
               <input className={inputClass} placeholder="Name" value={campusForm.name} onChange={(event) => setCampusForm({ ...campusForm, name: event.target.value })} required />
               <SearchableSelect value={campusForm.groupId} options={campusGroups.map((group) => [group.id, group.name])} onChange={(groupId) => setCampusForm({ ...campusForm, groupId })} required />
-              <button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white">Add Campus</button>
+              <button className="erp-panel-submit">Add Campus</button>
             </form>
           }
           onArchive={archiveRecord}
@@ -232,7 +250,7 @@ export function StructureManagement({
               <input className={inputClass} placeholder="Name" value={programForm.name} onChange={(event) => setProgramForm({ ...programForm, name: event.target.value })} required />
               <input className={inputClass} type="number" min={1} value={programForm.durationValue} onChange={(event) => setProgramForm({ ...programForm, durationValue: Number(event.target.value) })} required />
               <input className={inputClass} type="number" min={1} value={programForm.semesters} onChange={(event) => setProgramForm({ ...programForm, semesters: Number(event.target.value) })} required />
-              <button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white">Add Program</button>
+              <button className="erp-panel-submit">Add Program</button>
             </form>
           }
           onArchive={archiveRecord}
@@ -249,10 +267,10 @@ export function StructureManagement({
           title="Branches"
           form={
             <form className="grid gap-3 md:grid-cols-4" onSubmit={(event) => void submit(event, createBranch)}>
-              <SearchableSelect value={branchForm.programId} options={programs.map((program) => [program.id, `${program.campus?.code} / ${program.code}`])} onChange={(programId) => setBranchForm({ ...branchForm, programId })} required />
+              <SearchableSelect value={branchForm.programId} options={branchProgramOptions} onChange={(programId) => setBranchForm({ ...branchForm, programId })} required />
               <input className={inputClass} placeholder="Code" value={branchForm.code} onChange={(event) => setBranchForm({ ...branchForm, code: event.target.value })} required />
               <input className={inputClass} placeholder="Name" value={branchForm.name} onChange={(event) => setBranchForm({ ...branchForm, name: event.target.value })} required />
-              <button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white">Add Branch</button>
+              <button className="erp-panel-submit">Add Branch</button>
             </form>
           }
           onArchive={archiveRecord}
@@ -273,7 +291,7 @@ export function StructureManagement({
                 <SearchableSelect value={batchForm.branchId} options={branches.map((branch) => [branch.id, `${branch.program?.campus?.code} / ${branch.program?.code} / ${branch.code}`])} onChange={(branchId) => setBatchForm({ ...batchForm, branchId })} required />
                 <input className={inputClass} type="number" value={batchForm.startYear} onChange={(event) => setBatchForm({ ...batchForm, startYear: Number(event.target.value) })} required />
                 <input className={inputClass} type="number" value={batchForm.endYear} onChange={(event) => setBatchForm({ ...batchForm, endYear: Number(event.target.value) })} required />
-                <button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white">Add Batch</button>
+                <button className="erp-panel-submit">Add Batch</button>
               </form>
             }
             onArchive={archiveRecord}
@@ -289,7 +307,7 @@ export function StructureManagement({
               <SearchableSelect value={generationForm.batchId} options={batches.map((batch) => [batch.id, `${batch.branch?.code} / ${batch.startYear}-${batch.endYear}`])} onChange={(batchId) => setGenerationForm({ ...generationForm, batchId })} required />
               <input className={inputClass} placeholder="Sections e.g. A,B,C" value={generationForm.sectionNames} onChange={(event) => setGenerationForm({ ...generationForm, sectionNames: event.target.value })} />
               <input className={inputClass} type="number" min={1} value={generationForm.sectionCapacity} onChange={(event) => setGenerationForm({ ...generationForm, sectionCapacity: Number(event.target.value) })} />
-              <button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white">Generate</button>
+              <button className="erp-panel-submit">Generate</button>
             </form>
           </div>
         </div>
@@ -304,7 +322,7 @@ export function StructureManagement({
               <input className={inputClass} type="number" min={1} value={classForm.yearNumber} onChange={(event) => setClassForm({ ...classForm, yearNumber: Number(event.target.value) })} required />
               <input className={inputClass} type="number" min={1} value={classForm.semesterNumber} onChange={(event) => setClassForm({ ...classForm, semesterNumber: Number(event.target.value) })} required />
               <input className={inputClass} value={classForm.label} onChange={(event) => setClassForm({ ...classForm, label: event.target.value })} required />
-              <button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white">Add Class</button>
+              <button className="erp-panel-submit">Add Class</button>
             </form>
           }
           onArchive={archiveRecord}
@@ -324,7 +342,7 @@ export function StructureManagement({
               <SearchableSelect value={sectionForm.classId} options={classes.map((item) => [item.id, `${item.batch?.branch?.code} / Sem ${item.semesterNumber}`])} onChange={(classId) => setSectionForm({ ...sectionForm, classId })} required />
               <input className={inputClass} value={sectionForm.name} onChange={(event) => setSectionForm({ ...sectionForm, name: event.target.value })} required />
               <input className={inputClass} type="number" min={1} value={sectionForm.capacity} onChange={(event) => setSectionForm({ ...sectionForm, capacity: Number(event.target.value) })} />
-              <button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white">Add Section</button>
+              <button className="erp-panel-submit">Add Section</button>
             </form>
           }
           onArchive={archiveRecord}
@@ -345,7 +363,7 @@ export function StructureManagement({
               <input className={inputClass} placeholder="Code" value={subjectForm.code} onChange={(event) => setSubjectForm({ ...subjectForm, code: event.target.value })} required />
               <input className={inputClass} placeholder="Subject name" value={subjectForm.name} onChange={(event) => setSubjectForm({ ...subjectForm, name: event.target.value })} required />
               <input className={inputClass} type="number" min={1} value={subjectForm.semesterNumber} onChange={(event) => setSubjectForm({ ...subjectForm, semesterNumber: Number(event.target.value) })} required />
-              <button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white">Add Subject</button>
+              <button className="erp-panel-submit">Add Subject</button>
             </form>
           }
           onArchive={archiveRecord}
@@ -356,6 +374,7 @@ export function StructureManagement({
           }))}
         />
       ) : null}
+      {dialog}
     </section>
   );
 

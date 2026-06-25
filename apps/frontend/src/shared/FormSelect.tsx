@@ -1,3 +1,5 @@
+import { SearchableSelect } from "./SearchableSelect";
+
 export type FormSelectOption = readonly [string, string];
 
 type FormSelectProps = {
@@ -12,25 +14,33 @@ type FormSelectProps = {
   "aria-label"?: string;
 };
 
-/** Native select styled as `db-input` — no search UI, for bounded option lists. */
-export function FormSelect({ value, onChange, options, disabled, required, id, className = "", "aria-label": ariaLabel }: FormSelectProps) {
+/** Branded dropdown (SearchableSelect, search off) — use instead of native `<select>`. */
+export function FormSelect({
+  value,
+  onChange,
+  options,
+  disabled,
+  required,
+  className = "",
+  "aria-label": ariaLabel
+}: FormSelectProps) {
+  const emptyOption = options.find(([optValue]) => optValue === "");
+  const placeholder = emptyOption?.[1] ?? "Select";
+
   return (
-    <select
-      id={id}
+    <SearchableSelect
       aria-label={ariaLabel}
-      className={`db-input ${className}`.trim()}
+      className={className}
+      clearable={Boolean(emptyOption) && !required}
       disabled={disabled}
-      required={required}
-      value={value}
-      onChange={(e) => {
-        void Promise.resolve(onChange(e.target.value));
+      onChange={(next) => {
+        void Promise.resolve(onChange(next));
       }}
-    >
-      {options.map(([optValue, label]) => (
-        <option key={optValue === "" ? "__empty" : optValue} value={optValue}>
-          {label}
-        </option>
-      ))}
-    </select>
+      options={options.map(([v, l]) => [v, l] as [string, string])}
+      placeholder={placeholder}
+      required={required}
+      searchable={false}
+      value={value}
+    />
   );
 }

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
 import { PermissionAction } from "@prisma/client";
 import { AuthUser } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
@@ -7,6 +7,7 @@ import { PermissionGuard } from "../permissions/permission.guard";
 import { RequiresPermission } from "../permissions/requires-permission.decorator";
 import {
   CreateFeedbackFormDto,
+  FeedbackExportQueryDto,
   FeedbackFormQueryDto,
   ParagraphAnswersQueryDto,
   SubmitFeedbackDto,
@@ -20,19 +21,19 @@ export class FeedbackController {
   constructor(private readonly feedback: FeedbackService) {}
 
   @Get("forms/active")
-  @RequiresPermission(PermissionAction.MANAGE_FEEDBACK)
+  @RequiresPermission(PermissionAction.VIEW_FEEDBACK_ANALYTICS, { skipRequestScope: true })
   listActive(@CurrentUser() user: AuthUser, @Query() query: FeedbackFormQueryDto) {
     return this.feedback.listActiveAdmin(user, query);
   }
 
   @Get("forms/archived")
-  @RequiresPermission(PermissionAction.MANAGE_FEEDBACK)
+  @RequiresPermission(PermissionAction.VIEW_FEEDBACK_ANALYTICS, { skipRequestScope: true })
   listArchived(@CurrentUser() user: AuthUser, @Query() query: FeedbackFormQueryDto) {
     return this.feedback.listArchivedAdmin(user, query);
   }
 
   @Get("forms")
-  @RequiresPermission(PermissionAction.MANAGE_FEEDBACK)
+  @RequiresPermission(PermissionAction.VIEW_FEEDBACK_ANALYTICS, { skipRequestScope: true })
   list(@CurrentUser() user: AuthUser, @Query() query: FeedbackFormQueryDto) {
     return this.feedback.listAdmin(user, query);
   }
@@ -43,10 +44,22 @@ export class FeedbackController {
     return this.feedback.listAvailableForStudent(user, query);
   }
 
+  @Get("forms/:id/completion")
+  @RequiresPermission(PermissionAction.VIEW_FEEDBACK_ANALYTICS, { skipRequestScope: true })
+  completion(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.feedback.formCompletion(user, id);
+  }
+
+  @Post("forms/:id/remind")
+  @RequiresPermission(PermissionAction.MANAGE_FEEDBACK)
+  remind(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.feedback.sendReminders(user, id);
+  }
+
   @Get("forms/:id/export")
   @RequiresPermission(PermissionAction.VIEW_FEEDBACK_ANALYTICS)
-  export(@CurrentUser() user: AuthUser, @Param("id") id: string) {
-    return this.feedback.exportCsv(user, id);
+  export(@CurrentUser() user: AuthUser, @Param("id") id: string, @Query() query: FeedbackExportQueryDto) {
+    return this.feedback.exportCsv(user, id, query);
   }
 
   @Get("forms/:id/report/summary")
@@ -67,6 +80,7 @@ export class FeedbackController {
   }
 
   @Get("forms/:id")
+  @RequiresPermission(PermissionAction.VIEW_FEEDBACK_ANALYTICS, { skipRequestScope: true })
   getOne(@CurrentUser() user: AuthUser, @Param("id") id: string) {
     return this.feedback.getOne(user, id);
   }
@@ -87,6 +101,12 @@ export class FeedbackController {
   @RequiresPermission(PermissionAction.MANAGE_FEEDBACK)
   archive(@CurrentUser() user: AuthUser, @Param("id") id: string) {
     return this.feedback.archive(user, id);
+  }
+
+  @Delete("forms/:id")
+  @RequiresPermission(PermissionAction.MANAGE_FEEDBACK)
+  remove(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.feedback.remove(user, id);
   }
 
   @Post("student/forms/:id/submit")

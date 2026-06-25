@@ -38,6 +38,10 @@ export class UpdateBatchModuleDto {
 export class BatchSearchQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsString()
+  campusId?: string;
+
+  @IsOptional()
+  @IsString()
   departmentId?: string;
 
   @IsOptional()

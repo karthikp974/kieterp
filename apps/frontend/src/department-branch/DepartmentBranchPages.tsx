@@ -1,9 +1,12 @@
-import { ArrowLeft, Bell, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Plus, Trash2 } from "lucide-react";
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/auth-context";
-import { AdminWorkflowMenuButton, OptionActionButton } from "../shared/OptionPage";
+import { AdminWorkflowMenuButton, OptionActionButton, WorkflowSection } from "../shared/OptionPage";
 import { SearchableSelect } from "../shared/SearchableSelect";
+import { ProfileMenuButton } from "../shared/ProfileMenu";
+import { ExistingRecordsPanel, ExistingRecordsPageIntro, WorkflowExistingRecordsPageShell } from "../shared/WorkflowExistingRecords";
+import { appendOwnedCampusFilter } from "../shared/existing-records-query.util";
 import { useToast } from "../shared/toast-context";
 
 type Campus = { id: string; code: string; name: string };
@@ -15,6 +18,7 @@ type Department = {
   code: string;
   durationYears: number;
   branches: BranchRow[];
+  campus?: { id: string; code: string; name: string };
 };
 type Branch = {
   id: string;
@@ -22,6 +26,7 @@ type Branch = {
   departmentId: string;
   name: string;
   code: string;
+  campus?: { id: string; code: string; name: string };
   department: { id: string; name: string; code: string };
 };
 type PageResponse<T> = { items: T[]; total: number };
@@ -30,33 +35,107 @@ const emptyBranch = (): BranchRow => ({ name: "", code: "" });
 
 export function DepartmentBranchHomePage() {
   const navigate = useNavigate();
-  const data = useDepartmentBranchData();
-  const { loadBranches, loadDepartments } = data;
-  useEffect(() => {
-    void loadDepartments();
-    void loadBranches();
-  }, [loadBranches, loadDepartments]);
+
   return (
     <FocusedShell title="Department & Branch" variant="main">
       <WorkflowSection title="Create Records">
-        <GlassActionButton onClick={() => navigate("/department-branch/add-department")}>Add Department</GlassActionButton>
-        <GlassActionButton onClick={() => navigate("/department-branch/add-branch")}>Add Branch</GlassActionButton>
+        <OptionActionButton onClick={() => navigate("/department-branch/add-department")}>Add Department</OptionActionButton>
+        <OptionActionButton onClick={() => navigate("/department-branch/add-branch")}>Add Branch</OptionActionButton>
       </WorkflowSection>
 
       <WorkflowSection title="Departments">
-        <GlassActionButton onClick={() => navigate("/department-branch/modify-department")}>Modify Department</GlassActionButton>
-        <GlassActionButton tone="danger" onClick={() => navigate("/department-branch/delete-department")}>Delete Department</GlassActionButton>
+        <OptionActionButton onClick={() => navigate("/department-branch/modify-department")}>Modify Department</OptionActionButton>
+        <OptionActionButton tone="danger" onClick={() => navigate("/department-branch/delete-department")}>Delete Department</OptionActionButton>
       </WorkflowSection>
 
       <WorkflowSection title="Branches">
-        <GlassActionButton onClick={() => navigate("/department-branch/modify-branch")}>Modify Branch</GlassActionButton>
-        <GlassActionButton tone="danger" onClick={() => navigate("/department-branch/delete-branch")}>Delete Branch</GlassActionButton>
+        <OptionActionButton onClick={() => navigate("/department-branch/modify-branch")}>Modify Branch</OptionActionButton>
+        <OptionActionButton tone="danger" onClick={() => navigate("/department-branch/delete-branch")}>Delete Branch</OptionActionButton>
       </WorkflowSection>
 
       <WorkflowSection title="Activity">
-        <GlassActionButton onClick={() => navigate("/department-branch/history")}>History</GlassActionButton>
+        <OptionActionButton onClick={() => navigate("/department-branch/existing-records")}>Existing records</OptionActionButton>
+        <OptionActionButton onClick={() => navigate("/department-branch/history")}>History</OptionActionButton>
       </WorkflowSection>
     </FocusedShell>
+  );
+}
+
+export function DepartmentBranchExistingRecordsPage() {
+  const data = useDepartmentBranchData();
+  const { campuses, departments, branches, departmentTotal, branchTotal, isCatalogLoading, loadCatalog } = data;
+  const [campusId, setCampusId] = useState("");
+  const [departmentSearch, setDepartmentSearch] = useState("");
+  const [branchSearch, setBranchSearch] = useState("");
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void loadCatalog({ campusId, departmentSearch, branchSearch });
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [branchSearch, campusId, departmentSearch, loadCatalog]);
+
+  return (
+    <WorkflowExistingRecordsPageShell title="Existing records">
+      <ExistingRecordsPageIntro
+        title="Department & Branch catalog"
+        description="Browse departments and branches already saved in KIET ERP."
+      />
+      <div className="db-existing-records-stack">
+        <ExistingRecordsPanel
+          title="Departments"
+          total={departmentTotal}
+          isLoading={isCatalogLoading}
+          campusId={campusId}
+          campusOptions={campuses.map((campus) => [campus.id, campus.code])}
+          onCampusChange={setCampusId}
+          search={departmentSearch}
+          onSearchChange={setDepartmentSearch}
+          columns={[
+            { header: "Campus" },
+            { header: "Code" },
+            { header: "Department" },
+            { header: "Years" },
+            { header: "Branches" }
+          ]}
+          rows={departments.map((department) => ({
+            id: department.id,
+            cells: [
+              department.campus?.code ?? "-",
+              department.code,
+              department.name,
+              String(department.durationYears),
+              String(department.branches.length)
+            ]
+          }))}
+        />
+        <ExistingRecordsPanel
+          title="Branches"
+          total={branchTotal}
+          isLoading={isCatalogLoading}
+          campusId={campusId}
+          campusOptions={campuses.map((campus) => [campus.id, campus.code])}
+          onCampusChange={setCampusId}
+          search={branchSearch}
+          onSearchChange={setBranchSearch}
+          columns={[
+            { header: "Campus" },
+            { header: "Department" },
+            { header: "Code" },
+            { header: "Branch" }
+          ]}
+          rows={branches.map((branch) => ({
+            id: branch.id,
+            cells: [
+              branch.campus?.code ?? "-",
+              formatOptionLabel(branch.department.code, branch.department.name),
+              branch.code,
+              branch.name
+            ]
+          }))}
+        />
+      </div>
+    </WorkflowExistingRecordsPageShell>
   );
 }
 
@@ -394,8 +473,6 @@ export function DeleteBranchPage() {
 
 function FocusedShell({ children, title, variant = "subpage" }: { children: ReactNode; title: string; variant?: "main" | "subpage" }) {
   const navigate = useNavigate();
-  const { user } = useAuth();
-  const initials = user?.fullName?.split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "CA";
 
   return (
     <main className="db-workflow min-h-screen">
@@ -411,12 +488,7 @@ function FocusedShell({ children, title, variant = "subpage" }: { children: Reac
           <h1>{title}</h1>
         </div>
         <div className="db-header-actions">
-          {variant === "main" ? (
-            <>
-              <button className="db-icon-button" type="button" aria-label="Notifications"><Bell size={18} /></button>
-            </>
-          ) : null}
-          <div className="db-avatar">{initials}</div>
+          <ProfileMenuButton />
         </div>
       </header>
       <section className="db-workflow-body">{children}</section>
@@ -430,6 +502,9 @@ function useDepartmentBranchData() {
   const [campuses, setCampuses] = useState<Campus[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
+  const [departmentTotal, setDepartmentTotal] = useState(0);
+  const [branchTotal, setBranchTotal] = useState(0);
+  const [isCatalogLoading, setIsCatalogLoading] = useState(true);
 
   const fetchJson = useCallback(async <T,>(path: string) => {
     const response = await authFetch(path);
@@ -448,44 +523,63 @@ function useDepartmentBranchData() {
     setCampuses(page.items);
   }, [fetchJson]);
 
-  const loadDepartments = useCallback(async (campusId?: string) => {
+  const loadDepartments = useCallback(async (campusId?: string, search?: string) => {
     const params = new URLSearchParams({ pageSize: "100" });
-    if (campusId) params.set("campusId", campusId);
+    appendOwnedCampusFilter(params, campusId);
+    if (search?.trim()) params.set("search", search.trim());
     const page = await fetchJson<PageResponse<Department>>(`/api/departments?${params.toString()}`);
     setDepartments(page.items);
+    setDepartmentTotal(page.total);
+    return page.items;
   }, [fetchJson]);
 
-  const loadBranches = useCallback(async (campusId?: string) => {
+  const loadBranches = useCallback(async (campusId?: string, search?: string) => {
     const params = new URLSearchParams({ pageSize: "100" });
-    if (campusId) params.set("campusId", campusId);
+    appendOwnedCampusFilter(params, campusId);
+    if (search?.trim()) params.set("search", search.trim());
     const page = await fetchJson<PageResponse<Branch>>(`/api/branches?${params.toString()}`);
     setBranches(page.items);
+    setBranchTotal(page.total);
+    return page.items;
   }, [fetchJson]);
+
+  const loadCatalog = useCallback(async (filters: { campusId?: string; departmentSearch?: string; branchSearch?: string }) => {
+    setIsCatalogLoading(true);
+    try {
+      await Promise.all([
+        loadDepartments(filters.campusId, filters.departmentSearch),
+        loadBranches(filters.campusId, filters.branchSearch)
+      ]);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Unable to load existing records", "error");
+    } finally {
+      setIsCatalogLoading(false);
+    }
+  }, [loadBranches, loadDepartments, showToast]);
 
   useEffect(() => {
     void loadCampuses().catch((error) => showToast(error instanceof Error ? error.message : "Unable to load campuses", "error"));
   }, [loadCampuses, showToast]);
 
-  return { campuses, departments, branches, fetchJson, sendJson, loadDepartments, loadBranches };
+  return {
+    campuses,
+    departments,
+    branches,
+    departmentTotal,
+    branchTotal,
+    isCatalogLoading,
+    fetchJson,
+    sendJson,
+    loadDepartments,
+    loadBranches,
+    loadCatalog
+  };
 }
 
 async function responseError(response: Response) {
   const payload = (await response.json().catch(() => null)) as { message?: string | string[] } | null;
   const message = Array.isArray(payload?.message) ? payload.message.join(", ") : payload?.message;
   return new Error(message || "Request failed.");
-}
-
-function WorkflowSection({ children, title }: { children: ReactNode; title: string }) {
-  return (
-    <section className="db-section">
-      <h2>{title}</h2>
-      <div className="db-module-grid">{children}</div>
-    </section>
-  );
-}
-
-function GlassActionButton({ children, onClick, tone = "default" }: { children: ReactNode; onClick: () => void; tone?: "default" | "danger" }) {
-  return <OptionActionButton tone={tone} onClick={onClick}>{children}</OptionActionButton>;
 }
 
 function Field({ children, label }: { children: ReactNode; label: string }) {

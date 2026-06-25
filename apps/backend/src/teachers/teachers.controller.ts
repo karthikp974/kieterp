@@ -1,6 +1,8 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
 import { PermissionAction } from "@prisma/client";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
+import { AuthUser } from "../auth/auth.types";
+import { CurrentUser } from "../auth/current-user.decorator";
 import { PermissionGuard } from "../permissions/permission.guard";
 import { RequiresPermission } from "../permissions/requires-permission.decorator";
 import {
@@ -20,73 +22,73 @@ export class TeachersController {
 
   @Get()
   @RequiresPermission(PermissionAction.MANAGE_USERS)
-  list(@Query() query: TeacherListQueryDto) {
-    return this.teachers.list(query);
+  list(@CurrentUser() user: AuthUser, @Query() query: TeacherListQueryDto) {
+    return this.teachers.list(query, user);
   }
 
   @Get("search")
   @RequiresPermission(PermissionAction.MANAGE_USERS)
-  search(@Query() query: TeacherListQueryDto) {
-    return this.teachers.search(query);
+  search(@CurrentUser() user: AuthUser, @Query() query: TeacherListQueryDto) {
+    return this.teachers.search(query, user);
   }
 
   @Get(":id")
   @RequiresPermission(PermissionAction.MANAGE_USERS)
-  get(@Param("id") id: string) {
-    return this.teachers.get(id);
+  get(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.teachers.get(id, user);
   }
 
   @Post("validate")
   @RequiresPermission(PermissionAction.MANAGE_USERS)
-  validate(@Body() dto: CreateTeacherDto) {
-    return this.teachers.validate(dto);
+  validate(@CurrentUser() user: AuthUser, @Body() dto: CreateTeacherDto) {
+    return this.teachers.validate(dto, user);
   }
 
   @Post()
   @RequiresPermission(PermissionAction.MANAGE_USERS)
-  create(@Body() dto: CreateTeacherDto) {
-    return this.teachers.create(dto);
+  create(@CurrentUser() user: AuthUser, @Body() dto: CreateTeacherDto) {
+    return this.teachers.create(dto, user);
   }
 
   @Post("bulk")
   @RequiresPermission(PermissionAction.MANAGE_USERS)
-  bulkCreate(@Body() dto: BulkCreateTeachersDto) {
-    return this.teachers.bulkCreate(dto);
+  bulkCreate(@CurrentUser() user: AuthUser, @Body() dto: BulkCreateTeachersDto) {
+    return this.teachers.bulkCreate(dto, user);
   }
 
   @Patch(":id")
   @RequiresPermission(PermissionAction.MANAGE_USERS)
-  update(@Param("id") id: string, @Body() dto: UpdateTeacherDto) {
-    return this.teachers.update(id, dto);
+  update(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: UpdateTeacherDto) {
+    return this.teachers.update(id, dto, user);
   }
 
   @Patch(":id/assignments")
   @RequiresPermission(PermissionAction.MANAGE_USERS)
-  updateAssignments(@Param("id") id: string, @Body() dto: UpdateTeacherAssignmentsDto) {
-    return this.teachers.updateAssignments(id, dto);
+  updateAssignments(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: UpdateTeacherAssignmentsDto) {
+    return this.teachers.updateAssignments(id, dto, user);
   }
 
   @Post(":id/deactivate")
   @RequiresPermission(PermissionAction.MANAGE_USERS)
-  deactivate(@Param("id") id: string) {
-    return this.teachers.deactivate(id);
+  deactivate(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.teachers.deactivate(id, user);
   }
 
   @Delete(":id")
   @RequiresPermission(PermissionAction.MANAGE_USERS)
-  archive(@Param("id") id: string) {
-    return this.teachers.archive(id);
+  archive(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.teachers.archive(id, user);
   }
 
   @Post(":id/reactivate")
   @RequiresPermission(PermissionAction.MANAGE_USERS)
-  reactivate(@Param("id") id: string) {
-    return this.teachers.reactivate(id);
+  reactivate(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.teachers.reactivate(id, user);
   }
 
   @Post(":id/reset-password")
   @RequiresPermission(PermissionAction.MANAGE_USERS)
-  resetPassword(@Param("id") id: string, @Body() dto: ResetTeacherPasswordDto) {
-    return this.teachers.resetPassword(id, dto);
+  resetPassword(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: ResetTeacherPasswordDto) {
+    return this.teachers.resetPassword(id, dto, user);
   }
 }

@@ -1,9 +1,13 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { formatIstDate } from "../common/ist-time.util";
 import { AuthSessionStatus, Prisma, StructureStatus, TeacherRoleKind, UserStatus, UserType } from "@prisma/client";
-import bcrypt from "bcryptjs";
+import bcrypt from "bcrypt";
+import { AuthUser } from "../auth/auth.types";
 import { toPagination } from "../common/pagination.dto";
 import { EmailService } from "../email/email.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { CampusScopeService, isInstitutionWideAdmin } from "../permissions/campus-scope.service";
+import { SharedGroupAcademicService } from "../permissions/shared-group-academic.service";
 import { assertNoDuplicateAssignments, validateAssignmentShape } from "./teacher-assignment.util";
 import {
   BulkCreateTeachersDto,
@@ -19,15 +23,22 @@ import {
 export class TeachersService {
   private readonly logger = new Logger(TeachersService.name);
 
-  constructor(private readonly prisma: PrismaService, private readonly email: EmailService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly email: EmailService,
+    private readonly campusScope: CampusScopeService,
+    private readonly sharedGroup: SharedGroupAcademicService
+  ) {}
 
-  async list(query: TeacherListQueryDto) {
+  async list(query: TeacherListQueryDto, user: AuthUser) {
     const pagination = toPagination(query);
+    const scopeWhere = this.campusScope.teacherProfileWhereForAdmin(user);
     const where: Prisma.TeacherProfileWhereInput = {
       isArchived: false,
       user: {
         status: query.status ?? UserStatus.ACTIVE
       },
+      ...(Object.keys(scopeWhere).length ? scopeWhere : {}),
       ...(query.search
         ? {
             OR: [
@@ -76,7 +87,7 @@ export class TeachersService {
           email: teacher.user.email,
           phone: teacher.user.phone,
           designation: teacher.designation,
-          joinedOn: teacher.joinedOn?.toISOString().slice(0, 10),
+          joinedOn: teacher.joinedOn ? formatIstDate(teacher.joinedOn) : null,
           status: teacher.user.status
         },
         summary: {
@@ -94,14 +105,14 @@ export class TeachersService {
     };
   }
 
-  async search(query: TeacherListQueryDto) {
-    const results = await this.list({ ...query, page: query.page ?? 1, pageSize: query.pageSize ?? 10, status: query.status ?? UserStatus.ACTIVE });
+  async search(query: TeacherListQueryDto, user: AuthUser) {
+    const results = await this.list({ ...query, page: query.page ?? 1, pageSize: query.pageSize ?? 10, status: query.status ?? UserStatus.ACTIVE }, user);
     return results;
   }
 
-  async get(id: string) {
-    const teacher = await this.prisma.teacherProfile.findUnique({
-      where: { id },
+  async get(id: string, user: AuthUser) {
+    const teacher = await this.prisma.teacherProfile.findFirst({
+      where: { id, ...this.campusScope.teacherProfileWhereForAdmin(user) },
       include: {
         user: true,
         assignments: {
@@ -118,13 +129,13 @@ export class TeachersService {
     return { teacher: this.toTeacherObject(teacher) };
   }
 
-  async validate(dto: CreateTeacherDto) {
-    await this.validateTeacherPayload(dto);
+  async validate(dto: CreateTeacherDto, user: AuthUser) {
+    await this.validateTeacherPayload(dto, user);
     return { ok: true };
   }
 
-  async create(dto: CreateTeacherDto) {
-    await this.validateTeacherPayload(dto);
+  async create(dto: CreateTeacherDto, user: AuthUser) {
+    await this.validateTeacherPayload(dto, user);
     const employeeCode = dto.identity.employeeCode.trim().toUpperCase();
     const phone = this.normalizePhone(dto.identity.phone);
     const passwordHash = await bcrypt.hash(employeeCode, 12);
@@ -198,7 +209,8 @@ export class TeachersService {
     }
   }
 
-  async deactivate(id: string) {
+  async deactivate(id: string, user: AuthUser) {
+    await this.requireTeacherInScope(user, id);
     const teacher = await this.prisma.teacherProfile.findUnique({ where: { id }, select: { userId: true } });
     if (!teacher) throw new NotFoundException("Teacher not found.");
 
@@ -215,7 +227,8 @@ export class TeachersService {
     return { ok: true };
   }
 
-  async archive(id: string) {
+  async archive(id: string, user: AuthUser) {
+    await this.requireTeacherInScope(user, id);
     const teacher = await this.prisma.teacherProfile.findUnique({
       where: { id },
       select: { userId: true, employeeCode: true, isArchived: true, user: { select: { email: true } } }
@@ -241,7 +254,8 @@ export class TeachersService {
     return { ok: true };
   }
 
-  async update(id: string, dto: UpdateTeacherDto) {
+  async update(id: string, dto: UpdateTeacherDto, user: AuthUser) {
+    await this.requireTeacherInScope(user, id);
     const existing = await this.prisma.teacherProfile.findUnique({ where: { id }, select: { userId: true } });
     if (!existing) throw new NotFoundException("Teacher not found.");
     const phone = this.normalizePhone(dto.phone);
@@ -285,10 +299,11 @@ export class TeachersService {
     }
   }
 
-  async updateAssignments(id: string, dto: UpdateTeacherAssignmentsDto) {
+  async updateAssignments(id: string, dto: UpdateTeacherAssignmentsDto, user: AuthUser) {
+    await this.requireTeacherInScope(user, id);
     const teacher = await this.prisma.teacherProfile.findUnique({ where: { id }, select: { userId: true } });
     if (!teacher) throw new NotFoundException("Teacher not found.");
-    await this.validateAssignments(dto.assignments);
+    await this.validateAssignments(dto.assignments, user);
 
     await this.prisma.$transaction(async (tx) => {
       await tx.teacherRoleAssignment.updateMany({ where: { teacherProfileId: id, isActive: true }, data: { isActive: false } });
@@ -310,10 +325,11 @@ export class TeachersService {
     });
 
     await this.logAudit("UPDATE_TEACHER_ASSIGNMENTS", "TeacherProfile", id, { assignments: dto.assignments.length });
-    return this.get(id);
+    return this.get(id, user);
   }
 
-  async reactivate(id: string) {
+  async reactivate(id: string, user: AuthUser) {
+    await this.requireTeacherInScope(user, id);
     const teacher = await this.prisma.teacherProfile.findUnique({ where: { id }, select: { userId: true } });
     if (!teacher) throw new NotFoundException("Teacher not found.");
     await this.prisma.user.update({ where: { id: teacher.userId }, data: { status: UserStatus.ACTIVE } });
@@ -321,7 +337,8 @@ export class TeachersService {
     return { ok: true };
   }
 
-  async resetPassword(id: string, dto: ResetTeacherPasswordDto) {
+  async resetPassword(id: string, dto: ResetTeacherPasswordDto, user: AuthUser) {
+    await this.requireTeacherInScope(user, id);
     const teacher = await this.prisma.teacherProfile.findUnique({ where: { id }, select: { userId: true } });
     if (!teacher) throw new NotFoundException("Teacher not found.");
 
@@ -338,13 +355,13 @@ export class TeachersService {
     return { ok: true };
   }
 
-  async bulkCreate(dto: BulkCreateTeachersDto) {
+  async bulkCreate(dto: BulkCreateTeachersDto, user: AuthUser) {
     const created: string[] = [];
     const errors: { employeeCode: string; message: string }[] = [];
 
     for (const teacher of dto.teachers) {
       try {
-        const result = await this.create(teacher);
+        const result = await this.create(teacher, user);
         created.push(result.teacher.id);
       } catch (error) {
         errors.push({
@@ -358,12 +375,12 @@ export class TeachersService {
     return { created: created.length, errors };
   }
 
-  private async validateTeacherPayload(dto: CreateTeacherDto) {
+  private async validateTeacherPayload(dto: CreateTeacherDto, user: AuthUser) {
     const phone = this.normalizePhone(dto.identity.phone);
     if (dto.identity.phone && !phone) throw new BadRequestException("Phone must be exactly 10 digits.");
     dto.identity.phone = phone;
     dto.identity.password = dto.identity.employeeCode.trim().toUpperCase();
-    await this.validateAssignments(dto.assignments);
+    await this.validateAssignments(dto.assignments, user);
   }
 
   private normalizePhone(value?: string) {
@@ -374,8 +391,28 @@ export class TeachersService {
     return withoutLeadingZero.length === 10 ? withoutLeadingZero : undefined;
   }
 
-  private async validateAssignments(assignments: TeacherAssignmentDto[]) {
+  private async requireTeacherInScope(actor: AuthUser, teacherProfileId: string) {
+    const row = await this.prisma.teacherProfile.findFirst({
+      where: { id: teacherProfileId, ...this.campusScope.teacherProfileWhereForAdmin(actor) },
+      select: { id: true }
+    });
+    if (!row) throw new NotFoundException("Teacher not found.");
+  }
+
+  private async assertAssignmentsAllowedForAdmin(user: AuthUser, assignments: TeacherAssignmentDto[]) {
+    if (user.type !== UserType.ADMIN || isInstitutionWideAdmin(user)) return;
+    for (const assignment of assignments) {
+      await this.campusScope.assertCampusAllowed(user, assignment.campusId);
+      if (assignment.sectionId) await this.campusScope.assertSectionInScope(user, assignment.sectionId);
+      else if (assignment.classId) await this.campusScope.assertAcademicClassInScope(user, assignment.classId);
+      else if (assignment.batchId) await this.campusScope.assertBatchInScope(user, assignment.batchId);
+      else if (assignment.branchId) await this.campusScope.assertBranchInScope(user, assignment.branchId);
+    }
+  }
+
+  private async validateAssignments(assignments: TeacherAssignmentDto[], user: AuthUser) {
     assertNoDuplicateAssignments(assignments);
+    await this.assertAssignmentsAllowedForAdmin(user, assignments);
     for (const assignment of assignments) {
       validateAssignmentShape(assignment);
       await this.validateAssignmentCatalog(assignment);
@@ -386,10 +423,14 @@ export class TeachersService {
     const campus = await this.prisma.campus.findUnique({ where: { id: assignment.campusId }, include: { group: true } });
     if (!campus || campus.status !== StructureStatus.ACTIVE) throw new BadRequestException("Campus does not exist or is archived.");
 
-    const program = await this.prisma.program.findUnique({ where: { id: assignment.programId } });
-    if (!program || program.status !== StructureStatus.ACTIVE || program.campusId !== assignment.campusId) {
+    const program = await this.prisma.program.findUnique({
+      where: { id: assignment.programId },
+      include: { campus: true }
+    });
+    if (!program || program.status !== StructureStatus.ACTIVE) {
       throw new BadRequestException("Program does not belong to selected campus or is archived.");
     }
+    this.sharedGroup.assertOperationalCampusMatchesStructure(program, campus);
 
     const branch = await this.prisma.branch.findUnique({ where: { id: assignment.branchId } });
     if (!branch || branch.status !== StructureStatus.ACTIVE || branch.programId !== assignment.programId) {
@@ -467,7 +508,7 @@ export class TeachersService {
         email: teacher.user.email,
         phone: teacher.user.phone,
         designation: teacher.designation,
-        joinedOn: teacher.joinedOn?.toISOString().slice(0, 10),
+        joinedOn: teacher.joinedOn ? formatIstDate(teacher.joinedOn) : null,
         status: teacher.user.status
       },
       summary: {

@@ -2,12 +2,16 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Prisma, ProgramDurationUnit, StructureStatus } from "@prisma/client";
 import { PaginationQueryDto, toPagination } from "../common/pagination.dto";
 import { normalizeCode, normalizeName } from "../core/structure.util";
+import { SharedGroupAcademicService } from "../permissions/shared-group-academic.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { BranchQueryDto, CreateBranchesDto, CreateDepartmentDto, DepartmentBranchRowDto, DepartmentQueryDto, UpdateBranchDto, UpdateDepartmentDto } from "./department-branch.dto";
 
 @Injectable()
 export class DepartmentBranchService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly sharedGroup: SharedGroupAcademicService
+  ) {}
 
   async campuses(query: PaginationQueryDto) {
     const pagination = toPagination(query);
@@ -25,7 +29,13 @@ export class DepartmentBranchService {
     };
 
     const [items, total] = await Promise.all([
-      this.prisma.campus.findMany({ where, orderBy: { code: "asc" }, skip: pagination.skip, take: pagination.take }),
+      this.prisma.campus.findMany({
+        where,
+        include: { group: true },
+        orderBy: { code: "asc" },
+        skip: pagination.skip,
+        take: pagination.take
+      }),
       this.prisma.campus.count({ where })
     ]);
     return { items, total, page: pagination.page, pageSize: pagination.pageSize };
@@ -33,10 +43,15 @@ export class DepartmentBranchService {
 
   async listDepartments(query: DepartmentQueryDto) {
     const pagination = toPagination(query);
+    const campusScope = query.campusScope ?? "shared";
+    const campusProgramFilter = query.campusId
+      ? campusScope === "owned"
+        ? { campusId: query.campusId, campus: { status: StructureStatus.ACTIVE } }
+        : await this.sharedGroup.programWhereForCampusFilter(query.campusId)
+      : {};
     const where: Prisma.ProgramWhereInput = {
-      campusId: query.campusId,
+      ...campusProgramFilter,
       ...(query.includeArchived ? {} : { status: StructureStatus.ACTIVE, isArchived: false }),
-      campus: { status: StructureStatus.ACTIVE, isActive: true },
       ...(query.search
         ? {
             OR: [
@@ -63,15 +78,12 @@ export class DepartmentBranchService {
 
   async listBranches(query: BranchQueryDto) {
     const pagination = toPagination(query);
+    const campusScope = query.campusScope ?? "shared";
+    const programFilter = await this.sharedGroup.programCatalogFilter(query.campusId, query.departmentId, campusScope);
     const where: Prisma.BranchWhereInput = {
-      programId: query.departmentId,
+      ...(query.departmentId ? { programId: query.departmentId } : {}),
       ...(query.includeArchived ? {} : { status: StructureStatus.ACTIVE, isArchived: false }),
-      program: {
-        ...(query.campusId ? { campusId: query.campusId } : {}),
-        status: StructureStatus.ACTIVE,
-        isArchived: false,
-        campus: { status: StructureStatus.ACTIVE, isActive: true }
-      },
+      ...(programFilter ? { program: programFilter } : {}),
       ...(query.search
         ? {
             OR: [

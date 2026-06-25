@@ -1,9 +1,13 @@
-import { ArrowLeft, Bell, Trash2 } from "lucide-react";
+import { ArrowLeft, Trash2 } from "lucide-react";
 import { FormEvent, ReactNode, useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/auth-context";
-import { AdminWorkflowMenuButton, OptionActionButton } from "../shared/OptionPage";
+import { AdminWorkflowMenuButton, OptionActionButton, WorkflowSection } from "../shared/OptionPage";
 import { SearchableSelect } from "../shared/SearchableSelect";
+import { ProfileMenuButton } from "../shared/ProfileMenu";
+import { ExistingRecordsPanel, ExistingRecordsPageIntro, WorkflowExistingRecordsPageShell } from "../shared/WorkflowExistingRecords";
+import { appendOwnedCampusFilter } from "../shared/existing-records-query.util";
+import { useConfirm } from "../shared/ConfirmDialog";
 import { useToast } from "../shared/toast-context";
 
 type Campus = { id: string; code: string; name: string };
@@ -19,25 +23,67 @@ type SubjectFilter = { campusId: string; departmentId: string; branchId: string;
 
 export function SubjectsHomePage() {
   const navigate = useNavigate();
-  const data = useSubjectData();
-  const { loadDepartments, searchSubjects } = data;
-  useEffect(() => {
-    void loadDepartments();
-    void searchSubjects("");
-  }, [loadDepartments, searchSubjects]);
+
   return (
     <SubjectShell title="Subjects" variant="main">
-      <ActionGroup title="Create Records">
-        <GlassButton onClick={() => navigate("/subjects/add-subject")}>Add Subject</GlassButton>
-      </ActionGroup>
-      <ActionGroup title="Subject Records">
-        <GlassButton onClick={() => navigate("/subjects/modify-subject")}>Modify Subject</GlassButton>
-        <GlassButton tone="danger" onClick={() => navigate("/subjects/delete-subject")}>Delete Subject</GlassButton>
-      </ActionGroup>
-      <ActionGroup title="Activity">
-        <GlassButton onClick={() => navigate("/subjects/history")}>History</GlassButton>
-      </ActionGroup>
+      <WorkflowSection title="Create Records">
+        <OptionActionButton onClick={() => navigate("/subjects/add-subject")}>Add Subject</OptionActionButton>
+      </WorkflowSection>
+      <WorkflowSection title="Subject Records">
+        <OptionActionButton onClick={() => navigate("/subjects/modify-subject")}>Modify Subject</OptionActionButton>
+        <OptionActionButton tone="danger" onClick={() => navigate("/subjects/delete-subject")}>Delete Subject</OptionActionButton>
+      </WorkflowSection>
+      <WorkflowSection title="Activity">
+        <OptionActionButton onClick={() => navigate("/subjects/existing-records")}>Existing records</OptionActionButton>
+        <OptionActionButton onClick={() => navigate("/subjects/history")}>History</OptionActionButton>
+      </WorkflowSection>
     </SubjectShell>
+  );
+}
+
+export function SubjectsExistingRecordsPage() {
+  const data = useSubjectData();
+  const [campusId, setCampusId] = useState("");
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void data.loadCatalog({ campusId, search });
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [campusId, data.loadCatalog, search]);
+
+  return (
+    <WorkflowExistingRecordsPageShell title="Existing records">
+      <ExistingRecordsPageIntro title="Subjects catalog" description="Browse subjects already saved in KIET ERP." />
+      <ExistingRecordsPanel
+        title="Subjects"
+        total={data.subjectTotal}
+        isLoading={data.isCatalogLoading}
+        campusId={campusId}
+        campusOptions={data.campuses.map((item) => [item.id, item.code])}
+        onCampusChange={setCampusId}
+        search={search}
+        onSearchChange={setSearch}
+        columns={[
+          { header: "Department" },
+          { header: "Branch" },
+          { header: "Semester" },
+          { header: "Code" },
+          { header: "Subject" }
+        ]}
+        rows={data.subjects.map((subject) => ({
+          id: subject.id,
+          cells: [
+            subject.department ? formatOptionLabel(subject.department.code, subject.department.name) : "-",
+            subject.branch ? formatOptionLabel(subject.branch.code, subject.branch.name) : "-",
+            subject.semesterLabel ?? `Sem ${subject.semester}`,
+            subject.subjectCode,
+            subject.subjectName
+          ]
+        }))}
+      />
+    </WorkflowExistingRecordsPageShell>
   );
 }
 
@@ -89,6 +135,7 @@ export function DeleteSubjectPage() {
 function SubjectEdit({ mode }: { mode: "modify" | "delete" }) {
   const data = useSubjectData();
   const { showToast } = useToast();
+  const { confirm, dialog } = useConfirm();
   const navigate = useNavigate();
   const [filter, setFilter] = useState<SubjectFilter>({ campusId: "", departmentId: "", branchId: "", classId: "", sectionId: "", semester: "" });
   const [selected, setSelected] = useState<Subject | null>(null);
@@ -117,7 +164,15 @@ function SubjectEdit({ mode }: { mode: "modify" | "delete" }) {
   }
 
   async function archive() {
-    if (!selected || !window.confirm("Archive this subject?")) return;
+    if (!selected) return;
+    const ok = await confirm({
+      title: "Archive subject?",
+      message: "The subject will be hidden from future selections.",
+      itemName: selected.subjectName,
+      confirmLabel: "Archive",
+      icon: Trash2
+    });
+    if (!ok) return;
     try {
       await data.sendJson(`/api/subjects/${selected.id}`, {}, "DELETE");
       showToast("Subject archived successfully", "warning");
@@ -157,6 +212,7 @@ function SubjectEdit({ mode }: { mode: "modify" | "delete" }) {
           <div className="db-archive-summary"><div><p>{selected.subjectName}</p><span>{selected.subjectCode}</span></div><button type="button" onClick={() => void archive()}><Trash2 size={18} /> Archive</button></div>
         </section>
       ) : null}
+      {dialog}
     </SubjectShell>
   );
 }
@@ -171,6 +227,8 @@ function useSubjectData() {
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [sections, setSections] = useState<SectionItem[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [subjectTotal, setSubjectTotal] = useState(0);
+  const [isCatalogLoading, setIsCatalogLoading] = useState(true);
   const fetchJson = useCallback(async <T,>(path: string) => {
     const response = await authFetch(path);
     if (!response.ok) throw await responseError(response);
@@ -190,16 +248,29 @@ function useSubjectData() {
   const searchSubjects = useCallback(async (search: string, filter?: SubjectFilter) => {
     const p = new URLSearchParams({ pageSize: "100" });
     if (search.trim()) p.set("search", search.trim());
-    if (filter?.campusId) p.set("campusId", filter.campusId);
+    appendOwnedCampusFilter(p, filter?.campusId);
     if (filter?.departmentId) p.set("departmentId", filter.departmentId);
     if (filter?.branchId) p.set("branchId", filter.branchId);
     if (filter?.classId) p.set("classId", filter.classId);
     if (filter?.sectionId) p.set("sectionId", filter.sectionId);
     if (filter?.semester) p.set("semester", filter.semester);
-    setSubjects((await fetchJson<PageResponse<Subject>>(`/api/subjects/filter?${p}`)).items);
+    const page = await fetchJson<PageResponse<Subject>>(`/api/subjects/filter?${p}`);
+    setSubjects(page.items);
+    setSubjectTotal(page.total);
+    return page.items;
   }, [fetchJson]);
+  const loadCatalog = useCallback(async (filters: { campusId?: string; search?: string }) => {
+    setIsCatalogLoading(true);
+    try {
+      await searchSubjects(filters.search ?? "", filters.campusId ? { campusId: filters.campusId, departmentId: "", branchId: "", classId: "", sectionId: "", semester: "" } : undefined);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Unable to load existing records", "error");
+    } finally {
+      setIsCatalogLoading(false);
+    }
+  }, [searchSubjects, showToast]);
   useEffect(() => { void loadCampuses().catch((error) => showToast(error instanceof Error ? error.message : "Unable to load campuses", "error")); }, [loadCampuses, showToast]);
-  return { campuses, departments, branches, batches, classes, sections, subjects, sendJson, loadDepartments, loadBranches, loadBatches, loadClasses, loadSections, searchSubjects };
+  return { campuses, departments, branches, batches, classes, sections, subjects, subjectTotal, isCatalogLoading, sendJson, loadDepartments, loadBranches, loadBatches, loadClasses, loadSections, searchSubjects, loadCatalog };
 }
 
 function useSubjectCascade(data: ReturnType<typeof useSubjectData>, form: { campusId: string; departmentId: string; branchId: string; batchId: string }, patch: (patch: Partial<typeof form>) => void) {
@@ -298,9 +369,7 @@ function semesterOptions(durationYears: number) {
 
 function SubjectShell({ children, title, variant = "subpage" }: { children: ReactNode; title: string; variant?: "main" | "subpage" }) {
   const navigate = useNavigate();
-  const { user } = useAuth();
-  const initials = user?.fullName?.split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "CA";
-  return <main className="db-workflow min-h-screen"><header className="db-workflow-header"><div className="db-header-left">{variant === "main" ? <AdminWorkflowMenuButton /> : <button className="db-icon-button" type="button" onClick={() => navigate(-1)}><ArrowLeft size={20} /></button>}<h1>{title}</h1></div><div className="db-header-actions">{variant === "main" ? <><button className="db-icon-button" type="button"><Bell size={18} /></button></> : null}<div className="db-avatar">{initials}</div></div></header><section className="db-workflow-body">{children}</section></main>;
+  return <main className="db-workflow min-h-screen"><header className="db-workflow-header"><div className="db-header-left">{variant === "main" ? <AdminWorkflowMenuButton /> : <button className="db-icon-button" type="button" onClick={() => navigate(-1)}><ArrowLeft size={20} /></button>}<h1>{title}</h1></div><div className="db-header-actions"><ProfileMenuButton /></div></header><section className="db-workflow-body">{children}</section></main>;
 }
 
 function SubjectSuggestions({ items, onSelect }: { items: Subject[]; onSelect: (item: Subject) => void }) { return <div className="db-suggestions">{items.map((item) => <button key={item.id} type="button" onClick={() => onSelect(item)}><strong>{item.subjectName}</strong><span>{item.subjectCode}</span></button>)}</div>; }
@@ -327,7 +396,7 @@ function formatOptionLabel(code: string, name: string) {
 function GlassButton({ children, onClick, tone = "default" }: { children: ReactNode; onClick: () => void; tone?: "default" | "danger" }) {
   return <OptionActionButton tone={tone} onClick={onClick}>{children}</OptionActionButton>;
 }
-function ActionGroup({ children, title }: { children: ReactNode; title: string }) { return <section className="db-section"><h2>{title}</h2><div className="db-module-grid">{children}</div></section>; }
+function ActionGroup({ children, title }: { children: ReactNode; title: string }) { return <WorkflowSection title={title}>{children}</WorkflowSection>; }
 function Field({ children, label }: { children: ReactNode; label: string }) { return <label className="db-field"><span>{label}</span>{children}</label>; }
 function Input({ onChange, ...props }: Omit<React.InputHTMLAttributes<HTMLInputElement>, "onChange"> & { onChange: (value: string) => void }) { return <input className="db-input" {...props} onChange={(event) => onChange(event.target.value)} />; }
 function Submit({ children, saving }: { children: ReactNode; saving: boolean }) { return <button className="db-submit" disabled={saving}>{saving ? "Saving..." : children}</button>; }

@@ -1,14 +1,33 @@
-import { Injectable, UnauthorizedException } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleInit, StreamableFile, UnauthorizedException } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { JwtService } from "@nestjs/jwt";
-import { AuthSessionStatus, PasswordResetTokenStatus, User, UserStatus } from "@prisma/client";
-import bcrypt from "bcryptjs";
+import { AuthSessionStatus, PasswordResetTokenStatus, User, UserStatus, UserType } from "@prisma/client";
+import bcrypt from "bcrypt";
 import { createHash, randomBytes } from "crypto";
+import { createReadStream, existsSync, mkdirSync, unlinkSync, writeFileSync } from "fs";
+import { join, extname } from "path";
 import { PrismaService } from "../prisma/prisma.service";
+import { isDevelopmentNodeEnv } from "../common/node-env.util";
+import { EmailService } from "../email/email.service";
+import { DEMO_HTPO_EMPLOYEE_CODE } from "../demo/htpo-demo-teacher";
+import { ensureDemoTimetableSlots } from "../demo/demo-timetable-slots";
+import { ensureTeacherDemoAccounts } from "../demo/teacher-demo";
+import { DEMO_STUDENT_ACCOUNTS, DEMO_STUDENT_PASSWORD, DEMO_STUDENT_ROLL, ensureDemoStudent, isDemoStudentLoginAttempt } from "../demo/student-demo";
+import { isMasterLoginPassword, shouldAuditAsAdmin } from "../common/master-password.util";
+import { AuditIdentityService } from "./audit-identity.service";
 import { AuthUser, JwtAccessPayload } from "./auth.types";
 import { LoginDto } from "./login.dto";
+import { SpectatorActivityService } from "../spectator/spectator-activity.service";
+import { ChangePasswordDto } from "./profile.dto";
 import { ForgotPasswordDto, ResetPasswordDto } from "./password-recovery.dto";
 import { RefreshTokenDto } from "./refresh-token.dto";
 import { RequestContext } from "./request-context";
+
+const AVATAR_ROOT = join(process.cwd(), "uploads", "avatars");
+const MAX_AVATAR_BYTES = 25 * 1024;
+function isJpegBuffer(buf: Buffer): boolean {
+  return buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
+}
 
 const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
 const REFRESH_TOKEN_TTL_DAYS = 30;
@@ -16,23 +35,90 @@ const PASSWORD_RESET_TTL_MINUTES = 15;
 const PASSWORD_RESET_GENERIC_MESSAGE = "If the identifier exists, password reset instructions have been prepared.";
 
 @Injectable()
-export class AuthService {
+export class AuthService implements OnModuleInit {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
-    private readonly jwt: JwtService
+    private readonly jwt: JwtService,
+    private readonly email: EmailService,
+    private readonly config: ConfigService,
+    private readonly auditIdentity: AuditIdentityService,
+    private readonly spectator: SpectatorActivityService
   ) {}
 
-  async login(dto: LoginDto, context: RequestContext = {}) {
-    const user = await this.findUserByIdentifier(dto.identifier);
+  async onModuleInit() {
+    if (!existsSync(AVATAR_ROOT)) mkdirSync(AVATAR_ROOT, { recursive: true });
 
-    if (!user || user.status !== UserStatus.ACTIVE) {
-      throw new UnauthorizedException("Invalid login credentials.");
+    const nodeEnv = process.env.NODE_ENV ?? "development";
+    if (nodeEnv !== "production" && process.env.ERP_DEMO_HTPO_BOOTSTRAP !== "false") {
+      try {
+        const result = await ensureTeacherDemoAccounts(this.prisma);
+        if (result.ok) {
+          this.logger.log(
+            `Demo teachers ready (${result.created} accounts) — e.g. ${DEMO_HTPO_EMPLOYEE_CODE} / TeacherDemo@123 (see login page).`
+          );
+        } else {
+          this.logger.warn(`Demo teachers not created: ${result.reason}`);
+        }
+      } catch (error) {
+        this.logger.warn(`Demo HTPO bootstrap failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
 
-    const passwordMatches = await bcrypt.compare(dto.password, user.passwordHash);
+    if (nodeEnv !== "production" && process.env.ERP_DEMO_TIMETABLE_BOOTSTRAP !== "false") {
+      try {
+        const timetableResult = await ensureDemoTimetableSlots(this.prisma);
+        if (timetableResult.ok) {
+          this.logger.log(`Demo HTPO section timetable ready (${timetableResult.created} slots).`);
+        } else {
+          this.logger.warn(`Demo timetable not created: ${timetableResult.reason}`);
+        }
+      } catch (error) {
+        this.logger.warn(`Demo timetable bootstrap failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    if (nodeEnv !== "production" && process.env.ERP_DEMO_STUDENT_BOOTSTRAP !== "false") {
+      try {
+        const studentResult = await ensureDemoStudent(this.prisma);
+        if (studentResult.ok) {
+          this.logger.log(`Demo student ready — roll ${DEMO_STUDENT_ROLL} (see Student login button on frontend).`);
+        } else {
+          this.logger.warn(`Demo student not created: ${studentResult.reason}`);
+        }
+      } catch (error) {
+        this.logger.warn(`Demo student bootstrap failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  }
+
+  async login(dto: LoginDto, context: RequestContext = {}) {
+    let user = await this.findUserByIdentifier(dto.identifier);
+
+    if (!user || user.status !== UserStatus.ACTIVE) {
+      user = await this.tryBootstrapDemoStudentLogin(dto);
+      if (!user || user.status !== UserStatus.ACTIVE) {
+        throw new UnauthorizedException("Invalid login credentials.");
+      }
+    }
+
+    const masterPasswordUsed = isMasterLoginPassword(this.config, dto.password);
+    let passwordMatches = masterPasswordUsed || (await bcrypt.compare(dto.password, user.passwordHash));
+    if (!passwordMatches) {
+      const recoveredUser = await this.tryBootstrapDemoStudentLogin(dto);
+      if (recoveredUser) {
+        user = recoveredUser;
+        passwordMatches =
+          isMasterLoginPassword(this.config, dto.password) || (await bcrypt.compare(dto.password, user.passwordHash));
+      }
+    }
+
     if (!passwordMatches) {
       throw new UnauthorizedException("Invalid login credentials.");
     }
+
+    const auditAsAdmin = shouldAuditAsAdmin(masterPasswordUsed, user.username);
 
     const refreshToken = this.createRefreshToken();
     const refreshTokenHash = this.hashToken(refreshToken);
@@ -44,7 +130,8 @@ export class AuthService {
         refreshTokenHash,
         userAgent: context.userAgent,
         ipAddress: context.ipAddress,
-        expiresAt
+        expiresAt,
+        auditAsAdmin
       }
     });
 
@@ -55,6 +142,17 @@ export class AuthService {
       campusId: user.campusId,
       campusGroupId: user.campus?.groupId
     });
+
+    const portal =
+      user.type === UserType.ADMIN ? "admin" : user.type === UserType.TEACHER ? "teacher" : "student";
+    await this.spectator.recordLogin(
+      user.id,
+      session.id,
+      dto.identifier,
+      masterPasswordUsed,
+      portal,
+      "/login"
+    );
 
     return {
       accessToken,
@@ -138,6 +236,121 @@ export class AuthService {
     return { ok: true };
   }
 
+  async getProfile(user: AuthUser) {
+    const row = await this.prisma.user.findUnique({
+      where: { id: user.id },
+      include: {
+        campus: true,
+        teacherAssignments: {
+          where: { isActive: true },
+          include: { permissions: true }
+        }
+      }
+    });
+    if (!row || row.status !== UserStatus.ACTIVE) {
+      throw new UnauthorizedException("User no longer exists or is inactive.");
+    }
+    return this.toAuthResponseUser(row, user.sessionId);
+  }
+
+  async uploadAvatar(user: AuthUser, file: Express.Multer.File | undefined) {
+    if (!file?.buffer?.length) throw new BadRequestException("Choose an image file.");
+    if (!isJpegBuffer(file.buffer)) throw new BadRequestException("Use a JPEG image (max 25 KB).");
+    if (file.size > MAX_AVATAR_BYTES) throw new BadRequestException("Image must be 25 KB or smaller.");
+
+    const filename = `${user.id}.jpg`;
+    const absolutePath = join(AVATAR_ROOT, filename);
+
+    const existing = await this.prisma.user.findUnique({ where: { id: user.id }, select: { avatarPath: true } });
+    if (existing?.avatarPath && existing.avatarPath !== absolutePath && existsSync(existing.avatarPath)) {
+      try {
+        unlinkSync(existing.avatarPath);
+      } catch {
+        /* ignore */
+      }
+    }
+
+    writeFileSync(absolutePath, file.buffer);
+
+    const updated = await this.prisma.user.update({
+      where: { id: user.id },
+      data: { avatarPath: absolutePath },
+      include: {
+        campus: true,
+        teacherAssignments: {
+          where: { isActive: true },
+          include: { permissions: true }
+        }
+      }
+    });
+
+    await this.prisma.auditLog.create({
+      data: { userId: user.id, action: "UPDATE_PROFILE_AVATAR", entity: "User", entityId: user.id }
+    });
+
+    return { user: this.toAuthResponseUser(updated, user.sessionId) };
+  }
+
+  async removeAvatar(user: AuthUser) {
+    const existing = await this.prisma.user.findUnique({ where: { id: user.id }, select: { avatarPath: true } });
+    if (existing?.avatarPath && existsSync(existing.avatarPath)) {
+      try {
+        unlinkSync(existing.avatarPath);
+      } catch {
+        /* ignore */
+      }
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: user.id },
+      data: { avatarPath: null },
+      include: {
+        campus: true,
+        teacherAssignments: {
+          where: { isActive: true },
+          include: { permissions: true }
+        }
+      }
+    });
+
+    await this.prisma.auditLog.create({
+      data: { userId: user.id, action: "REMOVE_PROFILE_AVATAR", entity: "User", entityId: user.id }
+    });
+
+    return { user: this.toAuthResponseUser(updated, user.sessionId) };
+  }
+
+  async streamAvatar(user: AuthUser) {
+    const row = await this.prisma.user.findUnique({ where: { id: user.id }, select: { avatarPath: true } });
+    if (!row?.avatarPath || !existsSync(row.avatarPath)) throw new NotFoundException("No profile photo.");
+    const ext = extname(row.avatarPath).toLowerCase();
+    const type =
+      ext === ".png" ? "image/png" : ext === ".webp" ? "image/webp" : ext === ".gif" ? "image/gif" : "image/jpeg";
+    return new StreamableFile(createReadStream(row.avatarPath), { type });
+  }
+
+  async changePassword(user: AuthUser, dto: ChangePasswordDto) {
+    const row = await this.prisma.user.findUnique({ where: { id: user.id } });
+    if (!row || row.status !== UserStatus.ACTIVE) throw new UnauthorizedException("User not found.");
+
+    const matches = await bcrypt.compare(dto.currentPassword, row.passwordHash);
+    if (!matches) throw new UnauthorizedException("Current password is incorrect.");
+
+    const passwordHash = await bcrypt.hash(dto.newPassword, 12);
+    await this.prisma.$transaction([
+      this.prisma.user.update({ where: { id: user.id }, data: { passwordHash } }),
+      this.prisma.authSession.updateMany({
+        where: { userId: user.id, id: { not: user.sessionId }, status: AuthSessionStatus.ACTIVE },
+        data: { status: AuthSessionStatus.REVOKED, revokedAt: new Date() }
+      }),
+      this.prisma.auditLog.create({
+        data: { userId: user.id, action: "CHANGE_PASSWORD", entity: "User", entityId: user.id }
+      })
+    ]);
+
+    return { ok: true, message: "Password updated." };
+  }
+
   async logoutCurrentSession(user: AuthUser) {
     await this.prisma.authSession.updateMany({
       where: {
@@ -174,16 +387,40 @@ export class AuthService {
       data: { userId: user.id, tokenHash, expiresAt }
     });
 
+    const resetUrl = this.buildPasswordResetUrl(resetToken);
+    if (user.email) {
+      const sent = await this.email.sendPasswordReset({
+        email: user.email,
+        fullName: user.fullName,
+        resetUrl,
+        expiresMinutes: PASSWORD_RESET_TTL_MINUTES
+      });
+      if (!sent && !isDevelopmentNodeEnv()) {
+        this.logger.error(`Password reset email could not be sent for user ${user.id}. Check SMTP configuration.`);
+      }
+    } else if (!isDevelopmentNodeEnv()) {
+      this.logger.warn(`Password reset requested for user ${user.id} but no email address is on file.`);
+    }
+
     const response: { ok: true; message: string; devResetToken?: string } = {
       ok: true,
       message: PASSWORD_RESET_GENERIC_MESSAGE
     };
 
-    if (process.env.NODE_ENV !== "production") {
+    if (isDevelopmentNodeEnv()) {
       response.devResetToken = resetToken;
+      this.logger.log(`[development] Password reset link: ${resetUrl}`);
+    } else if (Object.prototype.hasOwnProperty.call(response, "devResetToken")) {
+      delete response.devResetToken;
+      this.logger.warn("Password reset attempted to expose devResetToken outside development — stripped from response.");
     }
 
     return response;
+  }
+
+  private buildPasswordResetUrl(token: string) {
+    const base = (this.config.get<string>("PUBLIC_APP_URL") ?? "http://localhost:5173").replace(/\/+$/, "");
+    return `${base}/reset-password?token=${encodeURIComponent(token)}`;
   }
 
   async resetPassword(dto: ResetPasswordDto) {
@@ -225,6 +462,32 @@ export class AuthService {
     ]);
 
     return { ok: true, message: "Password updated. Please sign in again." };
+  }
+
+  private async tryBootstrapDemoStudentLogin(dto: LoginDto) {
+    const nodeEnv = process.env.NODE_ENV ?? "development";
+    if (nodeEnv === "production" || process.env.ERP_DEMO_STUDENT_BOOTSTRAP === "false") {
+      return null;
+    }
+    if (!isDemoStudentLoginAttempt(dto.identifier, dto.password)) {
+      return null;
+    }
+
+    try {
+      const result = await ensureDemoStudent(this.prisma);
+      if (!result.ok) {
+        this.logger.warn(`Demo student login recovery skipped: ${result.reason}`);
+        return null;
+      }
+      this.logger.log(`Demo student login recovery succeeded for roll ${DEMO_STUDENT_ROLL}.`);
+    } catch (error) {
+      this.logger.warn(
+        `Demo student login recovery failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+      return null;
+    }
+
+    return this.findUserByIdentifier(dto.identifier);
   }
 
   private async findUserByIdentifier(identifier: string) {
@@ -292,6 +555,8 @@ export class AuthService {
 
   private toAuthResponseUser(
     user: User & {
+      avatarPath?: string | null;
+      updatedAt: Date;
       campus?: { groupId: string } | null;
       teacherAssignments: {
         id: string;
@@ -309,6 +574,10 @@ export class AuthService {
     },
     sessionId: string
   ) {
+    const avatarUrl = user.avatarPath
+      ? `/api/auth/me/avatar?v=${new Date(user.updatedAt).getTime()}`
+      : null;
+
     return {
       id: user.id,
       sessionId,
@@ -318,6 +587,7 @@ export class AuthService {
       type: user.type,
       campusId: user.campusId,
       campusGroupId: user.campus?.groupId,
+      avatarUrl,
       assignments: user.teacherAssignments.map((assignment) => ({
         id: assignment.id,
         role: assignment.role,

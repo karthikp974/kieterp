@@ -4,6 +4,7 @@ import { useAuth } from "../auth/auth-context";
 import { SafeActionButton } from "../shared/SafeActionButton";
 import { SearchableSelect } from "../shared/SearchableSelect";
 import { useToast } from "../shared/toast-context";
+import { formatIstLocaleDate } from "../shared/ist-time";
 import { PaginatedResponse } from "../structure/structure-types";
 
 type Audience = "ALL" | "STUDENTS" | "TEACHERS" | "BOTH";
@@ -21,7 +22,7 @@ type Announcement = {
   readAt?: string | null;
 };
 
-const inputClass = "w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100";
+const inputClass = "db-input";
 
 function useApi() {
   const { authFetch } = useAuth();
@@ -47,15 +48,15 @@ function useApi() {
 export function AdminAnnouncementsPanel() {
   const navigate = useNavigate();
   return (
-    <section className="rounded-2xl border bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+    <section className="erp-admin-panel rounded-2xl border bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold text-slate-950 dark:text-slate-50">Announcements</h2>
-          <p className="text-sm text-slate-500">Create, target, archive, and track read status in the dedicated workspace.</p>
+          <p className="text-sm text-slate-500">Create targeted announcements and track read status in the dedicated workspace.</p>
         </div>
         <button
           type="button"
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+          className="erp-panel-submit"
           onClick={() => navigate("/announcements")}
         >
           Open announcements
@@ -115,20 +116,15 @@ function AnnouncementWorkspace({ title, description, canCreate = false }: { titl
     showToast("Announcement published");
   }
 
-  async function archive(id: string) {
-    await sendJson(`/api/announcements/${id}/archive`, {});
-    await load();
-    showToast("Announcement archived");
-  }
-
   async function markRead(id: string) {
     await sendJson(`/api/announcements/${id}/read`, {});
     await load();
+    window.dispatchEvent(new Event("erp:teacher-notifications-refresh"));
     showToast("Marked as read");
   }
 
   return (
-    <section className="rounded-2xl border bg-white p-5 shadow-sm">
+    <section className="erp-admin-panel rounded-2xl border bg-white p-5 shadow-sm">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold text-slate-950">{title}</h2>
@@ -141,7 +137,7 @@ function AnnouncementWorkspace({ title, description, canCreate = false }: { titl
         <SafeActionButton run={load}>Apply Search</SafeActionButton>
       </div>
       {canCreate ? (
-        <form className="mb-4 grid gap-3 rounded-xl border bg-slate-50 p-4 md:grid-cols-4" onSubmit={(event) => void createAnnouncement(event)}>
+        <form className="erp-admin-form mb-4 grid gap-3 rounded-xl border bg-slate-50 p-4 md:grid-cols-4" onSubmit={(event) => void createAnnouncement(event)}>
           <input className={inputClass} placeholder="Title" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} required />
           <SearchableSelect
             value={form.audience}
@@ -169,7 +165,7 @@ function AnnouncementWorkspace({ title, description, canCreate = false }: { titl
           )}
           <input className={inputClass} type="date" value={form.expiresAt} onChange={(event) => setForm({ ...form, expiresAt: event.target.value })} />
           <textarea className={`${inputClass} md:col-span-3`} placeholder="Announcement body" value={form.body} onChange={(event) => setForm({ ...form, body: event.target.value })} required />
-          <button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white">Publish</button>
+          <button className="erp-panel-submit">Publish</button>
         </form>
       ) : null}
       <div className="grid gap-3">
@@ -182,17 +178,12 @@ function AnnouncementWorkspace({ title, description, canCreate = false }: { titl
             <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{item.body}</p>
             <p className="mt-3 text-xs text-slate-500">
               By {item.createdBy}
-              {item.expiresAt ? ` - Expires ${new Date(item.expiresAt).toLocaleDateString()}` : ""}
+              {item.expiresAt ? ` - Expires ${formatIstLocaleDate(item.expiresAt)}` : ""}
               {!canCreate ? (item.readAt ? " · Read" : " · Unread") : null}
             </p>
             {!canCreate && !item.readAt ? (
               <div className="mt-2">
                 <SafeActionButton run={() => markRead(item.id)}>Mark as read</SafeActionButton>
-              </div>
-            ) : null}
-            {canCreate ? (
-              <div className="mt-3">
-                <SafeActionButton run={() => archive(item.id)} className="bg-slate-800 hover:bg-slate-900">Archive</SafeActionButton>
               </div>
             ) : null}
           </article>

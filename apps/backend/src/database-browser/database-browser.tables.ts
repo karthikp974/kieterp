@@ -21,7 +21,7 @@ export const DATABASE_TABLES = [
   { key: "students", label: "Student Profiles", tableName: "StudentProfile", columns: ["id", "userId", "sectionId", "rollNumber", "currentStatus", "createdAt", "updatedAt"], searchColumns: ["rollNumber", "currentStatus"], defaultSort: "createdAt" },
   { key: "teacher-roles", label: "Teacher Role Assignments", tableName: "TeacherRoleAssignment", columns: ["id", "teacherProfileId", "role", "campusGroupId", "campusId", "programId", "branchId", "batchId", "classId", "sectionId", "subjectId", "permissions", "status", "createdAt", "updatedAt"], searchColumns: ["role", "status"], defaultSort: "createdAt" },
   { key: "student-teams", label: "Student Teams", tableName: "StudentTeam", columns: ["id", "sectionId", "name", "description", "status", "createdById", "createdAt", "updatedAt"], searchColumns: ["name", "description", "status"], defaultSort: "createdAt" },
-  { key: "student-team-members", label: "Student Team Members", tableName: "StudentTeamMember", columns: ["id", "teamId", "studentProfileId", "role", "joinedAt"], searchColumns: ["role"], defaultSort: "joinedAt" },
+  { key: "student-team-members", label: "Student Team Members", tableName: "StudentTeamMember", columns: ["id", "teamId", "studentProfileId", "role", "leaderRank", "joinedAt"], searchColumns: ["role"], defaultSort: "joinedAt" },
   { key: "attendance-sessions", label: "Attendance Sessions", tableName: "AttendanceSession", columns: ["id", "sectionId", "subjectId", "markedById", "date", "periodNumber", "topic", "createdAt", "updatedAt"], searchColumns: ["topic"], defaultSort: "createdAt" },
   { key: "attendance-entries", label: "Attendance Entries", tableName: "AttendanceEntry", columns: ["id", "sessionId", "studentProfileId", "status", "createdAt", "updatedAt"], searchColumns: ["status"], defaultSort: "createdAt" },
   { key: "attendance-corrections", label: "Attendance Corrections", tableName: "AttendanceCorrectionRequest", columns: ["id", "attendanceEntryId", "requestedById", "status", "reason", "reviewNote", "createdAt", "updatedAt"], searchColumns: ["status", "reason", "reviewNote"], defaultSort: "createdAt" },
@@ -47,3 +47,18 @@ export const DATABASE_TABLES = [
 ] satisfies DatabaseTableDefinition[];
 
 export const DATABASE_TABLE_MAP = new Map(DATABASE_TABLES.map((table) => [table.key, table]));
+
+/** Hidden from admin DB browser — use teacher/student portals for these operational areas. */
+export const ADMIN_EXCLUDED_DATABASE_TABLE_KEYS = new Set([
+  "student-teams",
+  "student-team-members",
+  "attendance-sessions",
+  "attendance-entries",
+  "attendance-corrections",
+  "attendance-holidays",
+  "timetable-slots",
+  "result-entries",
+  "student-applications"
+]);
+
+export const ADMIN_DATABASE_TABLES = DATABASE_TABLES.filter((t) => !ADMIN_EXCLUDED_DATABASE_TABLE_KEYS.has(t.key));

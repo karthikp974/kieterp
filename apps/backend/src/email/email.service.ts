@@ -10,11 +10,59 @@ type TeacherWelcomeEmail = {
   assignments: string[];
 };
 
+type PasswordResetEmail = {
+  email: string;
+  fullName: string;
+  resetUrl: string;
+  expiresMinutes: number;
+};
+
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
 
   constructor(private readonly config: ConfigService) {}
+
+  async sendPasswordReset(input: PasswordResetEmail) {
+    const transporter = this.createTransporter();
+    if (!transporter) {
+      this.logger.error("SMTP is not configured. Password reset email was not sent.");
+      return false;
+    }
+
+    const from = this.resolveFromAddress();
+    if (!from) {
+      this.logger.error("EMAIL_FROM_ADDRESS/SMTP_USER is not configured. Password reset email was not sent.");
+      return false;
+    }
+
+    const result = await transporter.sendMail({
+      from,
+      to: input.email,
+      subject: "Reset your KIET ERP password",
+      text: [
+        `Hello ${input.fullName},`,
+        "",
+        "We received a request to reset your KIET ERP password.",
+        `Use this link within ${input.expiresMinutes} minutes (single use):`,
+        input.resetUrl,
+        "",
+        "If you did not request this, you can ignore this email.",
+        "",
+        "Regards,",
+        "KIET ERP"
+      ].join("\n"),
+      html: [
+        `<p>Hello ${escapeHtml(input.fullName)},</p>`,
+        "<p>We received a request to reset your KIET ERP password.</p>",
+        `<p><a href="${escapeHtml(input.resetUrl)}">Reset your password</a> (expires in ${input.expiresMinutes} minutes, single use)</p>`,
+        "<p>If you did not request this, you can ignore this email.</p>",
+        "<p>Regards,<br>KIET ERP</p>"
+      ].join("")
+    });
+    this.logger.log(`Password reset email sent to ${input.email}. MessageId: ${result.messageId}`);
+    return true;
+  }
 
   async sendTeacherWelcome(input: TeacherWelcomeEmail) {
     const transporter = this.createTransporter();
@@ -23,15 +71,14 @@ export class EmailService {
       return;
     }
 
-    const fromName = this.config.get<string>("EMAIL_FROM_NAME") ?? "KIET ERP";
-    const fromAddress = this.config.get<string>("EMAIL_FROM_ADDRESS") ?? this.config.get<string>("SMTP_USER");
-    if (!fromAddress) {
+    const from = this.resolveFromAddress();
+    if (!from) {
       this.logger.warn("EMAIL_FROM_ADDRESS/SMTP_USER is not configured. Skipping teacher welcome email.");
       return;
     }
 
     const result = await transporter.sendMail({
-      from: `"${fromName}" <${fromAddress}>`,
+      from,
       to: input.email,
       subject: "Welcome to KIET ERP",
       text: [
@@ -53,6 +100,13 @@ export class EmailService {
     this.logger.log(`Teacher welcome email sent to ${input.email}. MessageId: ${result.messageId}`);
   }
 
+  private resolveFromAddress() {
+    const fromName = this.config.get<string>("EMAIL_FROM_NAME") ?? "KIET ERP";
+    const fromAddress = this.config.get<string>("EMAIL_FROM_ADDRESS") ?? this.config.get<string>("SMTP_USER");
+    if (!fromAddress) return null;
+    return `"${fromName}" <${fromAddress}>`;
+  }
+
   private createTransporter() {
     const host = this.config.get<string>("SMTP_HOST");
     const user = this.config.get<string>("SMTP_USER");
@@ -66,4 +120,12 @@ export class EmailService {
       auth: { user, pass }
     });
   }
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }

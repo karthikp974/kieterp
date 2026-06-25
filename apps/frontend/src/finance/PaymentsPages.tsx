@@ -1,11 +1,14 @@
-import { ArrowLeft, Banknote, Bell, History } from "lucide-react";
+import { ArrowLeft, Banknote, History } from "lucide-react";
 import { FormEvent, InputHTMLAttributes, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/auth-context";
-import { AdminWorkflowMenuButton, OptionActionButton } from "../shared/OptionPage";
+import { AdminWorkflowMenuButton, OptionActionButton, WorkflowSection } from "../shared/OptionPage";
 import { safeRandomId } from "../shared/safe-random-id";
 import { SearchableSelect } from "../shared/SearchableSelect";
+import { ProfileMenuButton } from "../shared/ProfileMenu";
+import { programsForOperationalCampus } from "../shared/academic-catalog";
 import { useToast } from "../shared/toast-context";
+import { formatIstLocaleDateTime } from "../shared/ist-time";
 import { Batch, Branch, Campus, PaginatedResponse, Program } from "../structure/structure-types";
 
 const PAYMENT_MODES: [string, string][] = [
@@ -59,23 +62,40 @@ function initials(name: string) {
   return name.split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "U";
 }
 
-function PaymentsShell({ children, title }: { children: ReactNode; title: string }) {
-  const { user } = useAuth();
+function PaymentsShell({
+  children,
+  title,
+  variant = "subpage",
+  backHref
+}: {
+  children: ReactNode;
+  title: string;
+  variant?: "main" | "subpage";
+  backHref?: string;
+}) {
+  const navigate = useNavigate();
   return (
-    <main className="db-workflow min-h-screen promotion-workflow-layout">
+    <main className="db-workflow ann-workflow min-h-screen promotion-workflow-layout">
       <header className="db-workflow-header">
         <div className="db-header-left">
-          <AdminWorkflowMenuButton />
+          {variant === "main" ? (
+            <AdminWorkflowMenuButton />
+          ) : backHref ? (
+            <Link to={backHref} className="db-icon-button" aria-label="Back">
+              <ArrowLeft size={20} />
+            </Link>
+          ) : (
+            <button type="button" className="db-icon-button" onClick={() => navigate(-1)} aria-label="Back">
+              <ArrowLeft size={20} />
+            </button>
+          )}
           <h1>{title}</h1>
         </div>
         <div className="db-header-actions">
-          <button type="button" className="db-icon-button" aria-label="Notifications">
-            <Bell size={18} />
-          </button>
-          <div className="db-avatar">{initials(user?.fullName ?? "Admin")}</div>
+          <ProfileMenuButton />
         </div>
       </header>
-      <div className="db-workflow-body promotion-body">{children}</div>
+      <div className="db-workflow-body ann-workflow-body promotion-body">{children}</div>
     </main>
   );
 }
@@ -110,9 +130,8 @@ function Input({ onChange, ...props }: Omit<InputHTMLAttributes<HTMLInputElement
 export function PaymentsHubPage() {
   const navigate = useNavigate();
   return (
-    <PaymentsShell title="Payments">
-      <div className="teacher-action-stack payments-workspace-toggles" aria-label="Payments workspace">
-        <h2 className="payments-workspace-heading">Fee payments</h2>
+    <PaymentsShell title="Payments" variant="main">
+      <WorkflowSection title="Fee payments">
         <OptionActionButton
           icon={Banknote}
           description="Choose batch and student by roll number, enter amount, then register the receipt."
@@ -120,6 +139,8 @@ export function PaymentsHubPage() {
         >
           Register fee
         </OptionActionButton>
+      </WorkflowSection>
+      <WorkflowSection title="Activity">
         <OptionActionButton
           icon={History}
           description="Browse past receipts with filters and pagination."
@@ -127,18 +148,15 @@ export function PaymentsHubPage() {
         >
           Payment history
         </OptionActionButton>
-      </div>
-      <div className="promotion-activity" aria-label="Shortcuts">
-        <button type="button" className="db-icon-button" onClick={() => navigate(-1)} aria-label="Back">
-          <ArrowLeft size={20} />
-        </button>
-      </div>
+      </WorkflowSection>
     </PaymentsShell>
   );
 }
 
 export function PaymentsRegisterPage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const backHref = (location.state as { backHref?: string } | null)?.backHref ?? "/payments";
   const { authFetch } = useAuth();
   const { showToast } = useToast();
   const [step, setStep] = useState(1);
@@ -221,7 +239,10 @@ export function PaymentsRegisterPage() {
     })();
   }, [fetchJson, showToast]);
 
-  const programOptions = useMemo(() => programs.filter((p) => p.campusId === campusId).map((p) => [p.id, `${p.code} — ${p.name}`] as [string, string]), [campusId, programs]);
+  const programOptions = useMemo(
+    () => programsForOperationalCampus(programs, campusId, campuses).map((p) => [p.id, `${p.code} — ${p.name}`] as [string, string]),
+    [campusId, campuses, programs]
+  );
   const branchOptions = useMemo(() => branches.filter((b) => b.programId === programId).map((b) => [b.id, `${b.code} — ${b.name}`] as [string, string]), [branches, programId]);
   const batchOptions = useMemo(() => batches.filter((b) => b.branchId === branchId).map((b) => [b.id, `${b.startYear}–${b.endYear}`] as [string, string]), [batches, branchId]);
 
@@ -401,7 +422,7 @@ export function PaymentsRegisterPage() {
   }, []);
 
   return (
-    <PaymentsShell title="Register fee">
+    <PaymentsShell title="Register fee" backHref={backHref}>
       <section className="db-card db-form">
         <div className="teacher-stepper" role="tablist" aria-label="Payment steps">
           {(
@@ -506,7 +527,7 @@ export function PaymentsRegisterPage() {
                 <PlainSelect value={feeLineChoice} onChange={setFeeLineChoice} options={feeLineOptions} placeholder="Select fee" />
               </Field>
               {feeLineChoice === "OTHER" ? (
-                <Field label="Specify fee name">
+                <Field label="Specify fee head">
                   <Input value={otherFeeName} onChange={setOtherFeeName} placeholder="e.g. Sports fee" />
                 </Field>
               ) : null}
@@ -586,12 +607,6 @@ export function PaymentsRegisterPage() {
           </>
         ) : null}
       </section>
-
-      <div className="promotion-activity" aria-label="Shortcuts">
-        <button type="button" className="db-icon-button" onClick={() => navigate("/payments")} aria-label="Back to fee payments">
-          <ArrowLeft size={20} />
-        </button>
-      </div>
     </PaymentsShell>
   );
 }
@@ -675,7 +690,7 @@ export function PaymentsHistoryPage() {
   }, []);
 
   return (
-    <PaymentsShell title="Payment history">
+    <PaymentsShell title="Payment history" backHref="/payments">
       <section className="db-card db-form">
         <div className="fee-form-heading">
           <h2>Payment history</h2>
@@ -720,7 +735,7 @@ export function PaymentsHistoryPage() {
             <Input type="date" value={histFrom} onChange={setHistFrom} />
           </Field>
           <Field label="Paid to">
-            <Input type="date" value={histTo} onChange={setHistTo} />
+            <Input type="date" value={histTo} min={histFrom || undefined} onChange={setHistTo} />
           </Field>
           <div className="promotion-wizard-actions">
             <button type="submit" className="db-submit">
@@ -748,7 +763,7 @@ export function PaymentsHistoryPage() {
               <span>{row.amount}</span>
               <span>{row.paymentMode}</span>
               <span>{row.status}</span>
-              <span>{new Date(row.paidAt).toLocaleString()}</span>
+              <span>{formatIstLocaleDateTime(row.paidAt)}</span>
             </div>
           ))}
         </div>
@@ -764,12 +779,6 @@ export function PaymentsHistoryPage() {
           </button>
         </div>
       </section>
-
-      <div className="promotion-activity" aria-label="Shortcuts">
-        <button type="button" className="db-icon-button" onClick={() => navigate("/payments")} aria-label="Back to fee payments">
-          <ArrowLeft size={20} />
-        </button>
-      </div>
     </PaymentsShell>
   );
 }

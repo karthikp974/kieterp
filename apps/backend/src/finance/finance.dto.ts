@@ -1,7 +1,9 @@
 import { FeePaymentMode, FeePaymentStatus } from "@prisma/client";
+import { IntersectionType } from "@nestjs/mapped-types";
 import { Type } from "class-transformer";
 import { IsArray, IsDateString, IsEnum, IsIn, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateIf } from "class-validator";
 import { PaginationQueryDto } from "../common/pagination.dto";
+import { TabularExportFormatQueryDto } from "../common/export-query.dto";
 
 export class CreateFeeHeadDto {
   @IsString()
@@ -85,6 +87,11 @@ export class MarkFeePaymentDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(80)
+  transactionId?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(300)
   note?: string;
 
@@ -141,6 +148,8 @@ export class FeeQueryDto extends PaginationQueryDto {
   @IsDateString()
   paidTo?: string;
 }
+
+export class FeeExportQueryDto extends IntersectionType(FeeQueryDto, TabularExportFormatQueryDto) {}
 
 /** Roll-number scoped search for physical payments wizard (no full student preload). */
 export class PaymentsRollSearchQueryDto {
@@ -248,7 +257,7 @@ export class AssignFeeDto {
   @IsString()
   @MinLength(2)
   @MaxLength(120)
-  feeName!: string;
+  feeHead!: string;
 
   @Type(() => Number)
   @IsNumber()
@@ -273,7 +282,7 @@ export class UpdateAssignedFeeDto {
   @IsString()
   @MinLength(2)
   @MaxLength(120)
-  feeName?: string;
+  feeHead?: string;
 
   @IsOptional()
   @Type(() => Number)

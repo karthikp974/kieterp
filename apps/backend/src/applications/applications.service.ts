@@ -3,6 +3,8 @@ import { PermissionAction, Prisma, StudentApplicationStatus, UserStatus, UserTyp
 import { AuthUser, ScopeRef } from "../auth/auth.types";
 import { toPagination } from "../common/pagination.dto";
 import { PermissionsService } from "../permissions/permissions.service";
+import { studentProfileToScope, studentScopeProfileInclude } from "../permissions/operational-scope.util";
+import { SharedGroupAcademicService } from "../permissions/shared-group-academic.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { ApplicationQueryDto, CreateApplicationDto, ReviewApplicationDto } from "./applications.dto";
 
@@ -10,7 +12,8 @@ import { ApplicationQueryDto, CreateApplicationDto, ReviewApplicationDto } from 
 export class ApplicationsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly permissions: PermissionsService
+    private readonly permissions: PermissionsService,
+    private readonly sharedGroup: SharedGroupAcademicService
   ) {}
 
   async list(user: AuthUser, query: ApplicationQueryDto) {
@@ -28,7 +31,8 @@ export class ApplicationsService {
       studentProfileId: query.studentProfileId,
       studentProfile: {
         sectionId: query.sectionId,
-        ...(query.campusId ? { section: { class: { batch: { branch: { program: { campusId: query.campusId } } } } } } : {}),
+        ...(query.branchId ? { section: { class: { branchId: query.branchId } } } : {}),
+        ...(query.campusId ? this.sharedGroup.studentProfileWhereOperationalCampus(query.campusId) : {}),
         ...(query.search
           ? {
               OR: [
@@ -129,7 +133,8 @@ export class ApplicationsService {
   }
 
   private async scopeForQuery(query: ApplicationQueryDto): Promise<ScopeRef | undefined> {
-    if (query.studentProfileId) return this.studentToScope(await this.getStudent(query.studentProfileId));
+    if (query.studentProfileId) return studentProfileToScope(await this.getStudent(query.studentProfileId));
+    if (query.branchId) return { branchId: query.branchId };
     if (query.campusId || query.sectionId) return { campusId: query.campusId, sectionId: query.sectionId };
     return undefined;
   }
@@ -141,14 +146,7 @@ export class ApplicationsService {
   }
 
   private studentToScope(student: Awaited<ReturnType<ApplicationsService["getStudent"]>>): ScopeRef {
-    return {
-      campusId: student.section.class.branch.program.campusId,
-      programId: student.section.class.branch.programId,
-      branchId: student.section.class.branchId,
-      batchId: student.section.class.batchId ?? undefined,
-      classId: student.section.classId,
-      sectionId: student.sectionId
-    };
+    return studentProfileToScope(student);
   }
 
   private applicationToScope(application: Prisma.StudentApplicationGetPayload<{ include: ApplicationsService["include"] }>): ScopeRef {
@@ -186,21 +184,13 @@ export class ApplicationsService {
   }
 
   private audit(user: AuthUser, action: string, entity: string, entityId: string, metadata?: Prisma.InputJsonObject) {
-    return this.prisma.auditLog.create({ data: { userId: user.id, action, entity, entityId, metadata } });
+    return this.prisma.auditLog.create({ data: { userId: user.auditUserId, action, entity, entityId, metadata } });
   }
 
-  private readonly studentInclude = {
-    user: true,
-    section: { include: { class: { include: { branch: { include: { program: true } }, batch: true } } } }
-  } satisfies Prisma.StudentProfileInclude;
+  private readonly studentInclude = studentScopeProfileInclude;
 
   private readonly include = {
-    studentProfile: {
-      include: {
-        user: true,
-        section: { include: { class: { include: { branch: { include: { program: true } }, batch: true } } } }
-      }
-    },
+    studentProfile: { include: studentScopeProfileInclude },
     reviewedBy: { select: { fullName: true } }
   } satisfies Prisma.StudentApplicationInclude;
 }

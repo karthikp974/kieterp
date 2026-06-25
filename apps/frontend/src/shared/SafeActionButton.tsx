@@ -29,7 +29,7 @@ export function SafeActionButton({ run, children, busyLabel = "Working...", clas
       onClick={() => {
         void handleClick();
       }}
-      className={`rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60 ${className}`}
+      className={`db-wf-btn db-wf-btn--primary ${className}`.trim()}
     >
       {busy ? busyLabel : children}
     </button>

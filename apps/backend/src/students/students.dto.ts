@@ -28,12 +28,17 @@ export class CreateStudentDto {
   dateOfBirth?: string;
 
   @IsString()
-  @MinLength(8)
-  password!: string;
+  @MinLength(2)
+  @MaxLength(120)
+  fatherName!: string;
 
   @IsOptional()
   @IsString()
-  campusId?: string;
+  @MinLength(8)
+  password?: string;
+
+  @IsString()
+  campusId!: string;
 
   @IsOptional()
   @IsString()
@@ -79,6 +84,12 @@ export class UpdateStudentDto {
   @IsOptional()
   @IsDateString()
   dateOfBirth?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  @MaxLength(120)
+  fatherName?: string;
 
   @IsOptional()
   @IsString()

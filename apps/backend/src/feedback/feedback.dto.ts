@@ -1,5 +1,5 @@
 import { Type } from "class-transformer";
-import { IsArray, IsBoolean, IsDateString, IsEnum, IsInt, IsOptional, IsString, MaxLength, MinLength, ValidateNested } from "class-validator";
+import { IsArray, IsBoolean, IsDateString, IsEnum, IsIn, IsInt, IsOptional, IsString, MaxLength, MinLength, ValidateNested } from "class-validator";
 import {
   FeedbackFormStatus,
   FeedbackFormType,
@@ -175,6 +175,20 @@ export class FeedbackFormQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsEnum(FeedbackFormType)
   formType?: FeedbackFormType;
+
+  @IsOptional()
+  @IsIn(["createdAt", "updatedAt"])
+  orderBy?: "createdAt" | "updatedAt";
+
+  @IsOptional()
+  @IsString()
+  sectionId?: string;
+}
+
+export class FeedbackExportQueryDto {
+  @IsOptional()
+  @IsIn(["responses", "completion"])
+  variant?: "responses" | "completion";
 }
 
 export class FeedbackAnswerSubmitDto {

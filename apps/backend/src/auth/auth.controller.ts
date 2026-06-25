@@ -1,10 +1,13 @@
-import { Body, Controller, Get, Post, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Patch, Post, Req, UploadedFile, UseGuards, UseInterceptors } from "@nestjs/common";
+import { FileInterceptor } from "@nestjs/platform-express";
+import { memoryStorage } from "multer";
 import { Request } from "express";
 import { CurrentUser } from "./current-user.decorator";
 import { AuthService } from "./auth.service";
 import { AuthUser } from "./auth.types";
 import { JwtAuthGuard } from "./jwt-auth.guard";
 import { LoginDto } from "./login.dto";
+import { ChangePasswordDto } from "./profile.dto";
 import { ForgotPasswordDto, ResetPasswordDto } from "./password-recovery.dto";
 import { RefreshTokenDto } from "./refresh-token.dto";
 import { getRequestContext } from "./request-context";
@@ -47,6 +50,36 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @Get("me")
   me(@CurrentUser() user: AuthUser) {
-    return user;
+    return this.auth.getProfile(user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get("me/avatar")
+  avatar(@CurrentUser() user: AuthUser) {
+    return this.auth.streamAvatar(user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post("me/avatar")
+  @UseInterceptors(
+    FileInterceptor("file", {
+      storage: memoryStorage(),
+      limits: { fileSize: 25 * 1024 }
+    })
+  )
+  uploadAvatar(@CurrentUser() user: AuthUser, @UploadedFile() file: Express.Multer.File | undefined) {
+    return this.auth.uploadAvatar(user, file);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete("me/avatar")
+  removeAvatar(@CurrentUser() user: AuthUser) {
+    return this.auth.removeAvatar(user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch("change-password")
+  changePassword(@CurrentUser() user: AuthUser, @Body() dto: ChangePasswordDto) {
+    return this.auth.changePassword(user, dto);
   }
 }

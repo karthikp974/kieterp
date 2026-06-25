@@ -3,16 +3,20 @@ import { FeePaymentStatus, Prisma, StructureStatus, TeacherRoleKind } from "@pri
 import { Response } from "express";
 import { toPagination } from "../common/pagination.dto";
 import { normalizeCode } from "../core/structure.util";
+import { SharedGroupAcademicService } from "../permissions/shared-group-academic.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { BatchExportQueryDto, BatchSearchQueryDto, CreateBatchModuleDto, UpdateBatchModuleDto } from "./batches.dto";
 
 @Injectable()
 export class BatchesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly sharedGroup: SharedGroupAcademicService
+  ) {}
 
   async search(query: BatchSearchQueryDto) {
     const pagination = toPagination(query);
-    const where = this.batchWhere(query);
+    const where = await this.batchWhere(query);
     const [items, total] = await Promise.all([
       this.prisma.batch.findMany({
         where,
@@ -113,7 +117,9 @@ export class BatchesService {
     response.send(csv);
   }
 
-  private batchWhere(query: BatchSearchQueryDto): Prisma.BatchWhereInput {
+  private async batchWhere(query: BatchSearchQueryDto): Promise<Prisma.BatchWhereInput> {
+    const campusScope = query.campusScope ?? "shared";
+    const programFilter = await this.sharedGroup.programCatalogFilter(query.campusId, query.departmentId, campusScope);
     return {
       status: StructureStatus.ACTIVE,
       isArchived: false,
@@ -121,12 +127,11 @@ export class BatchesService {
       ...(query.search
         ? { OR: [{ batchCode: { contains: query.search, mode: "insensitive" } }, { id: { contains: query.search, mode: "insensitive" } }] }
         : {}),
-      branchId: query.branchId,
+      ...(query.branchId ? { branchId: query.branchId } : {}),
       branch: {
         status: StructureStatus.ACTIVE,
         isArchived: false,
-        ...(query.departmentId ? { programId: query.departmentId } : {}),
-        program: { status: StructureStatus.ACTIVE, isArchived: false }
+        ...(programFilter ? { program: programFilter } : {})
       }
     };
   }

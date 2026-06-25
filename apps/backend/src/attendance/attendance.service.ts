@@ -1,10 +1,17 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { formatIstDate, parseIstDateOnly } from "../common/ist-time.util";
+import { attendanceDayPeriod } from "../common/attendance.constants";
 import { AttendanceCorrectionStatus, AttendanceEntryStatus, PermissionAction, Prisma, StructureStatus, UserStatus, UserType } from "@prisma/client";
+import { Response } from "express";
 import { AuthUser, ScopeRef } from "../auth/auth.types";
+import { buildExportBasename } from "../common/export-filename.util";
 import { toPagination } from "../common/pagination.dto";
+import { sendTabularExport } from "../common/tabular-export.util";
 import { PermissionsService } from "../permissions/permissions.service";
+import { SharedGroupAcademicService } from "../permissions/shared-group-academic.service";
 import { PrismaService } from "../prisma/prisma.service";
 import {
+  AttendanceExportQueryDto,
   AttendanceQueryDto,
   AttendanceScopeDto,
   BulkMarkAttendanceDto,
@@ -18,7 +25,8 @@ import {
 export class AttendanceService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly permissions: PermissionsService
+    private readonly permissions: PermissionsService,
+    private readonly sharedGroup: SharedGroupAcademicService
   ) {}
 
   async list(user: AuthUser, query: AttendanceQueryDto) {
@@ -48,9 +56,9 @@ export class AttendanceService {
       ...(query.search
         ? {
             OR: [
-              { periodLabel: { contains: query.search, mode: "insensitive" } },
               { section: { name: { contains: query.search, mode: "insensitive" } } },
-              { subject: { name: { contains: query.search, mode: "insensitive" } } }
+              { subject: { name: { contains: query.search, mode: "insensitive" } } },
+              { subject: { code: { contains: query.search, mode: "insensitive" } } }
             ]
           }
         : {})
@@ -86,6 +94,10 @@ export class AttendanceService {
   }
 
   async get(user: AuthUser, id: string) {
+    if (user.type === UserType.STUDENT) {
+      throw new ForbiddenException("Students must use their personal attendance endpoint.");
+    }
+
     const session = await this.prisma.attendanceSession.findUnique({
       where: { id },
       include: {
@@ -106,6 +118,10 @@ export class AttendanceService {
   }
 
   async roster(user: AuthUser, scope: AttendanceScopeDto) {
+    if (user.type === UserType.STUDENT) {
+      throw new ForbiddenException("Students must use their personal attendance endpoint.");
+    }
+
     await this.validateScope(scope);
     this.assertAllowed(user, PermissionAction.VIEW_ATTENDANCE, scope);
 
@@ -132,8 +148,8 @@ export class AttendanceService {
 
     const attendanceDate = this.dateOnly(dto.attendanceDate);
     await this.assertNotHoliday(dto.scope.campusId, attendanceDate);
-    const periodLabel = this.normalizePeriod(dto.periodLabel);
-    const sessionKey = this.buildSessionKey(dto.scope.sectionId, dto.scope.subjectId, attendanceDate, periodLabel);
+    const periodLabel = attendanceDayPeriod();
+    const sessionKey = this.buildSessionKey(dto.scope.sectionId, dto.scope.subjectId, attendanceDate);
     const uniqueStudentIds = new Set(dto.entries.map((entry) => entry.studentProfileId));
     if (uniqueStudentIds.size !== dto.entries.length) {
       throw new BadRequestException("Duplicate student attendance entries found.");
@@ -178,7 +194,7 @@ export class AttendanceService {
             action: "MARK_ATTENDANCE",
             entity: "AttendanceSession",
             entityId: created.id,
-            userId: user.id,
+            userId: user.auditUserId,
             metadata: { sectionId: dto.scope.sectionId, subjectId: dto.scope.subjectId, attendanceDate: attendanceDate.toISOString(), entries: dto.entries.length }
           }
         });
@@ -189,7 +205,7 @@ export class AttendanceService {
       return { id: session.id, marked: session.entries.length };
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-        throw new ConflictException("Attendance for this section, subject, date, and period is already marked.");
+        throw new ConflictException("Attendance for this section, subject, and date is already marked.");
       }
       throw error;
     }
@@ -211,12 +227,12 @@ export class AttendanceService {
     return { marked: marked.length, errors };
   }
 
-  async export(user: AuthUser, query: AttendanceQueryDto) {
+  async export(user: AuthUser, query: AttendanceExportQueryDto, response: Response) {
     const data = await this.list(user, { ...query, page: 1, pageSize: 100 });
-    const rows = [
+    const rows: (string | number)[][] = [
       ["Date", "Campus", "Branch", "Semester", "Section", "Subject", "Marked By", "Total", "Present", "Absent", "Percentage"],
       ...data.items.map((item) => [
-        new Date(item.date).toISOString().slice(0, 10),
+        formatIstDate(new Date(item.date)),
         item.structure.campus,
         item.structure.branch,
         String(item.structure.semester),
@@ -229,8 +245,13 @@ export class AttendanceService {
         String(item.summary.percentage)
       ])
     ];
-
-    return { filename: "attendance-export.csv", csv: rows.map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(",")).join("\n") };
+    await sendTabularExport(
+      response,
+      query.format,
+      buildExportBasename("Attendance", "SessionExport"),
+      "Attendance export",
+      rows
+    );
   }
 
   async createCorrectionRequest(user: AuthUser, sessionId: string, dto: CreateCorrectionRequestDto) {
@@ -253,7 +274,7 @@ export class AttendanceService {
     });
 
     await this.prisma.auditLog.create({
-      data: { action: "REQUEST_ATTENDANCE_CORRECTION", entity: "AttendanceCorrectionRequest", entityId: request.id, userId: user.id }
+      data: { action: "REQUEST_ATTENDANCE_CORRECTION", entity: "AttendanceCorrectionRequest", entityId: request.id, userId: user.auditUserId }
     });
     return { request };
   }
@@ -297,7 +318,7 @@ export class AttendanceService {
         data: { status: AttendanceCorrectionStatus.APPROVED, reviewedAt: new Date() }
       });
       await tx.auditLog.create({
-        data: { action: "APPROVE_ATTENDANCE_CORRECTION", entity: "AttendanceCorrectionRequest", entityId: id, userId: user.id }
+        data: { action: "APPROVE_ATTENDANCE_CORRECTION", entity: "AttendanceCorrectionRequest", entityId: id, userId: user.auditUserId }
       });
     });
     return { ok: true };
@@ -310,7 +331,7 @@ export class AttendanceService {
       data: { status: AttendanceCorrectionStatus.REJECTED, reviewedAt: new Date() }
     });
     await this.prisma.auditLog.create({
-      data: { action: "REJECT_ATTENDANCE_CORRECTION", entity: "AttendanceCorrectionRequest", entityId: id, userId: user.id }
+      data: { action: "REJECT_ATTENDANCE_CORRECTION", entity: "AttendanceCorrectionRequest", entityId: id, userId: user.auditUserId }
     });
     return { ok: true };
   }
@@ -322,7 +343,7 @@ export class AttendanceService {
       data: { campusId: dto.campusId, holidayDate, title: dto.title.trim() }
     });
     await this.prisma.auditLog.create({
-      data: { action: "CREATE_ATTENDANCE_HOLIDAY", entity: "AttendanceHoliday", entityId: holiday.id, userId: user.id }
+      data: { action: "CREATE_ATTENDANCE_HOLIDAY", entity: "AttendanceHoliday", entityId: holiday.id, userId: user.auditUserId }
     });
     return { holiday };
   }
@@ -388,7 +409,7 @@ export class AttendanceService {
   private async validateScope(scope: AttendanceScopeDto) {
     const section = await this.prisma.section.findUnique({
       where: { id: scope.sectionId },
-      include: { class: { include: { batch: { include: { branch: { include: { program: true } } } } } } }
+      include: { class: { include: { batch: { include: { branch: { include: { program: { include: { campus: true } } } } } } } } }
     });
     if (
       !section ||
@@ -400,11 +421,16 @@ export class AttendanceService {
       section.class.batch.branchId !== scope.branchId ||
       section.class.batch.branch.status !== StructureStatus.ACTIVE ||
       section.class.batch.branch.programId !== scope.programId ||
-      section.class.batch.branch.program.status !== StructureStatus.ACTIVE ||
-      section.class.batch.branch.program.campusId !== scope.campusId
+      section.class.batch.branch.program.status !== StructureStatus.ACTIVE
     ) {
       throw new BadRequestException("Attendance scope is invalid or archived.");
     }
+
+    const operationalCampus = await this.sharedGroup.loadCampus(scope.campusId);
+    if (!operationalCampus || operationalCampus.status !== StructureStatus.ACTIVE) {
+      throw new BadRequestException("Campus does not exist or is archived.");
+    }
+    this.sharedGroup.assertScopeCampusMatchesSectionProgram(section.class.batch.branch.program, scope.campusId, operationalCampus);
 
     if (scope.subjectId) {
       const subject = await this.prisma.subject.findUnique({ where: { id: scope.subjectId } });
@@ -462,25 +488,25 @@ export class AttendanceService {
     };
   }
 
-  private buildSessionKey(sectionId: string, subjectId: string | undefined, date: Date, periodLabel: string) {
-    return [sectionId, subjectId ?? "GENERAL", date.toISOString().slice(0, 10), periodLabel].join("|");
+  private buildSessionKey(sectionId: string, subjectId: string | undefined, date: Date) {
+    return [sectionId, subjectId ?? "GENERAL", formatIstDate(date), attendanceDayPeriod()].join("|");
   }
 
   private dateOnly(value: string) {
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) throw new BadRequestException("Invalid attendance date.");
-    return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+    const trimmed = value.trim().slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) throw new BadRequestException("Invalid attendance date.");
+      return parseIstDateOnly(formatIstDate(date));
+    }
+    return parseIstDateOnly(trimmed);
   }
 
-  private normalizePeriod(value?: string) {
-    return value?.trim().toUpperCase() || "DAY";
-  }
 
   private toSessionObject(
     session: {
       id: string;
       attendanceDate: Date;
-      periodLabel: string;
       isLocked: boolean;
       campus: { code: string };
       program: { code: string };
@@ -498,7 +524,6 @@ export class AttendanceService {
     return {
       id: session.id,
       date: session.attendanceDate,
-      periodLabel: session.periodLabel,
       isLocked: session.isLocked,
       structure: {
         campus: session.campus.code,

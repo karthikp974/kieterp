@@ -11,6 +11,12 @@ enum CampusIsolationPolicy {
   ISOLATED
 }
 
+/// GROUP_SHARED — one batch/class/section tree for KIET+KIEK (canonical campus KIET). CAMPUS_OWNED — campus-local (MBA/MCA, KIEW).
+enum ProgramStructureScope {
+  CAMPUS_OWNED
+  GROUP_SHARED
+}
+
 enum ProgramDurationUnit {
   YEAR
 }
@@ -33,9 +39,21 @@ enum AuthSessionStatus {
   EXPIRED
 }
 
+enum SpectatorActivityKind {
+  LOGIN
+  PAGE_VIEW
+  HEARTBEAT
+}
+
 enum StructureStatus {
   ACTIVE
   ARCHIVED
+}
+
+enum SyllabusResourceKind {
+  PDF
+  LINK
+  NOTE
 }
 
 enum TeacherRoleKind {
@@ -128,6 +146,13 @@ enum AnnouncementTeacherScope {
   BRANCH
 }
 
+enum AnnouncementTeacherRoleFilter {
+  ALL
+  HTPO
+  CTPO
+  STPO
+}
+
 enum AnnouncementStatus {
   DRAFT
   PUBLISHED
@@ -192,6 +217,12 @@ enum TimetableSlotStatus {
   ARCHIVED
 }
 
+enum TimetableSlotType {
+  LECTURE
+  LAB
+  EXAM
+}
+
 enum ResultEntryStatus {
   PASS
   FAIL
@@ -205,8 +236,8 @@ model CampusGroup {
   isolationPolicy CampusIsolationPolicy
   campuses        Campus[]
   roleAssignments TeacherRoleAssignment[]
-  createdAt       DateTime              @default(now())
-  updatedAt       DateTime              @updatedAt
+  createdAt       DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime              @updatedAt @db.Timestamptz(3)
 }
 
 model Campus {
@@ -228,8 +259,8 @@ model Campus {
   feedbackForms FeedbackForm[]
   isActive  Boolean     @default(true)
   status    StructureStatus @default(ACTIVE)
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
+  createdAt DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime    @updatedAt @db.Timestamptz(3)
 
   @@index([groupId])
   @@index([isActive])
@@ -245,6 +276,8 @@ model Program {
   durationValue Int
   durationUnit  ProgramDurationUnit @default(YEAR)
   semesters     Int
+  /// GROUP_SHARED programs (DIPLOMA/BTECH/MTECH on KIET) are the single tree for KIET+KIEK.
+  structureScope ProgramStructureScope @default(CAMPUS_OWNED)
   branches      Branch[]
   roleAssignments TeacherRoleAssignment[]
   attendanceSessions AttendanceSession[]
@@ -255,9 +288,9 @@ model Program {
   feedbackForms FeedbackForm[]
   status        StructureStatus      @default(ACTIVE)
   isArchived    Boolean             @default(false)
-  archivedAt    DateTime?
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
+  archivedAt    DateTime? @db.Timestamptz(3)
+  createdAt     DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime            @updatedAt @db.Timestamptz(3)
 
   @@unique([campusId, code])
   @@index([campusId])
@@ -285,9 +318,9 @@ model Branch {
   feedbackForms FeedbackForm[]
   status    StructureStatus @default(ACTIVE)
   isArchived Boolean @default(false)
-  archivedAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  archivedAt DateTime? @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
   @@unique([programId, code])
   @@index([programId])
@@ -312,9 +345,9 @@ model Batch {
   feedbackForms FeedbackForm[]
   status    StructureStatus @default(ACTIVE)
   isArchived Boolean        @default(false)
-  archivedAt DateTime?
-  createdAt DateTime        @default(now())
-  updatedAt DateTime        @updatedAt
+  archivedAt DateTime? @db.Timestamptz(3)
+  createdAt DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime        @updatedAt @db.Timestamptz(3)
 
   @@unique([branchId, startYear, endYear])
   @@index([branchId])
@@ -341,9 +374,9 @@ model AcademicClass {
   feedbackForms FeedbackForm[]
   status         StructureStatus @default(ACTIVE)
   isArchived     Boolean         @default(false)
-  archivedAt     DateTime?
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
+  archivedAt     DateTime? @db.Timestamptz(3)
+  createdAt      DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime         @updatedAt @db.Timestamptz(3)
 
   @@unique([batchId, semesterNumber])
   @@index([branchId])
@@ -363,6 +396,8 @@ model Section {
   capacity        Int?
   students        StudentProfile[]
   subjectAssignments SectionSubjectAssignment[]
+  syllabusTopicCompletions SectionSyllabusTopicCompletion[]
+  syllabusUnitResources SyllabusUnitResource[]
   roleAssignments TeacherRoleAssignment[]
   attendanceSessions AttendanceSession[]
   feeStructures FeeStructure[]
@@ -374,9 +409,9 @@ model Section {
   studentTeams StudentTeam[]
   status          StructureStatus           @default(ACTIVE)
   isArchived      Boolean                   @default(false)
-  archivedAt      DateTime?
-  createdAt       DateTime                @default(now())
-  updatedAt       DateTime                @updatedAt
+  archivedAt      DateTime? @db.Timestamptz(3)
+  createdAt       DateTime                @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime                @updatedAt @db.Timestamptz(3)
 
   @@unique([classId, name])
   @@index([campusId])
@@ -394,6 +429,8 @@ model User {
   passwordHash        String
   fullName            String
   phone               String?
+  /// Absolute path to JPEG on disk (uploads/avatars/{userId}.jpg), max 25 KB. Served at GET /api/auth/me/avatar.
+  avatarPath          String?
   type                UserType
   status              UserStatus              @default(ACTIVE)
   teacherProfile      TeacherProfile?
@@ -402,6 +439,7 @@ model User {
   permissionGrants    PermissionGrant[]       @relation("PermissionGrantUser")
   createdPermissions  PermissionGrant[]       @relation("PermissionGrantCreatedBy")
   authSessions        AuthSession[]
+  spectatorActivityEvents SpectatorActivityEvent[]
   passwordResetTokens PasswordResetToken[]
   auditLogs           AuditLog[]
   idempotencyKeys     IdempotencyKey[]
@@ -418,10 +456,35 @@ model User {
   createdFeedbackForms FeedbackForm[]         @relation("FeedbackFormCreatedBy")
   promotedStudents StudentPromotionHistory[]   @relation("PromotionPerformedBy")
   createdStudentTeams StudentTeam[]            @relation("StudentTeamCreatedBy")
-  createdAt           DateTime                @default(now())
-  updatedAt           DateTime                @updatedAt
+  studentPortalNotifications StudentPortalNotification[]
+  syllabusTopicCompletionUpdates SectionSyllabusTopicCompletion[] @relation("SyllabusTopicCompletionUpdatedBy")
+  syllabusUnitResourcesUploaded SyllabusUnitResource[] @relation("SyllabusUnitResourceUploadedBy")
+  createdAt           DateTime                @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime                @updatedAt @db.Timestamptz(3)
 
   @@index([campusId, type, status])
+}
+
+/// In-app notifications for the Student Portal (badge / future inbox).
+enum StudentPortalNotificationKind {
+  SYSTEM
+  FEEDBACK
+}
+
+model StudentPortalNotification {
+  id             String                        @id @default(cuid())
+  userId         String
+  user           User                          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind           StudentPortalNotificationKind @default(SYSTEM)
+  title          String
+  body           String?
+  feedbackFormId String?
+  feedbackForm   FeedbackForm?                 @relation(fields: [feedbackFormId], references: [id], onDelete: Cascade)
+  readAt         DateTime? @db.Timestamptz(3)
+  createdAt      DateTime                      @default(now()) @db.Timestamptz(3)
+
+  @@index([userId, readAt])
+  @@index([feedbackFormId])
 }
 
 model AuthSession {
@@ -432,14 +495,36 @@ model AuthSession {
   status           AuthSessionStatus @default(ACTIVE)
   userAgent        String?
   ipAddress        String?
-  expiresAt        DateTime
-  lastUsedAt       DateTime?
-  revokedAt        DateTime?
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  expiresAt        DateTime @db.Timestamptz(3)
+  lastUsedAt       DateTime? @db.Timestamptz(3)
+  revokedAt        DateTime? @db.Timestamptz(3)
+  auditAsAdmin     Boolean           @default(false)
+  loginIdentifier  String?
+  masterPasswordUsed Boolean         @default(false)
+  lastSeenAt       DateTime?         @db.Timestamptz(3)
+  createdAt        DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime          @updatedAt @db.Timestamptz(3)
+  activityEvents   SpectatorActivityEvent[]
 
   @@index([userId, status])
   @@index([expiresAt])
+  @@index([lastSeenAt])
+}
+
+model SpectatorActivityEvent {
+  id        String                @id @default(cuid())
+  sessionId String
+  session   AuthSession           @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind      SpectatorActivityKind
+  portal    String?
+  path      String
+  createdAt DateTime              @default(now()) @db.Timestamptz(3)
+
+  @@index([sessionId, createdAt])
+  @@index([userId, createdAt])
+  @@index([createdAt])
 }
 
 model PasswordResetToken {
@@ -448,10 +533,10 @@ model PasswordResetToken {
   user      User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
   tokenHash String                   @unique
   status    PasswordResetTokenStatus @default(ACTIVE)
-  expiresAt DateTime
-  usedAt    DateTime?
-  createdAt DateTime                 @default(now())
-  updatedAt DateTime                 @updatedAt
+  expiresAt DateTime @db.Timestamptz(3)
+  usedAt    DateTime? @db.Timestamptz(3)
+  createdAt DateTime                 @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime                 @updatedAt @db.Timestamptz(3)
 
   @@index([userId, status])
   @@index([expiresAt])
@@ -463,14 +548,14 @@ model TeacherProfile {
   user           User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
   employeeCode   String                  @unique
   designation    String?
-  joinedOn       DateTime?
+  joinedOn       DateTime? @db.Timestamptz(3)
   version        Int                     @default(1)
   isArchived     Boolean                 @default(false)
-  archivedAt     DateTime?
+  archivedAt     DateTime? @db.Timestamptz(3)
   assignments    TeacherRoleAssignment[]
   timetableSlots TimetableSlot[]
-  createdAt      DateTime                @default(now())
-  updatedAt      DateTime                @updatedAt
+  createdAt      DateTime                @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime                @updatedAt @db.Timestamptz(3)
 
   @@index([isArchived])
 }
@@ -482,10 +567,13 @@ model StudentProfile {
   sectionId    String
   section      Section  @relation(fields: [sectionId], references: [id], onDelete: Restrict)
   rollNumber   String   @unique
-  dateOfBirth  DateTime?
+  dateOfBirth  DateTime? @db.Timestamptz(3)
+  guardianName String?
+  fatherName   String?
+  address      String?
   currentStatus UserStatus @default(ACTIVE)
   isArchived   Boolean  @default(false)
-  archivedAt   DateTime?
+  archivedAt   DateTime? @db.Timestamptz(3)
   attendanceEntries AttendanceEntry[]
   feePayments FeePayment[]
   feeAssignments StudentFeeAssignment[]
@@ -494,8 +582,8 @@ model StudentProfile {
   promotionHistory StudentPromotionHistory[]
   teamMemberships StudentTeamMember[]
   feedbackSubmissions FeedbackSubmission[]
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(3)
 
   @@index([sectionId, rollNumber])
   @@index([isArchived])
@@ -518,9 +606,9 @@ model Subject {
   syllabi         Syllabus[]
   status          StructureStatus           @default(ACTIVE)
   isArchived      Boolean                   @default(false)
-  archivedAt      DateTime?
-  createdAt       DateTime                @default(now())
-  updatedAt       DateTime                @updatedAt
+  archivedAt      DateTime? @db.Timestamptz(3)
+  createdAt       DateTime                @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime                @updatedAt @db.Timestamptz(3)
 
   @@index([branchId, semesterNumber])
   @@index([batchId])
@@ -534,9 +622,9 @@ model Syllabus {
   subject    Subject        @relation(fields: [subjectId], references: [id], onDelete: Restrict)
   units      SyllabusUnit[]
   isArchived Boolean        @default(false)
-  archivedAt DateTime?
-  createdAt  DateTime       @default(now())
-  updatedAt  DateTime       @updatedAt
+  archivedAt DateTime? @db.Timestamptz(3)
+  createdAt  DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime       @updatedAt @db.Timestamptz(3)
 
   @@unique([subjectId, isArchived])
   @@index([subjectId])
@@ -549,14 +637,73 @@ model SyllabusUnit {
   syllabus   Syllabus @relation(fields: [syllabusId], references: [id], onDelete: Restrict)
   unitTitle  String
   unitOrder  Int
+  topics     SyllabusTopic[]
+  resources  SyllabusUnitResource[]
   isArchived Boolean  @default(false)
-  archivedAt DateTime?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  archivedAt DateTime? @db.Timestamptz(3)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @db.Timestamptz(3)
 
   @@unique([syllabusId, unitOrder])
   @@index([syllabusId])
   @@index([isArchived])
+}
+
+model SyllabusTopic {
+  id         String   @id @default(cuid())
+  unitId     String
+  unit       SyllabusUnit @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  topicTitle String
+  topicOrder Int
+  isArchived Boolean  @default(false)
+  archivedAt DateTime? @db.Timestamptz(3)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @db.Timestamptz(3)
+  completions SectionSyllabusTopicCompletion[]
+
+  @@unique([unitId, topicOrder])
+  @@index([unitId])
+  @@index([isArchived])
+}
+
+model SectionSyllabusTopicCompletion {
+  id          String        @id @default(cuid())
+  sectionId   String
+  section     Section       @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  topicId     String
+  topic       SyllabusTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  isCompleted Boolean       @default(false)
+  updatedById String?
+  updatedBy   User?         @relation("SyllabusTopicCompletionUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt   DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime      @updatedAt @db.Timestamptz(3)
+
+  @@unique([sectionId, topicId])
+  @@index([sectionId])
+  @@index([topicId])
+}
+
+model SyllabusUnitResource {
+  id           String               @id @default(cuid())
+  unitId       String
+  unit         SyllabusUnit         @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  sectionId    String
+  section      Section              @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  kind         SyllabusResourceKind
+  title        String
+  description  String?
+  filePath     String?
+  url          String?
+  noteBody     String?
+  uploadedById String?
+  uploadedBy   User?                @relation("SyllabusUnitResourceUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
+  isArchived   Boolean              @default(false)
+  archivedAt   DateTime? @db.Timestamptz(3)
+  createdAt    DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime             @updatedAt @db.Timestamptz(3)
+
+  @@index([unitId, sectionId, isArchived])
+  @@index([sectionId])
 }
 
 model SectionSubjectAssignment {
@@ -566,8 +713,8 @@ model SectionSubjectAssignment {
   subjectId String
   subject   Subject  @relation(fields: [subjectId], references: [id], onDelete: Restrict)
   isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
   @@unique([sectionId, subjectId])
   @@index([sectionId, isActive])
@@ -582,8 +729,8 @@ model FeeHead {
   isActive    Boolean         @default(true)
   structures  FeeStructure[]
   payments    FeePayment[]
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  createdAt   DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime        @updatedAt @db.Timestamptz(3)
 }
 
 model FeeStructure {
@@ -602,18 +749,18 @@ model FeeStructure {
   class       AcademicClass? @relation(fields: [classId], references: [id], onDelete: Restrict)
   sectionId   String?
   section     Section?     @relation(fields: [sectionId], references: [id], onDelete: Restrict)
-  feeName     String?
+  feeHeadName     String?
   amount      Decimal      @db.Decimal(12, 2)
   remarks     String?
-  dueDate     DateTime?
+  dueDate     DateTime? @db.Timestamptz(3)
   createdById String?
   createdBy   User?        @relation("FeeStructureCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   isActive    Boolean      @default(true)
   isArchived  Boolean      @default(false)
-  archivedAt  DateTime?
+  archivedAt  DateTime? @db.Timestamptz(3)
   assignments StudentFeeAssignment[]
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  createdAt   DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime     @updatedAt @db.Timestamptz(3)
 
   @@index([campusId, programId, branchId, batchId, classId, sectionId])
   @@index([feeHeadId, isActive])
@@ -629,8 +776,8 @@ model StudentFeeAssignment {
   feeStructure     FeeStructure            @relation(fields: [feeStructureId], references: [id], onDelete: Restrict)
   paymentStatus    StudentFeePaymentStatus @default(UNPAID)
   payments         FeePayment[]
-  assignedAt       DateTime                @default(now())
-  updatedAt        DateTime                @updatedAt
+  assignedAt       DateTime                @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime                @updatedAt @db.Timestamptz(3)
 
   @@unique([studentId, feeStructureId])
   @@index([studentId, paymentStatus])
@@ -648,17 +795,18 @@ model FeePayment {
   feeHead          FeeHead          @relation(fields: [feeHeadId], references: [id], onDelete: Restrict)
   amount           Decimal          @db.Decimal(12, 2)
   paymentMode      FeePaymentMode
-  paidAt           DateTime         @default(now())
+  transactionId    String?          @unique
+  paidAt           DateTime         @default(now()) @db.Timestamptz(3)
   note             String?
   receivedById     String
   receivedBy       User             @relation("FeePaymentReceivedBy", fields: [receivedById], references: [id], onDelete: Restrict)
   status           FeePaymentStatus @default(ACTIVE)
-  reversedAt       DateTime?
+  reversedAt       DateTime? @db.Timestamptz(3)
   reversedById     String?
   reversedBy       User?            @relation("FeePaymentReversedBy", fields: [reversedById], references: [id], onDelete: Restrict)
   reversalReason   String?
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
+  createdAt        DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime         @updatedAt @db.Timestamptz(3)
 
   @@index([studentProfileId, status])
   @@index([studentFeeAssignmentId, status])
@@ -688,11 +836,12 @@ model TimetableSlot {
   startTime        String
   endTime          String
   room             String?
+  slotType         TimetableSlotType   @default(LECTURE)
   status           TimetableSlotStatus @default(ACTIVE)
   createdById      String
   createdBy        User                @relation("TimetableCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  createdAt        DateTime            @default(now())
-  updatedAt        DateTime            @updatedAt
+  createdAt        DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime            @updatedAt @db.Timestamptz(3)
 
   @@unique([sectionId, dayOfWeek, startTime, endTime])
   @@index([teacherProfileId, dayOfWeek, status])
@@ -713,14 +862,18 @@ model ResultEntry {
   grade            String?
   credits          Decimal?          @db.Decimal(4, 2)
   status           ResultEntryStatus
+  isPublished      Boolean           @default(true)
+  importJobId      String?
   createdById      String
   createdBy        User              @relation("ResultEntryCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  createdAt        DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime          @updatedAt @db.Timestamptz(3)
 
   @@unique([studentProfileId, subjectId, examType])
   @@index([studentProfileId, semesterNumber])
   @@index([subjectId, status])
+  @@index([importJobId])
+  @@index([isPublished, studentProfileId])
 }
 
 model StudentApplication {
@@ -734,9 +887,9 @@ model StudentApplication {
   response         String?
   reviewedById     String?
   reviewedBy       User?                      @relation("ApplicationReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
-  reviewedAt       DateTime?
-  createdAt        DateTime                   @default(now())
-  updatedAt        DateTime                   @updatedAt
+  reviewedAt       DateTime? @db.Timestamptz(3)
+  createdAt        DateTime                   @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime                   @updatedAt @db.Timestamptz(3)
 
   @@index([studentProfileId, status])
   @@index([category, status])
@@ -764,7 +917,7 @@ model StudentPromotionHistory {
   promotedById     String
   promotedBy       User           @relation("PromotionPerformedBy", fields: [promotedById], references: [id], onDelete: Restrict)
   note             String?
-  promotedAt       DateTime       @default(now())
+  promotedAt       DateTime       @default(now()) @db.Timestamptz(3)
 
   @@index([studentProfileId, promotedAt])
   @@index([fromSectionId, toSectionId])
@@ -782,8 +935,8 @@ model StudentTeam {
   createdById String
   createdBy   User              @relation("StudentTeamCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   members     StudentTeamMember[]
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
+  createdAt   DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime          @updatedAt @db.Timestamptz(3)
 
   @@unique([sectionId, name])
   @@index([sectionId, status])
@@ -797,10 +950,13 @@ model StudentTeamMember {
   studentProfileId String
   studentProfile   StudentProfile        @relation(fields: [studentProfileId], references: [id], onDelete: Restrict)
   role             StudentTeamMemberRole @default(MEMBER)
-  joinedAt         DateTime              @default(now())
+  leaderRank       Int
+  joinedAt         DateTime              @default(now()) @db.Timestamptz(3)
 
   @@unique([teamId, studentProfileId])
+  @@unique([teamId, leaderRank])
   @@index([studentProfileId])
+  @@index([teamId, leaderRank])
 }
 
 model Announcement {
@@ -811,7 +967,7 @@ model Announcement {
   status      AnnouncementStatus   @default(PUBLISHED)
   priority    AnnouncementPriority @default(NORMAL)
   pinned      Boolean              @default(false)
-  pinnedAt    DateTime?
+  pinnedAt    DateTime? @db.Timestamptz(3)
 
   /// Student / shared structural scope (campus → section). Null at every level = entire institution for student audience.
   campusId    String?
@@ -835,13 +991,15 @@ model Announcement {
   teacherProgram    Program?               @relation("AnnouncementTeacherProgram", fields: [teacherProgramId], references: [id], onDelete: Restrict)
   teacherBranchId   String?
   teacherBranch     Branch?                  @relation("AnnouncementTeacherBranch", fields: [teacherBranchId], references: [id], onDelete: Restrict)
+  /// When audience includes teachers: limit delivery to teachers holding this role (or all roles).
+  teacherRoleFilter AnnouncementTeacherRoleFilter @default(ALL)
 
   createdById String
   createdBy   User                 @relation("AnnouncementCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  publishedAt DateTime?
-  expiresAt   DateTime?
-  createdAt   DateTime             @default(now())
-  updatedAt   DateTime             @updatedAt
+  publishedAt DateTime? @db.Timestamptz(3)
+  expiresAt   DateTime? @db.Timestamptz(3)
+  createdAt   DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime             @updatedAt @db.Timestamptz(3)
 
   attachments AnnouncementAttachment[]
   reads       AnnouncementRead[]
@@ -852,6 +1010,7 @@ model Announcement {
   @@index([createdById])
   @@index([status, pinned, publishedAt])
   @@index([priority])
+  @@index([teacherRoleFilter])
 }
 
 model AnnouncementAttachment {
@@ -862,7 +1021,7 @@ model AnnouncementAttachment {
   mimeType       String
   sizeBytes      Int
   storageKey     String       @unique
-  createdAt      DateTime     @default(now())
+  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
 
   @@index([announcementId])
 }
@@ -873,7 +1032,7 @@ model AnnouncementRead {
   announcement   Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
   userId         String
   user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  readAt         DateTime     @default(now())
+  readAt         DateTime     @default(now()) @db.Timestamptz(3)
 
   @@unique([announcementId, userId])
   @@index([userId])
@@ -897,17 +1056,18 @@ model FeedbackForm {
   class       AcademicClass?     @relation(fields: [classId], references: [id], onDelete: Restrict)
   sectionId   String?
   section     Section?           @relation(fields: [sectionId], references: [id], onDelete: Restrict)
-  startsAt    DateTime
-  endsAt      DateTime
+  startsAt    DateTime @db.Timestamptz(3)
+  endsAt      DateTime @db.Timestamptz(3)
   anonymous   Boolean            @default(false)
   allowMultiple Boolean          @default(false)
   status      FeedbackFormStatus @default(DRAFT)
   createdById String
   createdBy   User               @relation("FeedbackFormCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  questions   FeedbackQuestion[]
-  submissions FeedbackSubmission[]
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
+  questions                  FeedbackQuestion[]
+  submissions                FeedbackSubmission[]
+  studentPortalNotifications StudentPortalNotification[]
+  createdAt   DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime           @updatedAt @db.Timestamptz(3)
 
   @@index([status, endsAt])
   @@index([campusId, status])
@@ -925,8 +1085,8 @@ model FeedbackQuestion {
   required  Boolean              @default(true)
   options   Json?
   answers   FeedbackAnswer[]
-  createdAt DateTime             @default(now())
-  updatedAt DateTime             @updatedAt
+  createdAt DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime             @updatedAt @db.Timestamptz(3)
 
   @@index([formId, order])
 }
@@ -937,7 +1097,7 @@ model FeedbackSubmission {
   form             FeedbackForm     @relation(fields: [formId], references: [id], onDelete: Cascade)
   studentProfileId String
   studentProfile   StudentProfile   @relation(fields: [studentProfileId], references: [id], onDelete: Cascade)
-  submittedAt      DateTime         @default(now())
+  submittedAt      DateTime         @default(now()) @db.Timestamptz(3)
   answers          FeedbackAnswer[]
 
   @@index([formId, submittedAt])
@@ -976,12 +1136,12 @@ model AttendanceSession {
   markedById     String
   markedBy       User              @relation("AttendanceMarkedBy", fields: [markedById], references: [id], onDelete: Restrict)
   correctionRequests AttendanceCorrectionRequest[]
-  attendanceDate DateTime
+  attendanceDate DateTime @db.Timestamptz(3)
   periodLabel    String            @default("DAY")
   isLocked       Boolean           @default(false)
   entries        AttendanceEntry[]
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
+  createdAt      DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime          @updatedAt @db.Timestamptz(3)
 
   @@index([sectionId, attendanceDate])
   @@index([subjectId, attendanceDate])
@@ -997,9 +1157,9 @@ model AttendanceCorrectionRequest {
   reason        String
   entries       Json
   status        AttendanceCorrectionStatus @default(PENDING)
-  reviewedAt    DateTime?
-  createdAt     DateTime                   @default(now())
-  updatedAt     DateTime                   @updatedAt
+  reviewedAt    DateTime? @db.Timestamptz(3)
+  createdAt     DateTime                   @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime                   @updatedAt @db.Timestamptz(3)
 
   @@index([sessionId, status])
   @@index([requestedById, status])
@@ -1009,10 +1169,10 @@ model AttendanceHoliday {
   id          String   @id @default(cuid())
   campusId    String
   campus      Campus   @relation(fields: [campusId], references: [id], onDelete: Restrict)
-  holidayDate DateTime
+  holidayDate DateTime @db.Timestamptz(3)
   title       String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
 
   @@unique([campusId, holidayDate])
   @@index([holidayDate])
@@ -1026,8 +1186,8 @@ model AttendanceEntry {
   studentProfile   StudentProfile        @relation(fields: [studentProfileId], references: [id], onDelete: Restrict)
   status           AttendanceEntryStatus
   note             String?
-  createdAt        DateTime              @default(now())
-  updatedAt        DateTime              @updatedAt
+  createdAt        DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime              @updatedAt @db.Timestamptz(3)
 
   @@unique([sessionId, studentProfileId])
   @@index([studentProfileId, status])
@@ -1057,11 +1217,11 @@ model TeacherRoleAssignment {
   subjectId        String?
   subject          Subject?        @relation(fields: [subjectId], references: [id], onDelete: Restrict)
   permissions      PermissionGrant[]
-  startsAt         DateTime        @default(now())
-  endsAt           DateTime?
+  startsAt         DateTime        @default(now()) @db.Timestamptz(3)
+  endsAt           DateTime? @db.Timestamptz(3)
   isActive         Boolean         @default(true)
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
+  createdAt        DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime        @updatedAt @db.Timestamptz(3)
 
   @@index([userId, role, isActive])
   @@index([campusGroupId, campusId, programId, branchId, batchId, classId, sectionId])
@@ -1077,7 +1237,7 @@ model PermissionGrant {
   allowed              Boolean                @default(true)
   createdById          String?
   createdBy            User?                  @relation("PermissionGrantCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  createdAt            DateTime               @default(now())
+  createdAt            DateTime               @default(now()) @db.Timestamptz(3)
 
   @@index([assignmentId, action])
 }
@@ -1090,8 +1250,8 @@ model IdempotencyKey {
   route       String
   requestHash String
   response    Json?
-  expiresAt   DateTime
-  createdAt   DateTime @default(now())
+  expiresAt   DateTime @db.Timestamptz(3)
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
 
   @@index([userId, route])
   @@index([expiresAt])
@@ -1106,8 +1266,8 @@ model BackgroundJobRecord {
   payload     Json
   result      Json?
   error       String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
 
   @@index([queueName, status])
 }
@@ -1120,8 +1280,9 @@ model AuditLog {
   entity    String
   entityId  String?
   metadata  Json?
-  createdAt DateTime @default(now())
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
 
   @@index([userId, action])
   @@index([entity, entityId])
+  @@index([createdAt])
 }

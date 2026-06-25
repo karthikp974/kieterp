@@ -4,15 +4,17 @@ services:
     container_name: college-erp-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: college_erp
-      POSTGRES_USER: erp_user
-      POSTGRES_PASSWORD: erp_password
+      POSTGRES_DB: ${POSTGRES_DB:-college_erp}
+      POSTGRES_USER: ${POSTGRES_USER:-erp_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-erp_password}
+      TZ: ${TZ:-Asia/Kolkata}
+      PGTZ: ${DATABASE_TIMEZONE:-Asia/Kolkata}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U erp_user -d college_erp"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-erp_user} -d ${POSTGRES_DB:-college_erp}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -38,9 +40,11 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql://erp_user:erp_password@postgres:5432/college_erp?schema=public
+      DATABASE_URL: postgresql://${POSTGRES_USER:-erp_user}:${POSTGRES_PASSWORD:-erp_password}@postgres:5432/${POSTGRES_DB:-college_erp}?schema=public
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      TZ: ${TZ:-Asia/Kolkata}
+      DATABASE_TIMEZONE: ${DATABASE_TIMEZONE:-Asia/Kolkata}
     ports:
       - "4000:4000"
     depends_on:
@@ -59,9 +63,11 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql://erp_user:erp_password@postgres:5432/college_erp?schema=public
+      DATABASE_URL: postgresql://${POSTGRES_USER:-erp_user}:${POSTGRES_PASSWORD:-erp_password}@postgres:5432/${POSTGRES_DB:-college_erp}?schema=public
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      TZ: ${TZ:-Asia/Kolkata}
+      DATABASE_TIMEZONE: ${DATABASE_TIMEZONE:-Asia/Kolkata}
     depends_on:
       postgres:
         condition: service_healthy
@@ -74,6 +80,8 @@ services:
       dockerfile: apps/frontend/Dockerfile
     container_name: college-erp-frontend
     restart: unless-stopped
+    environment:
+      DEV_API_PROXY_TARGET: http://backend:4000
     ports:
       - "5173:5173"
     depends_on:

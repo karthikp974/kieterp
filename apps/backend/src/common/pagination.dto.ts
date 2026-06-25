@@ -1,5 +1,5 @@
 import { Type } from "class-transformer";
-import { IsInt, IsOptional, IsString, Max, Min } from "class-validator";
+import { IsIn, IsInt, IsOptional, IsString, Max, Min } from "class-validator";
 
 export class PaginationQueryDto {
   @IsOptional()
@@ -18,6 +18,11 @@ export class PaginationQueryDto {
   @IsOptional()
   @IsString()
   search?: string;
+
+  /** Admin existing-records catalog: `owned` = strict campus filter. Ignored when absent. */
+  @IsOptional()
+  @IsIn(["shared", "owned"])
+  campusScope?: "shared" | "owned";
 }
 
 export function toPagination(query: PaginationQueryDto) {

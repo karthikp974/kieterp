@@ -1,11 +1,16 @@
-import { ArrowLeft, Bell, Search, Trash2 } from "lucide-react";
+import { ArrowLeft, Search, Trash2 } from "lucide-react";
 import { FormEvent, InputHTMLAttributes, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/auth-context";
-import { AdminWorkflowMenuButton, OptionActionButton } from "../shared/OptionPage";
+import { AdminWorkflowMenuButton, OptionActionButton, WorkflowSection } from "../shared/OptionPage";
+import { ExistingRecordsPanel, ExistingRecordsPageIntro, WorkflowExistingRecordsPageShell } from "../shared/WorkflowExistingRecords";
 import { SearchableSelect } from "../shared/SearchableSelect";
+import { ProfileMenuButton } from "../shared/ProfileMenu";
+import { UserAvatar } from "../shared/UserAvatar";
+import { useConfirm } from "../shared/ConfirmDialog";
 import { useToast } from "../shared/toast-context";
 import { AcademicClass, Batch, Branch, Campus, PaginatedResponse, Program, Section } from "../structure/structure-types";
+import { programsForOperationalCampus } from "../shared/academic-catalog";
 
 type StudentStatus = "ACTIVE" | "INACTIVE" | "SUSPENDED";
 type StudentListItem = {
@@ -15,11 +20,13 @@ type StudentListItem = {
     email?: string | null;
     phone?: string | null;
     dateOfBirth?: string | null;
+    fatherName?: string | null;
     rollNumber: string;
     status: StudentStatus;
   };
   structure: {
     campus: Campus;
+    operationalCampus?: Campus | null;
     program: Program;
     branch: Branch;
     batch: Batch;
@@ -30,6 +37,7 @@ type StudentListItem = {
 type StudentResponse = { student: StudentListItem };
 type StudentForm = {
   fullName: string;
+  fatherName: string;
   phone: string;
   email: string;
   dateOfBirth: string;
@@ -46,11 +54,12 @@ type StudentForm = {
 
 const emptyForm = (): StudentForm => ({
   fullName: "",
+  fatherName: "",
   phone: "",
   email: "",
   dateOfBirth: "",
   rollNumber: "",
-  password: "Student@123",
+  password: "",
   campusId: "",
   programId: "",
   branchId: "",
@@ -62,43 +71,67 @@ const emptyForm = (): StudentForm => ({
 
 export function StudentsHomePage() {
   const navigate = useNavigate();
-  const data = useStudentData();
-  const { searchStudents } = data;
-  const [query, setQuery] = useState("");
-  const [submittedQuery, setSubmittedQuery] = useState("");
-  const [page, setPage] = useState(1);
-  const pageSize = 5;
-
-  useEffect(() => {
-    void searchStudents(submittedQuery, undefined, page, pageSize);
-  }, [page, pageSize, searchStudents, submittedQuery]);
-
-  function search(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSubmittedQuery(query);
-    setPage(1);
-  }
 
   return (
     <StudentShell title="Students" variant="main">
-      <section className="db-section teacher-action-stack">
-        <h2>Student Records</h2>
-        <GlassButton onClick={() => navigate("/students/add-student")}>Add Student</GlassButton>
-        <GlassButton onClick={() => navigate("/students/modify-student")}>Modify Student</GlassButton>
-        <GlassButton tone="danger" onClick={() => navigate("/students/delete-student")}>Delete Student</GlassButton>
-        <GlassButton onClick={() => navigate("/students/history")}>History</GlassButton>
-      </section>
-      <section className="db-section">
-        <h2>{submittedQuery.trim() ? "Search Results" : "Recently Added Students"}</h2>
-        <form className="db-search-bar" onSubmit={search}>
-          <Search size={18} />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search student name or roll number" />
-          <button>Search</button>
-        </form>
-        {data.students.length ? <StudentSuggestions students={data.students} onSelect={() => undefined} /> : <p className="db-empty">{submittedQuery.trim() ? "No students found." : "No students added yet."}</p>}
-        <PaginationControls page={page} pageSize={pageSize} total={data.total} onPage={setPage} />
-      </section>
+      <WorkflowSection title="Create Records">
+        <OptionActionButton onClick={() => navigate("/students/add-student")}>Add Student</OptionActionButton>
+      </WorkflowSection>
+      <WorkflowSection title="Student Records">
+        <OptionActionButton onClick={() => navigate("/students/modify-student")}>Modify Student</OptionActionButton>
+        <OptionActionButton tone="danger" onClick={() => navigate("/students/delete-student")}>Delete Student</OptionActionButton>
+      </WorkflowSection>
+      <WorkflowSection title="Activity">
+        <OptionActionButton onClick={() => navigate("/students/existing-records")}>Existing records</OptionActionButton>
+        <OptionActionButton onClick={() => navigate("/students/history")}>History</OptionActionButton>
+      </WorkflowSection>
     </StudentShell>
+  );
+}
+
+export function StudentsExistingRecordsPage() {
+  const data = useStudentData();
+  const [campusId, setCampusId] = useState("");
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void data.searchStudents(search, campusId || undefined, 1, 100);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [campusId, data.searchStudents, search]);
+
+  return (
+    <WorkflowExistingRecordsPageShell title="Existing records">
+      <ExistingRecordsPageIntro title="Students catalog" description="Browse students already saved in KIET ERP." />
+      <ExistingRecordsPanel
+        title="Students"
+        total={data.total}
+        campusId={campusId}
+        campusOptions={data.campuses.map((campus) => [campus.id, campus.code])}
+        onCampusChange={setCampusId}
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Search name or roll number"
+        columns={[
+          { header: "Roll" },
+          { header: "Name" },
+          { header: "Campus" },
+          { header: "Department" },
+          { header: "Section" }
+        ]}
+        rows={data.students.map((student) => ({
+          id: student.id,
+          cells: [
+            student.identity.rollNumber,
+            student.identity.fullName,
+            student.structure.operationalCampus?.code ?? student.structure.campus.code,
+            student.structure.program.code,
+            student.structure.section.name
+          ]
+        }))}
+      />
+    </WorkflowExistingRecordsPageShell>
   );
 }
 
@@ -137,14 +170,27 @@ export function AddStudentPage() {
         <StudentStepper step={step} setStep={setStep} />
         {step === 1 ? <StudentIdentityStep form={form} setForm={setForm} includePassword /> : null}
         {step === 2 ? <StudentStructureStep data={data} form={form} options={options} setForm={setForm} /> : null}
-        <footer className="teacher-flow-footer">
+        <div className="teacher-flow-actions">
           <button type="button" className="teacher-secondary" disabled={step === 1} onClick={() => setStep(1)}>Back</button>
           {step === 1 ? (
-            <button type="button" className="db-submit" onClick={() => setStep(2)}>Next</button>
+            <button
+              type="button"
+              className="db-submit"
+              onClick={() => {
+                const error = validateStudentIdentityForm(form, false, true);
+                if (error) {
+                  showToast(error, "error");
+                  return;
+                }
+                setStep(2);
+              }}
+            >
+              Next
+            </button>
           ) : (
             <button className="db-submit" disabled={isSaving}>{isSaving ? "Saving..." : "Submit Student"}</button>
           )}
-        </footer>
+        </div>
       </form>
     </StudentShell>
   );
@@ -162,6 +208,7 @@ function StudentLookupPage({ mode }: { mode: "modify" | "delete" }) {
   const data = useStudentData();
   const navigate = useNavigate();
   const { showToast } = useToast();
+  const { confirm, dialog } = useConfirm();
   const [campusId, setCampusId] = useState("");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<StudentListItem | null>(null);
@@ -204,7 +251,15 @@ function StudentLookupPage({ mode }: { mode: "modify" | "delete" }) {
   }
 
   async function archiveStudent() {
-    if (!selected || !window.confirm("Archive this student? Existing attendance, fees, marks, and history remain in the database.")) return;
+    if (!selected) return;
+    const ok = await confirm({
+      title: "Archive student?",
+      message: "Existing attendance, fees, marks, and history remain in the database.",
+      itemName: selected.identity.fullName,
+      confirmLabel: "Archive",
+      icon: Trash2
+    });
+    if (!ok) return;
     setIsSaving(true);
     try {
       await data.sendJson(`/api/students/${selected.id}`, {}, "DELETE");
@@ -243,6 +298,7 @@ function StudentLookupPage({ mode }: { mode: "modify" | "delete" }) {
           <StudentDetails student={selected} />
         </section>
       ) : null}
+      {dialog}
     </StudentShell>
   );
 }
@@ -252,15 +308,26 @@ function StudentIdentityStep({ form, includePassword = false, setForm }: { form:
     <section className="db-card db-form teacher-step-card">
       <div>
         <h2>Student Details</h2>
-        <p>Name, contact details, date of birth, and roll number are validated before saving.</p>
+        <p>Name, contact details, date of birth, and roll/admission number. Initial login password matches the roll number.</p>
       </div>
       <div className="teacher-form-grid">
         <Field label="Name"><Input value={form.fullName} onChange={(fullName) => setForm({ ...form, fullName })} required /></Field>
+        <Field label="Father Name"><Input value={form.fatherName} onChange={(fatherName) => setForm({ ...form, fatherName })} required /></Field>
         <Field label="Phone Number"><Input value={form.phone} onChange={(phone) => setForm({ ...form, phone })} /></Field>
         <Field label="Email"><Input type="email" value={form.email} onChange={(email) => setForm({ ...form, email })} required /></Field>
         <Field label="Date of Birth"><Input type="date" value={form.dateOfBirth} onChange={(dateOfBirth) => setForm({ ...form, dateOfBirth })} /></Field>
-        <Field label="Roll Number"><Input value={form.rollNumber} onChange={(rollNumber) => setForm({ ...form, rollNumber })} required /></Field>
-        {includePassword ? <Field label="Temporary Password"><Input value={form.password} onChange={(password) => setForm({ ...form, password })} required /></Field> : null}
+        <Field label="Roll Number / Admission No.">
+          <Input
+            value={form.rollNumber}
+            onChange={(rollNumber) => setForm({ ...form, rollNumber, password: normalizeStudentRoll(rollNumber) })}
+            required
+          />
+        </Field>
+        {includePassword ? (
+          <Field label="Initial Password">
+            <Input value={form.password} onChange={() => undefined} readOnly required />
+          </Field>
+        ) : null}
       </div>
     </section>
   );
@@ -290,6 +357,7 @@ function StudentDetails({ student }: { student: StudentListItem }) {
   return (
     <div className="db-detail-grid">
       <Info label="Name" value={student.identity.fullName} />
+      <Info label="Father Name" value={student.identity.fatherName || "-"} />
       <Info label="Phone Number" value={student.identity.phone || "-"} />
       <Info label="Email" value={student.identity.email || "-"} />
       <Info label="Date of Birth" value={student.identity.dateOfBirth || "-"} />
@@ -308,7 +376,13 @@ function StudentDetails({ student }: { student: StudentListItem }) {
 function StudentProfileHeader({ student }: { student: StudentListItem }) {
   return (
     <div className="teacher-profile-head">
-      <div className="db-avatar">{initials(student.identity.fullName)}</div>
+      <UserAvatar
+        fullName={student.identity.fullName}
+        role="STUDENT"
+        id={student.id}
+        email={student.identity.email}
+        size="lg"
+      />
       <div>
         <h2>{student.identity.fullName}</h2>
         <p>{student.identity.rollNumber} / {student.structure.campus.code}</p>
@@ -391,7 +465,7 @@ function useStudentData() {
 
 function useStudentOptions(data: StudentData, form: StudentForm) {
   return useMemo(() => {
-    const programs = data.programs.filter((item) => item.campusId === form.campusId);
+    const programs = programsForOperationalCampus(data.programs, form.campusId, data.campuses);
     const branches = data.branches.filter((item) => item.programId === form.programId);
     const batches = data.batches.filter((item) => item.branchId === form.branchId);
     const batchClasses = data.classes.filter((item) => item.batchId === form.batchId);
@@ -413,15 +487,10 @@ function StudentShell({ children, title, variant = "workflow" }: { children: Rea
           <h1>{title}</h1>
         </div>
         <div className="db-header-actions">
-          {variant === "main" ? (
-            <>
-              <button type="button" className="db-icon-button" aria-label="Notifications"><Bell size={18} /></button>
-            </>
-          ) : null}
-          <div className="db-avatar">{initials(user?.fullName ?? "Admin")}</div>
+          <ProfileMenuButton />
         </div>
       </header>
-      <div className="db-workflow-body">{children}</div>
+      <div className="db-workflow-body ann-workflow-body promotion-body">{children}</div>
     </main>
   );
 }
@@ -466,6 +535,10 @@ function PaginationControls({ onPage, page, pageSize, total }: { onPage: (page: 
   );
 }
 
+function ActionGroup({ children, title }: { children: ReactNode; title: string }) {
+  return <WorkflowSection title={title}>{children}</WorkflowSection>;
+}
+
 function GlassButton({ children, onClick, tone = "default" }: { children: ReactNode; onClick: () => void; tone?: "default" | "danger" }) {
   return <OptionActionButton tone={tone} onClick={onClick}>{children}</OptionActionButton>;
 }
@@ -477,6 +550,7 @@ function formFromStudent(student: StudentListItem): StudentForm {
   return {
     ...emptyForm(),
     fullName: student.identity.fullName,
+    fatherName: student.identity.fatherName ?? "",
     phone: student.identity.phone ?? "",
     email: student.identity.email ?? "",
     dateOfBirth: student.identity.dateOfBirth ?? "",
@@ -491,9 +565,14 @@ function formFromStudent(student: StudentListItem): StudentForm {
   };
 }
 
+function normalizeStudentRoll(value: string) {
+  return value.trim().toUpperCase().replace(/\s+/g, "");
+}
+
 function studentPayload(form: StudentForm, update = false) {
   return {
     fullName: form.fullName,
+    fatherName: form.fatherName.trim(),
     phone: form.phone || undefined,
     email: form.email || undefined,
     dateOfBirth: form.dateOfBirth || undefined,
@@ -505,15 +584,25 @@ function studentPayload(form: StudentForm, update = false) {
     semester: Number(form.semester),
     classId: form.classId,
     sectionId: form.sectionId,
-    ...(update ? {} : { password: form.password })
+    ...(update ? {} : { password: form.password.trim() || normalizeStudentRoll(form.rollNumber) })
   };
 }
 
-function validateStudentForm(form: StudentForm, update = false) {
+function validateStudentIdentityForm(form: StudentForm, update = false, includePassword = false) {
   if (!form.fullName.trim()) return "Student name is required.";
+  if (!update && !form.fatherName.trim()) return "Father name is required.";
+  if (form.fatherName.trim() && form.fatherName.trim().length < 2) return "Father name must be at least 2 characters.";
   if (!form.email.trim()) return "Student email is required.";
   if (!form.rollNumber.trim()) return "Roll number is required.";
-  if (!update && !form.password.trim()) return "Temporary password is required.";
+  if (!update && includePassword && !(form.password.trim() || normalizeStudentRoll(form.rollNumber))) {
+    return "Roll/admission number is required for the initial password.";
+  }
+  return "";
+}
+
+function validateStudentForm(form: StudentForm, update = false) {
+  const identityError = validateStudentIdentityForm(form, update);
+  if (identityError) return identityError;
   if (!form.campusId || !form.programId || !form.branchId || !form.batchId || !form.semester || !form.classId || !form.sectionId) return "Complete student academic structure.";
   return "";
 }

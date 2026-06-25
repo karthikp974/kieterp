@@ -1,12 +1,14 @@
-import { Body, Controller, Get, Param, Post, Query, UploadedFile, UseGuards, UseInterceptors } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Query, Res, UploadedFile, UseGuards, UseInterceptors } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
+import { memoryStorage } from "multer";
 import { PermissionAction } from "@prisma/client";
+import { Response } from "express";
 import { AuthUser } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { PermissionGuard } from "../permissions/permission.guard";
 import { RequiresPermission } from "../permissions/requires-permission.decorator";
-import { ResultPdfImportDto, ResultsQueryDto, UpsertResultEntryDto } from "./results.dto";
+import { ResultPdfImportDto, ResultsExportQueryDto, ResultsQueryDto, UpsertResultEntryDto } from "./results.dto";
 import { ResultsService } from "./results.service";
 
 type UploadedResultFile = {
@@ -41,12 +43,12 @@ export class ResultsController {
 
   @Get("export")
   @RequiresPermission(PermissionAction.VIEW_RESULTS)
-  export(@CurrentUser() user: AuthUser, @Query() query: ResultsQueryDto) {
-    return this.results.export(user, query);
+  export(@CurrentUser() user: AuthUser, @Query() query: ResultsExportQueryDto, @Res() response: Response) {
+    return this.results.export(user, query, response);
   }
 
   @Get("imports")
-  @RequiresPermission(PermissionAction.VIEW_RESULTS)
+  @RequiresPermission(PermissionAction.UPLOAD_RESULTS)
   importJobs(@CurrentUser() user: AuthUser, @Query() query: ResultsQueryDto) {
     return this.results.importJobs(user, query);
   }
@@ -65,7 +67,12 @@ export class ResultsController {
 
   @Post("import/pdf")
   @RequiresPermission(PermissionAction.UPLOAD_RESULTS)
-  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 15 * 1024 * 1024 } }))
+  @UseInterceptors(
+    FileInterceptor("file", {
+      storage: memoryStorage(),
+      limits: { fileSize: 15 * 1024 * 1024 }
+    })
+  )
   importPdf(@CurrentUser() user: AuthUser, @UploadedFile() file: UploadedResultFile | undefined, @Body() dto: ResultPdfImportDto) {
     return this.results.importPdf(user, file, dto);
   }

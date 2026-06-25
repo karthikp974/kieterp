@@ -1,12 +1,15 @@
-import { ArrowLeft, Bell } from "lucide-react";
+import { ArrowLeft, History, WalletCards } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { FormEvent, InputHTMLAttributes, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/auth-context";
-import { AdminWorkflowMenuButton } from "../shared/OptionPage";
+import { AdminWorkflowMenuButton, OptionActionButton, WorkflowSection } from "../shared/OptionPage";
 import { SearchableSelect } from "../shared/SearchableSelect";
 import { safeRandomId } from "../shared/safe-random-id";
+import { ProfileMenuButton } from "../shared/ProfileMenu";
 import { useToast } from "../shared/toast-context";
 import { AcademicClass, Batch, Branch, Campus, PaginatedResponse, Program, Section } from "../structure/structure-types";
+import { programsForOperationalCampus } from "../shared/academic-catalog";
 
 type FeeTarget = "STUDENT" | "SECTION";
 type FeeStudent = { id: string; fullName: string; rollNumber: string; email?: string | null; section: string; class: string; semester: number };
@@ -18,7 +21,7 @@ type FeeForm = {
   sectionId: string;
   targetType: FeeTarget;
   studentId: string;
-  feeName: string;
+  feeHead: string;
   feeAmount: string;
   remarks: string;
   deadline: string;
@@ -32,14 +35,47 @@ const emptyForm = (): FeeForm => ({
   sectionId: "",
   targetType: "SECTION",
   studentId: "",
-  feeName: "",
+  feeHead: "",
   feeAmount: "",
   remarks: "",
   deadline: ""
 });
 
+function HubActionButton({ children, description, icon, onClick }: { children: ReactNode; description: string; icon: LucideIcon; onClick: () => void }) {
+  return (
+    <OptionActionButton description={description} icon={icon} onClick={onClick}>
+      {children}
+    </OptionActionButton>
+  );
+}
+
 export function FeeStructureHomePage() {
   const navigate = useNavigate();
+  return (
+    <FeeShell title="Fee Structure" variant="main">
+      <WorkflowSection title="Assign">
+        <HubActionButton
+          description="Select campus through section, then assign fees to a section or individual student."
+          icon={WalletCards}
+          onClick={() => navigate("/fee-structure/assign-fee")}
+        >
+          Assign fee
+        </HubActionButton>
+      </WorkflowSection>
+      <WorkflowSection title="Activity">
+        <HubActionButton
+          description="View recent fee assignments and audit records."
+          icon={History}
+          onClick={() => navigate("/fee-structure/history")}
+        >
+          Fee structure history
+        </HubActionButton>
+      </WorkflowSection>
+    </FeeShell>
+  );
+}
+
+export function FeeStructureAssignPage() {
   const data = useFeeStructureData();
   const { showToast } = useToast();
   const [form, setForm] = useState(emptyForm);
@@ -82,14 +118,14 @@ export function FeeStructureHomePage() {
         sectionId: form.sectionId,
         targetType: form.targetType,
         studentId: form.targetType === "STUDENT" ? selectedStudent?.id : undefined,
-        feeName: form.feeName,
+        feeHead: form.feeHead,
         feeAmount: Number(form.feeAmount),
         remarks: form.remarks || undefined,
         deadline: form.deadline,
         idempotencyKey
       });
       showToast("Fee structure assigned successfully");
-      setForm((current) => ({ ...current, feeName: "", feeAmount: "", remarks: "", deadline: "", studentId: "" }));
+      setForm((current) => ({ ...current, feeHead: "", feeAmount: "", remarks: "", deadline: "", studentId: "" }));
       setSelectedStudent(null);
       setIdempotencyKey(safeRandomId("fee"));
     } catch (error) {
@@ -100,7 +136,7 @@ export function FeeStructureHomePage() {
   }
 
   return (
-    <FeeShell title="Fee Structure" variant="main">
+    <FeeShell title="Assign fee" variant="workflow" backHref="/fee-structure">
       <form className="db-card db-form fee-structure-form" onSubmit={(event) => void submit(event)}>
         <div className="fee-form-heading">
           <h2>Filter Selection</h2>
@@ -127,6 +163,7 @@ export function FeeStructureHomePage() {
             {form.targetType === "STUDENT" ? (
               <div className="fee-student-field">
                 <SearchableSelect
+                  inputMode
                   value={selectedStudent?.id ?? ""}
                   onChange={(studentId) => {
                     if (!studentId) {
@@ -163,10 +200,10 @@ export function FeeStructureHomePage() {
             <div className="fee-details-panel">
               <div className="fee-form-heading">
                 <h2>Fee Details</h2>
-                <p>Set the fee name, amount, and due date. Remarks are optional.</p>
+                <p>Set the fee head, amount, and due date. Remarks are optional.</p>
               </div>
               <div className="fee-details-grid">
-                <Field label="Fee Name"><Input value={form.feeName} onChange={(feeName) => setForm({ ...form, feeName })} required /></Field>
+                <Field label="Fee Head"><Input value={form.feeHead} onChange={(feeHead) => setForm({ ...form, feeHead })} required /></Field>
                 <Field label="Fee Amount"><Input type="number" min="1" value={form.feeAmount} onChange={(feeAmount) => setForm({ ...form, feeAmount })} required /></Field>
                 <Field label="Deadline"><Input type="date" value={form.deadline} onChange={(deadline) => setForm({ ...form, deadline })} required /></Field>
                 <Field label="Remarks" className="fee-remarks-field"><Input value={form.remarks} onChange={(remarks) => setForm({ ...form, remarks })} placeholder="Optional note visible in records" /></Field>
@@ -176,14 +213,6 @@ export function FeeStructureHomePage() {
           </section>
         ) : null}
       </form>
-
-      <section className="db-section fee-history-footer" aria-label="Fee history">
-        <h2>History</h2>
-        <button className="fee-history-action" type="button" onClick={() => navigate("/fee-structure/history")}>
-          <span>Open fee history</span>
-          <small>View recent assignments and audit records.</small>
-        </button>
-      </section>
     </FeeShell>
   );
 }
@@ -236,7 +265,7 @@ function useFeeStructureData() {
     setStudentsLoading(true);
     setStudentPoolTotal(null);
     try {
-      const params = new URLSearchParams({ page: "1", pageSize: "200", sectionId });
+      const params = new URLSearchParams({ page: "1", pageSize: "100", sectionId });
       const page = await fetchJson<PaginatedResponse<FeeStudent>>(`/api/fees/students/search?${params.toString()}`);
       setStudents(page.items);
       setStudentPoolTotal(page.total);
@@ -262,7 +291,7 @@ function useFeeStructureData() {
 
 function useFeeOptions(data: FeeData, form: FeeForm) {
   return useMemo(() => {
-    const programs = data.programs.filter((item) => item.campusId === form.campusId);
+    const programs = programsForOperationalCampus(data.programs, form.campusId, data.campuses);
     const branches = data.branches.filter((item) => item.programId === form.programId);
     const branchBatches = data.batches.filter((item) => item.branchId === form.branchId);
     const classes = data.classes.filter((item) => branchBatches.some((batch) => batch.id === item.batchId));
@@ -271,23 +300,37 @@ function useFeeOptions(data: FeeData, form: FeeForm) {
   }, [data.batches, data.branches, data.classes, data.programs, data.sections, form.branchId, form.campusId, form.classId, form.programId]);
 }
 
-function FeeShell({ children, title, variant = "workflow" }: { children: ReactNode; title: string; variant?: "main" | "workflow" }) {
+function FeeShell({
+  children,
+  title,
+  variant = "workflow",
+  backHref
+}: {
+  children: ReactNode;
+  title: string;
+  variant?: "main" | "workflow";
+  backHref?: string;
+}) {
   const navigate = useNavigate();
-  const { user } = useAuth();
   return (
     <main className="db-workflow min-h-screen promotion-workflow-layout">
       <header className="db-workflow-header">
         <div className="db-header-left">
-          {variant === "main" ? <AdminWorkflowMenuButton /> : <button type="button" className="db-icon-button" onClick={() => navigate(-1)} aria-label="Back"><ArrowLeft size={20} /></button>}
+          {variant === "main" ? (
+            <AdminWorkflowMenuButton />
+          ) : backHref ? (
+            <Link to={backHref} className="db-icon-button" aria-label="Back">
+              <ArrowLeft size={20} />
+            </Link>
+          ) : (
+            <button type="button" className="db-icon-button" onClick={() => navigate(-1)} aria-label="Back">
+              <ArrowLeft size={20} />
+            </button>
+          )}
           <h1>{title}</h1>
         </div>
         <div className="db-header-actions">
-          {variant === "main" ? (
-            <>
-              <button type="button" className="db-icon-button" aria-label="Notifications"><Bell size={18} /></button>
-            </>
-          ) : null}
-          <div className="db-avatar">{initials(user?.fullName ?? "Admin")}</div>
+          <ProfileMenuButton />
         </div>
       </header>
       <div className="db-workflow-body promotion-body">{children}</div>
@@ -316,7 +359,7 @@ function Input({ onChange, ...props }: Omit<InputHTMLAttributes<HTMLInputElement
 function validateFeeForm(form: FeeForm, selectedStudent: FeeStudent | null) {
   if (!form.campusId || !form.programId || !form.branchId || !form.classId || !form.sectionId) return "Complete campus, department, branch, class, and section.";
   if (form.targetType === "STUDENT" && !selectedStudent) return "Select a student before assigning fee.";
-  if (!form.feeName.trim()) return "Fee name is required.";
+  if (!form.feeHead.trim()) return "Fee head is required.";
   if (!Number(form.feeAmount) || Number(form.feeAmount) <= 0) return "Enter a valid fee amount.";
   if (!form.deadline) return "Deadline is required.";
   return "";

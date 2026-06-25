@@ -1,68 +1,69 @@
 # College ERP
 
-Production-focused College ERP foundation using React, NestJS, PostgreSQL, Prisma, Redis, BullMQ, Docker, Tailwind CSS, and shadcn-style UI patterns.
+Production-focused College ERP for **KIET**, **KIEK**, and **KIEW** with contextual teacher roles (STPO / CTPO / HTPO), admin workflows, and student/teacher portals.
 
-## Phase 1 Scope
+## Tech stack
 
-Built now:
+| Layer | Technology |
+|--------|------------|
+| Monorepo | npm workspaces |
+| Frontend | React, TypeScript, Vite, Tailwind CSS |
+| Backend | NestJS, Prisma, PostgreSQL |
+| Queue | Redis, BullMQ (PDF result import, worker process) |
+| DevOps | Docker Compose |
 
-- Core academic structure
-- Contextual teacher role assignments
-- Four portal shells
-- Backend permission foundation
-- PostgreSQL schema through Prisma
-- Redis/BullMQ background job foundation
-- Toast and safe action UI patterns
-- Permanent project rules in `.cursor/rules/erp-foundation.mdc`
+## Academic model (KIET + KIEK)
 
-Not built yet:
+- **Diploma, B.Tech, M.Tech:** one shared academic tree on **KIET**; students keep **operational campus** label (KIET or KIEK) on `user.campusId`.
+- **MBA / MCA:** KIET only.
+- **KIEW:** fully isolated — never merged with KIET/KIEK.
 
-- Attendance
-- Fees
-- Marks
-- Timetable
-- PDF result parser
-- Promotion
-- Reports
-
-## Local Setup
+## Local setup
 
 1. Copy `.env.example` to `.env`.
 2. Start PostgreSQL and Redis:
 
-```bash
-docker compose up postgres redis
+```powershell
+docker compose up -d postgres redis
 ```
 
-3. Install packages:
+3. Install and migrate:
 
-```bash
+```powershell
 npm install
-```
-
-4. Generate Prisma client:
-
-```bash
 npm run prisma:generate
-```
-
-5. Create database tables:
-
-```bash
 npm run prisma:migrate
-```
-
-6. Seed campuses, programs, branches, and admin:
-
-```bash
 npm run seed -w apps/backend
 ```
 
-Default admin:
+4. Run dev:
 
-```text
-Email: admin@college-erp.local
-Password: Admin@12345
+```powershell
+npm run dev
 ```
 
-Change this password before production.
+- Frontend: http://localhost:5173/
+- API: http://localhost:4000/api
+
+Default admin (seed): `admin@college-erp.local` / `Admin@12345` — change before production.
+
+## Scripts
+
+| Command | Purpose |
+|---------|---------|
+| `npm run dev` | Backend + frontend |
+| `npm run build` | Production build |
+| `npm run test` | Backend unit tests |
+| `npm run smoke` | Basic API smoke check |
+| `npm run check` | generate + typecheck + lint + test + build |
+
+## Portals
+
+| Portal | URL |
+|--------|-----|
+| Admin | `/admin` |
+| Teacher | `/teacher` |
+| Student | `/student` |
+| DB browser | `/database` |
+
+Demo teachers: `HTPO001` / `TeacherDemo@123` (see login page for all seven role combos).

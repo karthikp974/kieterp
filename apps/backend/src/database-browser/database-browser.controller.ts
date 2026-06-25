@@ -1,5 +1,7 @@
 import { Controller, Get, Param, Query, UseGuards } from "@nestjs/common";
 import { PermissionAction } from "@prisma/client";
+import { CurrentUser } from "../auth/current-user.decorator";
+import { AuthUser } from "../auth/auth.types";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { PermissionGuard } from "../permissions/permission.guard";
 import { RequiresPermission } from "../permissions/requires-permission.decorator";
@@ -19,7 +21,7 @@ export class DatabaseBrowserController {
 
   @Get("tables/:tableKey/rows")
   @RequiresPermission(PermissionAction.VIEW_DB_PORTAL)
-  rows(@Param("tableKey") tableKey: string, @Query() query: DatabaseRowsQueryDto) {
-    return this.databaseBrowser.rows(tableKey, query);
+  rows(@Param("tableKey") tableKey: string, @Query() query: DatabaseRowsQueryDto, @CurrentUser() user: AuthUser) {
+    return this.databaseBrowser.rows(tableKey, query, user);
   }
 }

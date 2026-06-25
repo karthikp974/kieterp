@@ -1,21 +1,44 @@
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 
 function normalizeChunkId(id: string): string {
   return id.split("\\").join("/");
 }
 
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd() + "/../..", "");
+  const frontendPort = Number(env.FRONTEND_PORT) || 5173;
+  const apiTarget = env.DEV_API_PROXY_TARGET || `http://127.0.0.1:${env.BACKEND_PORT || "4000"}`;
+
+  return {
   plugins: [react()],
   resolve: {
     dedupe: ["react", "react-dom"]
   },
   server: {
     host: "0.0.0.0",
-    port: 5173,
+    port: frontendPort,
     strictPort: true,
     proxy: {
-      "/api": "http://localhost:4000"
+      "/api": {
+        target: apiTarget,
+        changeOrigin: true,
+        timeout: 300_000,
+        proxyTimeout: 300_000
+      }
+    }
+  },
+  preview: {
+    host: "0.0.0.0",
+    port: frontendPort,
+    strictPort: true,
+    proxy: {
+      "/api": {
+        target: apiTarget,
+        changeOrigin: true,
+        timeout: 300_000,
+        proxyTimeout: 300_000
+      }
     }
   },
   build: {
@@ -39,7 +62,7 @@ export default defineConfig({
           if (norm.includes("/src/teachers/")) return "erp-teachers";
           if (norm.includes("/src/reports/") || norm.includes("/src/results/")) return "erp-reports";
           if (norm.includes("/src/timetable/") || norm.includes("/src/attendance/")) return "erp-operations";
-          if (norm.includes("/src/portals/")) return "erp-portals";
+          if (norm.includes("/src/portals/") || norm.includes("/src/student-portal/")) return "erp-portals";
           if (
             norm.includes("/src/department-branch/") ||
             norm.includes("/src/classes-sections/") ||
@@ -54,4 +77,5 @@ export default defineConfig({
       }
     }
   }
+};
 });

@@ -1,9 +1,13 @@
+import { Trash2 } from "lucide-react";
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../auth/auth-context";
 import { SafeActionButton } from "../shared/SafeActionButton";
 import { SearchableSelect } from "../shared/SearchableSelect";
+import { useConfirm } from "../shared/ConfirmDialog";
 import { useToast } from "../shared/toast-context";
 import { AcademicClass, Batch, Branch, Campus, PaginatedResponse, Program, Section, Subject } from "../structure/structure-types";
+import { programsForOperationalCampus } from "../shared/academic-catalog";
+import { formatIstLocaleDateTime } from "../shared/ist-time";
 
 type TeacherRole = "HTPO" | "CTPO" | "STPO";
 type TeacherStatus = "ACTIVE" | "INACTIVE" | "SUSPENDED";
@@ -33,11 +37,12 @@ type TeacherListItem = {
 type TeacherDetailResponse = { teacher: TeacherListItem & { assignments: AssignmentDraft[] } };
 type AuditLogItem = { id: string; action: string; entity: string; entityId?: string | null; createdAt: string };
 
-const inputClass = "w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100";
+const inputClass = "db-input";
 
 export function TeacherManagement() {
   const { authFetch } = useAuth();
   const { showToast } = useToast();
+  const { confirm, dialog } = useConfirm();
   const [step, setStep] = useState(1);
   const [teachers, setTeachers] = useState<TeacherListItem[]>([]);
   const [statusFilter, setStatusFilter] = useState<TeacherStatus>("ACTIVE");
@@ -134,7 +139,7 @@ export function TeacherManagement() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter, page]);
 
-  const filteredPrograms = programs.filter((program) => program.campusId === assignment.campusId);
+  const filteredPrograms = programsForOperationalCampus(programs, assignment.campusId, campuses);
   const filteredBranches = branches.filter((branch) => branch.programId === assignment.programId);
   const filteredBatches = batches.filter((batch) => batch.branchId === assignment.branchId);
   const filteredClasses = classes.filter((item) => item.batchId === assignment.batchId);
@@ -205,7 +210,14 @@ export function TeacherManagement() {
   }
 
   async function deactivateTeacher(id: string) {
-    const ok = window.confirm("Deactivate this teacher? Their login sessions and active role assignments will be turned off.");
+    const teacher = teachers.find((row) => row.id === id);
+    const ok = await confirm({
+      title: "Deactivate teacher?",
+      message: "Their login sessions and active role assignments will be turned off.",
+      itemName: teacher?.identity.fullName,
+      confirmLabel: "Deactivate",
+      icon: Trash2
+    });
     if (!ok) return;
 
     await postJson(`/api/teachers/${id}/deactivate`, {});
@@ -263,7 +275,7 @@ export function TeacherManagement() {
           <button type="button" className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-bold text-white" onClick={() => { setPage(1); void loadData(); }}>Search</button>
           <SearchableSelect value={statusFilter} options={[["ACTIVE", "Active"], ["INACTIVE", "Inactive"], ["SUSPENDED", "Suspended"]]} onChange={(status) => { setPage(1); setStatusFilter(status as TeacherStatus); }} />
           {[1, 2, 3].map((item) => (
-            <button key={item} type="button" onClick={() => setStep(item)} className={`rounded-full px-4 py-2 text-sm font-bold ${step === item ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600"}`}>
+            <button key={item} type="button" onClick={() => setStep(item)} className={`rounded-full px-4 py-2 text-sm font-bold ${step === item ? "erp-admin-tab-active" : "erp-admin-tab-idle"}`}>
               Step {item}
             </button>
           ))}
@@ -306,7 +318,7 @@ export function TeacherManagement() {
             <p className="text-sm text-slate-600">{identity.fullName || "Teacher name"} / {identity.employeeCode || "Employee code"} / {assignments.length} assignment(s)</p>
             <AssignmentList assignments={assignments} remove={(index) => setAssignments(assignments.filter((_, itemIndex) => itemIndex !== index))} />
             <div className="flex gap-2">
-              <button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white">{editingTeacherId ? "Update Teacher" : "Save Teacher"}</button>
+              <button className="erp-panel-submit">{editingTeacherId ? "Update Teacher" : "Save Teacher"}</button>
               {editingTeacherId ? <button type="button" className="rounded-lg bg-slate-200 px-4 py-2 text-sm font-bold text-slate-700" onClick={resetTeacherForm}>Cancel Edit</button> : null}
             </div>
           </div>
@@ -349,7 +361,7 @@ export function TeacherManagement() {
           <div key={log.id} className="grid gap-2 border-b px-4 py-3 text-sm text-slate-600 md:grid-cols-3">
             <span>{log.action}</span>
             <span>{log.entityId ?? "-"}</span>
-            <span>{new Date(log.createdAt).toLocaleString()}</span>
+            <span>{formatIstLocaleDateTime(log.createdAt)}</span>
           </div>
         )) : <p className="px-4 py-6 text-sm text-slate-500">No audit records yet.</p>}
       </div>
@@ -364,6 +376,7 @@ export function TeacherManagement() {
           <p><strong>Assignments:</strong> {selectedTeacher.summary.assignments}</p>
         </DetailModal>
       ) : null}
+      {dialog}
     </section>
   );
 }

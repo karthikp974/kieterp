@@ -1,9 +1,11 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useAuth } from "../auth/auth-context";
 import { SafeActionButton } from "../shared/SafeActionButton";
+import { ModuleExportButton } from "../shared/export";
 import { SearchableSelect } from "../shared/SearchableSelect";
 import { useToast } from "../shared/toast-context";
 import { AcademicClass, Batch, Branch, Campus, PaginatedResponse, Program, Section, Subject } from "../structure/structure-types";
+import { programsForOperationalCampus } from "../shared/academic-catalog";
 
 type TeacherListItem = { id: string; identity: { fullName: string; employeeCode: string } };
 type TimetableSlot = {
@@ -18,7 +20,7 @@ type TimetableSlot = {
   teacher: string;
 };
 
-const inputClass = "w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100";
+const inputClass = "db-input";
 const days = ["", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 function useApi() {
@@ -72,7 +74,7 @@ export function AdminTimetablePanel() {
     room: ""
   });
 
-  const filteredPrograms = programs.filter((item) => item.campusId === form.campusId);
+  const filteredPrograms = programsForOperationalCampus(programs, form.campusId, campuses);
   const filteredBranches = branches.filter((item) => item.programId === form.programId);
   const filteredBatches = batches.filter((item) => item.branchId === form.branchId);
   const filteredClasses = classes.filter((item) => item.batchId === form.batchId);
@@ -171,18 +173,6 @@ export function AdminTimetablePanel() {
     });
   }
 
-  async function exportTimetable() {
-    const result = await fetchJson<{ filename: string; csv: string }>("/api/timetable/export?pageSize=100");
-    const blob = new Blob([result.csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = result.filename;
-    link.click();
-    URL.revokeObjectURL(url);
-    showToast("Timetable export downloaded");
-  }
-
   return (
     <section className="rounded-2xl border bg-white p-5 shadow-sm">
       <div className="mb-4 flex items-center justify-between">
@@ -191,7 +181,7 @@ export function AdminTimetablePanel() {
           <p className="text-sm text-slate-500">Create class/section slots with teacher conflict prevention.</p>
         </div>
         <div className="flex gap-2">
-          <SafeActionButton run={exportTimetable}>Export CSV</SafeActionButton>
+          <ModuleExportButton apiPath="/api/timetable/export" pageName="Timetable" cardName="SectionSchedule" queryParams={{ pageSize: "100" }} />
           <SafeActionButton run={() => load().then(() => showToast("Timetable refreshed"))}>Refresh</SafeActionButton>
         </div>
       </div>
@@ -208,7 +198,7 @@ export function AdminTimetablePanel() {
         <input className={inputClass} type="time" value={form.startTime} onChange={(event) => setForm({ ...form, startTime: event.target.value })} required />
         <input className={inputClass} type="time" value={form.endTime} onChange={(event) => setForm({ ...form, endTime: event.target.value })} required />
         <input className={inputClass} placeholder="Room" value={form.room} onChange={(event) => setForm({ ...form, room: event.target.value })} />
-        <button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white md:col-span-2">{editingSlotId ? "Update Timetable Slot" : "Add Timetable Slot"}</button>
+        <button className="erp-panel-submit md:col-span-2">{editingSlotId ? "Update Timetable Slot" : "Add Timetable Slot"}</button>
         {editingSlotId ? <button type="button" className="rounded-lg bg-slate-200 px-4 py-2 text-sm font-bold text-slate-700 md:col-span-2" onClick={() => setEditingSlotId(null)}>Cancel Edit</button> : null}
       </form>
       <TimetableList slots={slots} onArchive={archiveSlot} onEdit={editSlot} />

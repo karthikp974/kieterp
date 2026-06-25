@@ -1,7 +1,9 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useAuth } from "../auth/auth-context";
 import { SafeActionButton } from "../shared/SafeActionButton";
+import { ModuleExportButton } from "../shared/export";
 import { SearchableSelect } from "../shared/SearchableSelect";
+import { FilePickerTrigger } from "../shared/FilePickerSheet";
 import { useToast } from "../shared/toast-context";
 import { PaginatedResponse, Subject } from "../structure/structure-types";
 
@@ -40,7 +42,7 @@ type ImportJob = {
   createdAt: string;
 };
 
-const inputClass = "w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100";
+const inputClass = "db-input";
 const statuses: ResultStatus[] = ["PASS", "FAIL", "ABSENT", "WITHHELD"];
 
 function useApi() {
@@ -78,10 +80,16 @@ export function AdminResultsPanel() {
 }
 
 export function TeacherResultsPanel() {
-  return <ResultsEntryPanel title="Result Entry Workspace" description="HTPO-scoped users can enter results; other teacher scopes can view allowed result data." />;
+  return (
+    <ResultsEntryPanel
+      title="Result Entry Workspace"
+      description="HTPO-scoped users can enter results; other teacher scopes can view allowed result data."
+      teacherScoped
+    />
+  );
 }
 
-function ResultsEntryPanel({ title, description }: { title: string; description: string }) {
+function ResultsEntryPanel({ title, description, teacherScoped = false }: { title: string; description: string; teacherScoped?: boolean }) {
   const { fetchJson, sendJson, sendForm } = useApi();
   const { showToast } = useToast();
   const [students, setStudents] = useState<StudentItem[]>([]);
@@ -106,10 +114,18 @@ function ResultsEntryPanel({ title, description }: { title: string; description:
     : subjects;
 
   async function load() {
-    const [options, resultPage] = await Promise.all([
-      fetchJson<ResultsOptions>("/api/results/options"),
-      fetchJson<PaginatedResponse<ResultEntry>>("/api/results?pageSize=25").catch(() => ({ items: [], total: 0, page: 1, pageSize: 25 }))
-    ]);
+    const options = await fetchJson<ResultsOptions>("/api/results/options");
+    const resultParams = new URLSearchParams({ pageSize: "25" });
+    if (teacherScoped) {
+      const sectionId = options.students[0]?.structure.sectionId ?? "";
+      if (sectionId) resultParams.set("sectionId", sectionId);
+    }
+    const resultPage = await fetchJson<PaginatedResponse<ResultEntry>>(`/api/results?${resultParams.toString()}`).catch(() => ({
+      items: [],
+      total: 0,
+      page: 1,
+      pageSize: 25
+    }));
     const importPage = await fetchJson<PaginatedResponse<ImportJob>>("/api/results/imports?pageSize=5").catch(() => ({ items: [], total: 0, page: 1, pageSize: 5 }));
     setStudents(options.students);
     setSubjects(options.subjects);
@@ -165,19 +181,6 @@ function ResultsEntryPanel({ title, description }: { title: string; description:
     showToast("Student results loaded");
   }
 
-  async function exportResults() {
-    const query = form.studentProfileId ? `?studentProfileId=${encodeURIComponent(form.studentProfileId)}&pageSize=100` : "?pageSize=100";
-    const result = await fetchJson<{ filename: string; csv: string }>(`/api/results/export${query}`);
-    const blob = new Blob([result.csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = result.filename;
-    link.click();
-    URL.revokeObjectURL(url);
-    showToast("Results export downloaded");
-  }
-
   return (
     <section className="rounded-2xl border bg-white p-5 shadow-sm">
       <div className="mb-4 flex items-center justify-between gap-3">
@@ -186,7 +189,15 @@ function ResultsEntryPanel({ title, description }: { title: string; description:
           <p className="text-sm text-slate-500">{description}</p>
         </div>
         <div className="flex gap-2">
-          <SafeActionButton run={exportResults}>Export CSV</SafeActionButton>
+          <ModuleExportButton
+            apiPath="/api/results/export"
+            pageName="Results"
+            cardName="ResultEntries"
+            queryParams={{
+              pageSize: "100",
+              studentProfileId: form.studentProfileId || undefined
+            }}
+          />
           <SafeActionButton run={() => load().then(() => showToast("Results refreshed"))}>Refresh</SafeActionButton>
         </div>
       </div>
@@ -207,7 +218,7 @@ function ResultsEntryPanel({ title, description }: { title: string; description:
         <input className={inputClass} type="number" min="0" max="100" value={form.externals} onChange={(event) => setForm({ ...form, externals: Number(event.target.value) })} placeholder="Externals" />
         <input className={inputClass} value={form.grade} onChange={(event) => setForm({ ...form, grade: event.target.value })} placeholder="Grade" />
         <input className={inputClass} type="number" min="0" max="10" step="0.5" value={form.credits} onChange={(event) => setForm({ ...form, credits: Number(event.target.value) })} placeholder="Credits" />
-        <button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white md:col-span-2">Save Result</button>
+        <button className="erp-panel-submit md:col-span-2">Save Result</button>
         <button type="button" className="rounded-lg bg-slate-200 px-4 py-2 text-sm font-bold text-slate-700 md:col-span-2" onClick={() => void loadStudentResults()}>Load Selected Student</button>
       </form>
       <div className="mt-4 grid gap-3 rounded-xl border bg-amber-50 p-4 md:grid-cols-4">
@@ -215,7 +226,13 @@ function ResultsEntryPanel({ title, description }: { title: string; description:
           <p className="text-sm font-bold text-slate-900">PDF Result Import</p>
           <p className="text-xs text-slate-600">Expected table columns: Sno, Htno, Subcode, Subname, Internals, Grade, Credits.</p>
         </div>
-        <input className={inputClass} type="file" accept="application/pdf,.pdf" onChange={(event) => setPdfFile(event.target.files?.[0] ?? null)} />
+        <FilePickerTrigger
+          label="Choose PDF file"
+          fileName={pdfFile?.name}
+          mode="pdf"
+          onFile={(picked) => setPdfFile(picked)}
+          className={`${inputClass} erp-file-picker-trigger`}
+        />
         <SafeActionButton run={uploadPdf}>Queue PDF Import</SafeActionButton>
       </div>
       <ImportJobList jobs={importJobs} />

@@ -1,0 +1,50 @@
+---
+description: KIET group campuses, departments (programs), and branches — source of truth for agents
+alwaysApply: true
+---
+
+# College ERP — Institution Catalog
+
+**Hierarchy:** `Campus → Program (UI: Department) → Branch → Batch → Class → Section`
+
+**Isolation:** KIET + KIEK share **KIET-KIEK Shared Group**. **KIEW** is in **KIEW Isolated Group** — never mix KIEW data with KIET/KIEK.
+
+**Brand color:** `--erp-blue` = `#004b8d` (institutional blue)
+
+## Campuses
+
+| Code | Name | Group |
+|------|------|-------|
+| KIET | KIET | Shared with KIEK |
+| KIEK | KIEK | Shared with KIET |
+| KIEW | KIEW | Isolated |
+
+Seed source: `apps/backend/prisma/seed.ts`
+
+## KIET & KIEK — Departments & Branches
+
+| Dept code | Name | Years | Branches (code — name) |
+|-----------|------|-------|------------------------|
+| DIPLOMA | Diploma | 3 | ME — Mechanical Engineering; CSE — Computer Science Engineering |
+| BTECH | BTech | 4 | CSC — CSE Cyber Security; CSDS — CSE Data Science; CSAIML — CSE AI and Machine Learning; CSAIDS — CSE AI and Data Science; CSAI — CSE Artificial Intelligence |
+| MTECH | MTech | 2 | CSC — Cyber Security; DS — Data Science; AIML — AI and Machine Learning; AIDS — AI and Data Science; AI — Artificial Intelligence |
+| MBA | MBA | 2 | CS — Computer Science |
+| MCA | MCA | 2 | CS — Computer Science |
+
+**KIEK** has DIPLOMA, BTECH, MTECH only (no MBA/MCA in seed).
+
+## KIEW — Departments & Branches
+
+| Dept code | Name | Years | Branches |
+|-----------|------|-------|----------|
+| BTECH | BTech | 4 | CSAIML, CSAIDS, CSAI (same names as KIET BTech AI branches) |
+| MTECH | MTech | 2 | CSE — Computer Science Engineering; DS — Data Science; CSAIML; AIDS; CSAI |
+
+## UI conventions (production)
+
+- Admin forms: `db-input`, `FormSelect` / `SearchableSelect`; dates use native `input type="date"` (browser / phone calendar). No Tailwind `bg-blue-600` one-offs.
+- Cascade dropdowns: always include empty option (`withEmptyOption` from `shared/select-options.ts`) e.g. "All campuses".
+- Primary actions: `db-wf-btn db-wf-btn--primary` or `db-submit`; archive: `erp-confirm-danger` / `db-archive-summary`.
+- Toasts on every user action (5s timeline).
+
+Live DB may differ from seed after manual edits — APIs are authoritative at runtime.

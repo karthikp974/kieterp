@@ -1,11 +1,37 @@
-import { ArrowLeft, Bell, Trash2 } from "lucide-react";
+import { ArrowLeft, History, Plus, type LucideIcon } from "lucide-react";
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/auth-context";
-import { AdminWorkflowMenuButton } from "../shared/OptionPage";
-import { FormSelect } from "../shared/FormSelect";
+import { AdminWorkflowMenuButton, OptionActionButton, WorkflowSection } from "../shared/OptionPage";
+import { SearchableSelect } from "../shared/SearchableSelect";
 import { useToast } from "../shared/toast-context";
+import { FilePickerTrigger } from "../shared/FilePickerSheet";
+import { FormActionRow } from "../shared/FormActionRow";
+import { ProfileMenuButton } from "../shared/ProfileMenu";
 import { WfBtn } from "../shared/WfBtn";
+import { FormSelect, type FormSelectOption } from "../shared/FormSelect";
+import { toFormSelectOptions } from "../shared/select-options";
+import { formatIstLocaleDate, formatIstLocaleDateTime } from "../shared/ist-time";
+import { TeacherEngageSectionFilter } from "../teacher-portal/TeacherEngageSectionFilter";
+import { useOptionalTeacherEngage } from "../teacher-portal/TeacherEngageScopeProvider";
+import { appendSectionQuery } from "../teacher-portal/teacher-engage-types";
+import { canTeacherManageAnnouncements } from "../teacher-portal/teacher-engage-permissions";
+import {
+  useAnnouncementNavigate,
+  useAnnouncementPaths,
+  useAnnouncementPortal
+} from "./announcement-portal-context";
+import { programsForOperationalCampus, type CampusPicker, type ProgramPicker } from "../shared/academic-catalog";
+import {
+  AnnouncementTargetingForm,
+  deepestStudentPayload,
+  teacherTargetingPayload,
+  validateAnnouncementTargeting,
+  type Audience,
+  type StudentScope,
+  type TeacherRoleFilter,
+  type TeacherScope
+} from "./AnnouncementTargetingForm";
 
 type Page<T> = { items: T[]; total: number; page: number; pageSize: number };
 
@@ -16,9 +42,7 @@ type Batch = { id: string; batchCode: string; startYear: number; endYear: number
 type AcademicClass = { id: string; label: string; semesterNumber: number };
 type Section = { id: string; name: string; code: string };
 
-type Audience = "STUDENTS" | "TEACHERS" | "BOTH";
 type Priority = "NORMAL" | "IMPORTANT" | "URGENT";
-type TeacherTarget = "INSTITUTION" | "CAMPUS" | "DEPARTMENT" | "BRANCH";
 
 type AnnouncementListItem = {
   id: string;
@@ -37,6 +61,7 @@ type AnnouncementListItem = {
     sectionId?: string | null;
   };
   teacherScope: string;
+  teacherRoleFilter: string;
   teacherCampusId?: string | null;
   teacherProgramId?: string | null;
   teacherBranchId?: string | null;
@@ -58,24 +83,30 @@ async function responseError(response: Response) {
 
 function GlassButton({ children, onClick, tone = "default" }: { children: ReactNode; onClick: () => void; tone?: "default" | "danger" }) {
   return (
-    <WfBtn variant={tone === "danger" ? "danger" : "secondary"} onClick={onClick}>
+    <WfBtn className="ann-inline-action" variant={tone === "danger" ? "danger" : "secondary"} onClick={onClick}>
       {children}
     </WfBtn>
   );
 }
 
+function HubActionButton({ children, description, icon, onClick, tone = "default" }: { children: ReactNode; description: string; icon: LucideIcon; onClick: () => void; tone?: "default" | "danger" }) {
+  return (
+    <OptionActionButton description={description} icon={icon} tone={tone} onClick={onClick}>
+      {children}
+    </OptionActionButton>
+  );
+}
 function AnnouncementShell({ children, title, variant = "subpage" }: { children: ReactNode; title: string; variant?: "main" | "subpage" }) {
   const navigate = useNavigate();
-  const { user } = useAuth();
-  const initials = user?.fullName
-    ?.split(" ")
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join("") || "AD";
+  const { variant: portalVariant } = useAnnouncementPortal();
+  const body = <section className="db-workflow-body ann-workflow-body">{children}</section>;
+
+  if (portalVariant === "teacher") {
+    return <div className="portal-engage-workflow ann-workflow">{body}</div>;
+  }
 
   return (
-    <main className="db-workflow min-h-screen">
+    <main className="db-workflow ann-workflow min-h-screen">
       <header className="db-workflow-header">
         <div className="db-header-left">
           {variant === "main" ? (
@@ -88,25 +119,11 @@ function AnnouncementShell({ children, title, variant = "subpage" }: { children:
           <h1>{title}</h1>
         </div>
         <div className="db-header-actions">
-          {variant === "main" ? (
-            <button className="db-icon-button" type="button" aria-label="Notifications">
-              <Bell size={18} />
-            </button>
-          ) : null}
-          <div className="db-avatar">{initials}</div>
+          <ProfileMenuButton className="erp-top-avatar" />
         </div>
       </header>
-      <section className="db-workflow-body">{children}</section>
+      {body}
     </main>
-  );
-}
-
-function WorkflowSection({ children, title }: { children: ReactNode; title: string }) {
-  return (
-    <section className="db-section">
-      <h2>{title}</h2>
-      <div className="db-module-grid">{children}</div>
-    </section>
   );
 }
 
@@ -144,51 +161,14 @@ function scopeSummary(row: AnnouncementListItem) {
   else if (s.campusId) parts.push("Campus");
   else parts.push("Institution");
   if (row.audience === "TEACHERS" || row.audience === "BOTH") {
+    const role = row.teacherRoleFilter === "ALL" ? "all roles" : row.teacherRoleFilter;
     const ts = row.teacherScope;
-    if (ts === "INSTITUTION") parts.push("Teachers: all");
-    else if (ts === "CAMPUS") parts.push("Teachers: campus");
-    else if (ts === "DEPARTMENT") parts.push("Teachers: department");
-    else if (ts === "BRANCH") parts.push("Teachers: branch");
+    if (ts === "INSTITUTION") parts.push(`Teachers: institution (${role})`);
+    else if (ts === "CAMPUS") parts.push(`Teachers: campus (${role})`);
+    else if (ts === "DEPARTMENT") parts.push(`Teachers: department (${role})`);
+    else if (ts === "BRANCH") parts.push(`Teachers: branch (${role})`);
   }
-  return parts.join(" · ");
-}
-
-function ConfirmArchiveDialog({
-  isOpen,
-  itemName,
-  message,
-  onCancel,
-  onConfirm,
-  title
-}: {
-  isOpen: boolean;
-  itemName?: string;
-  message: string;
-  onCancel: () => void;
-  onConfirm: () => Promise<void>;
-  title: string;
-}) {
-  if (!isOpen) return null;
-  return (
-    <div className="erp-confirm-overlay" role="presentation">
-      <section className="erp-confirm-card" aria-modal="true" role="dialog" aria-labelledby="ann-archive-title">
-        <div className="erp-confirm-icon">
-          <Trash2 size={24} />
-        </div>
-        <h2 id="ann-archive-title">{title}</h2>
-        <p>{message}</p>
-        {itemName ? <strong>{itemName}</strong> : null}
-        <div className="erp-confirm-actions">
-          <button className="erp-confirm-cancel" type="button" onClick={onCancel}>
-            Cancel
-          </button>
-          <button className="erp-confirm-danger" type="button" onClick={() => void onConfirm()}>
-            <Trash2 size={16} /> Archive only
-          </button>
-        </div>
-      </section>
-    </div>
-  );
+  return parts.join(" \u00b7 ");
 }
 
 function useAnnouncementsApi() {
@@ -238,23 +218,30 @@ function useStructureLists() {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [classes, setClasses] = useState<AcademicClass[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
+  const [campusesLoading, setCampusesLoading] = useState(false);
 
   const loadCampuses = useCallback(async () => {
-    const page = await fetchJson<Page<Campus>>("/api/campuses?pageSize=200");
-    setCampuses(page.items);
+    setCampusesLoading(true);
+    try {
+      const page = await fetchJson<Page<Campus>>("/api/campuses?pageSize=100");
+      setCampuses(page.items);
+      return page.items;
+    } finally {
+      setCampusesLoading(false);
+    }
   }, [fetchJson]);
 
   const loadPrograms = useCallback(
     async (campusId: string) => {
-      const page = await fetchJson<Page<Program>>(`/api/core/programs?pageSize=200&campusId=${encodeURIComponent(campusId)}`);
-      setPrograms(page.items);
+      const page = await fetchJson<Page<Program>>(`/api/core/programs?pageSize=100&campusId=${encodeURIComponent(campusId)}`);
+      setPrograms(programsForOperationalCampus(page.items as ProgramPicker[], campusId, campuses as CampusPicker[]));
     },
-    [fetchJson]
+    [fetchJson, campuses]
   );
 
   const loadBranches = useCallback(
     async (programId: string, campusId: string) => {
-      const qs = new URLSearchParams({ pageSize: "200", programId, campusId });
+      const qs = new URLSearchParams({ pageSize: "100", programId, campusId });
       const page = await fetchJson<Page<Branch>>(`/api/core/branches?${qs.toString()}`);
       setBranches(page.items);
     },
@@ -263,7 +250,7 @@ function useStructureLists() {
 
   const loadBatches = useCallback(
     async (branchId: string, programId: string, campusId: string) => {
-      const qs = new URLSearchParams({ pageSize: "200", branchId, programId, campusId });
+      const qs = new URLSearchParams({ pageSize: "100", branchId, programId, campusId });
       const page = await fetchJson<Page<Batch>>(`/api/core/batches?${qs.toString()}`);
       setBatches(page.items);
     },
@@ -272,7 +259,7 @@ function useStructureLists() {
 
   const loadClasses = useCallback(
     async (batchId: string) => {
-      const page = await fetchJson<Page<AcademicClass>>(`/api/core/classes?pageSize=200&batchId=${encodeURIComponent(batchId)}`);
+      const page = await fetchJson<Page<AcademicClass>>(`/api/core/classes?pageSize=100&batchId=${encodeURIComponent(batchId)}`);
       setClasses(page.items);
     },
     [fetchJson]
@@ -280,7 +267,7 @@ function useStructureLists() {
 
   const loadSections = useCallback(
     async (classId: string) => {
-      const page = await fetchJson<Page<Section>>(`/api/core/sections?pageSize=200&classId=${encodeURIComponent(classId)}`);
+      const page = await fetchJson<Page<Section>>(`/api/core/sections?pageSize=100&classId=${encodeURIComponent(classId)}`);
       setSections(page.items);
     },
     [fetchJson]
@@ -298,6 +285,7 @@ function useStructureLists() {
     setBatches,
     setClasses,
     setSections,
+    campusesLoading,
     loadCampuses,
     loadPrograms,
     loadBranches,
@@ -308,336 +296,55 @@ function useStructureLists() {
 }
 
 export function AnnouncementsHubPage() {
-  const navigate = useNavigate();
+  const navigate = useAnnouncementNavigate();
+  const paths = useAnnouncementPaths();
+  const { variant } = useAnnouncementPortal();
+  const { user } = useAuth();
+  const engage = useOptionalTeacherEngage();
+  const canManage = variant !== "teacher" || canTeacherManageAnnouncements(user, engage?.setup ?? null);
+
   return (
     <AnnouncementShell title="Announcements" variant="main">
-      <WorkflowSection title="Publish & manage">
-        <GlassButton onClick={() => navigate("/announcements/create")}>Create announcement</GlassButton>
-        <GlassButton onClick={() => navigate("/announcements/modify")}>Modify announcement</GlassButton>
-        <GlassButton tone="danger" onClick={() => navigate("/announcements/archive")}>
-          Archive announcement
-        </GlassButton>
-      </WorkflowSection>
-      <WorkflowSection title="History">
-        <GlassButton onClick={() => navigate("/announcements/history")}>Announcement history</GlassButton>
+      {canManage ? (
+        <WorkflowSection title="Publish">
+          <HubActionButton
+            description="Publish a student announcement for your assigned section."
+            icon={Plus}
+            onClick={() => navigate(paths.create)}
+          >
+            Create announcement
+          </HubActionButton>
+        </WorkflowSection>
+      ) : null}
+      <WorkflowSection title="Activity">
+        <HubActionButton
+          description="View announcements published for your section."
+          icon={History}
+          onClick={() => navigate(paths.history)}
+        >
+          Announcement history
+        </HubActionButton>
       </WorkflowSection>
     </AnnouncementShell>
   );
 }
 
-type StudentScope = {
-  campusId: string;
-  programId: string;
-  branchId: string;
-  batchId: string;
-  classId: string;
-  sectionId: string;
-};
-
-function deepestStudentPayload(s: StudentScope): Record<string, string> {
-  if (s.sectionId) return { sectionId: s.sectionId };
-  if (s.classId) return { classId: s.classId };
-  if (s.batchId) return { batchId: s.batchId };
-  if (s.branchId) return { branchId: s.branchId };
-  if (s.programId) return { programId: s.programId };
-  if (s.campusId) return { campusId: s.campusId };
-  return {};
-}
-
-function AnnouncementFormFields({
-  audience,
-  setAudience,
-  studentScope,
-  setStudentScope,
-  teacherTarget,
-  setTeacherTarget,
-  teacherCampusId,
-  setTeacherCampusId,
-  teacherProgramId,
-  setTeacherProgramId,
-  teacherBranchId,
-  setTeacherBranchId,
-  structure
-}: {
-  audience: Audience;
-  setAudience: (a: Audience) => void;
-  studentScope: StudentScope;
-  setStudentScope: (next: StudentScope | ((prev: StudentScope) => StudentScope)) => void;
-  teacherTarget: TeacherTarget;
-  setTeacherTarget: (t: TeacherTarget) => void;
-  teacherCampusId: string;
-  setTeacherCampusId: (v: string) => void;
-  teacherProgramId: string;
-  setTeacherProgramId: (v: string) => void;
-  teacherBranchId: string;
-  setTeacherBranchId: (v: string) => void;
-  structure: ReturnType<typeof useStructureLists>;
-}) {
-  const {
-    campuses,
-    programs,
-    branches,
-    batches,
-    classes,
-    sections,
-    loadPrograms,
-    loadBranches,
-    loadBatches,
-    loadClasses,
-    loadSections,
-    setPrograms,
-    setBranches,
-    setBatches,
-    setClasses,
-    setSections
-  } = structure;
-
-  const showStudent = audience === "STUDENTS" || audience === "BOTH";
-  const showTeacher = audience === "TEACHERS" || audience === "BOTH";
-
-  const campusOptions = useMemo(() => campuses.map((c) => [c.id, `${c.code} — ${c.name}`] as [string, string]), [campuses]);
-  const programOptions = useMemo(() => programs.map((p) => [p.id, `${p.code} — ${p.name}`] as [string, string]), [programs]);
-  const branchOptions = useMemo(() => branches.map((b) => [b.id, `${b.code} — ${b.name}`] as [string, string]), [branches]);
-  const batchOptions = useMemo(() => batches.map((b) => [b.id, `${b.batchCode} (${b.startYear}–${b.endYear})`] as [string, string]), [batches]);
-  const classOptions = useMemo(() => classes.map((c) => [c.id, `Sem ${c.semesterNumber} — ${c.label}`] as [string, string]), [classes]);
-  const sectionOptions = useMemo(() => sections.map((s) => [s.id, `${s.name} (${s.code})`] as [string, string]), [sections]);
-
-  const campusSelectOptions = useMemo(() => [["", "Entire institution"], ...campusOptions] as [string, string][], [campusOptions]);
-  const programSelectOptions = useMemo(() => [["", "All departments on campus"], ...programOptions] as [string, string][], [programOptions]);
-  const branchSelectOptions = useMemo(() => [["", "All branches in department"], ...branchOptions] as [string, string][], [branchOptions]);
-  const batchSelectOptions = useMemo(() => [["", "All batches in branch"], ...batchOptions] as [string, string][], [batchOptions]);
-  const classSelectOptions = useMemo(() => [["", "All classes in batch"], ...classOptions] as [string, string][], [classOptions]);
-  const sectionSelectOptions = useMemo(() => [["", "All sections in class"], ...sectionOptions] as [string, string][], [sectionOptions]);
-  const teacherCampusPickOptions = useMemo(() => [["", "Select campus"], ...campusOptions] as [string, string][], [campusOptions]);
-  const teacherProgramPickOptions = useMemo(() => [["", "Select department"], ...programOptions] as [string, string][], [programOptions]);
-  const teacherBranchPickOptions = useMemo(() => [["", "Select branch"], ...branchOptions] as [string, string][], [branchOptions]);
-
-  return (
-    <div className="db-card db-form grid gap-4">
-      <Field label="Target audience">
-        <FormSelect
-          value={audience}
-          options={[
-            ["STUDENTS", "Students"],
-            ["TEACHERS", "Teachers"],
-            ["BOTH", "Students & teachers"]
-          ]}
-          onChange={(v) => {
-            const next = v as Audience;
-            setAudience(next);
-            if (next === "TEACHERS") {
-              setTeacherTarget("INSTITUTION");
-              setStudentScope({ campusId: "", programId: "", branchId: "", batchId: "", classId: "", sectionId: "" });
-            }
-          }}
-          required
-        />
-      </Field>
-
-      {showStudent ? (
-        <div className="grid gap-3 rounded-xl border border-slate-200/80 bg-slate-50/80 p-4 dark:border-slate-700 dark:bg-slate-900/40">
-          <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">Student reach (optional levels — stop at any depth)</p>
-          <Field label="Campus">
-            <FormSelect
-              value={studentScope.campusId}
-              options={campusSelectOptions}
-              onChange={async (campusId) => {
-                setStudentScope({ campusId, programId: "", branchId: "", batchId: "", classId: "", sectionId: "" });
-                setPrograms([]);
-                setBranches([]);
-                setBatches([]);
-                setClasses([]);
-                setSections([]);
-                if (campusId) await loadPrograms(campusId);
-              }}
-            />
-          </Field>
-          <Field label="Department (program)">
-            <FormSelect
-              value={studentScope.programId}
-              options={programSelectOptions}
-              disabled={!studentScope.campusId}
-              onChange={async (programId) => {
-                setStudentScope((prev) => ({ ...prev, programId, branchId: "", batchId: "", classId: "", sectionId: "" }));
-                setBranches([]);
-                setBatches([]);
-                setClasses([]);
-                setSections([]);
-                if (programId && studentScope.campusId) await loadBranches(programId, studentScope.campusId);
-              }}
-            />
-          </Field>
-          <Field label="Branch">
-            <FormSelect
-              value={studentScope.branchId}
-              options={branchSelectOptions}
-              disabled={!studentScope.programId}
-              onChange={async (branchId) => {
-                setStudentScope((prev) => ({ ...prev, branchId, batchId: "", classId: "", sectionId: "" }));
-                setBatches([]);
-                setClasses([]);
-                setSections([]);
-                if (branchId && studentScope.programId && studentScope.campusId) {
-                  await loadBatches(branchId, studentScope.programId, studentScope.campusId);
-                }
-              }}
-            />
-          </Field>
-          <Field label="Batch">
-            <FormSelect
-              value={studentScope.batchId}
-              options={batchSelectOptions}
-              disabled={!studentScope.branchId}
-              onChange={async (batchId) => {
-                setStudentScope((prev) => ({ ...prev, batchId, classId: "", sectionId: "" }));
-                setClasses([]);
-                setSections([]);
-                if (batchId) await loadClasses(batchId);
-              }}
-            />
-          </Field>
-          <Field label="Class">
-            <FormSelect
-              value={studentScope.classId}
-              options={classSelectOptions}
-              disabled={!studentScope.batchId}
-              onChange={async (classId) => {
-                setStudentScope((prev) => ({ ...prev, classId, sectionId: "" }));
-                setSections([]);
-                if (classId) await loadSections(classId);
-              }}
-            />
-          </Field>
-          <Field label="Section">
-            <FormSelect
-              value={studentScope.sectionId}
-              options={sectionSelectOptions}
-              disabled={!studentScope.classId}
-              onChange={(sectionId) => setStudentScope((prev) => ({ ...prev, sectionId }))}
-            />
-          </Field>
-        </div>
-      ) : null}
-
-      {showTeacher ? (
-        <div className="grid gap-3 rounded-xl border border-slate-200/80 bg-slate-50/80 p-4 dark:border-slate-700 dark:bg-slate-900/40">
-          <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">Teacher reach</p>
-          <Field label="Teacher scope">
-            <FormSelect
-              value={teacherTarget}
-              options={[
-                ["INSTITUTION", "All teachers"],
-                ["CAMPUS", "Teachers in a campus"],
-                ["DEPARTMENT", "Teachers in a department"],
-                ["BRANCH", "Teachers in a branch"]
-              ]}
-              onChange={(v) => {
-                const t = v as TeacherTarget;
-                setTeacherTarget(t);
-                setTeacherCampusId("");
-                setTeacherProgramId("");
-                setTeacherBranchId("");
-              }}
-              required
-            />
-          </Field>
-          {teacherTarget === "CAMPUS" ? (
-            <Field label="Campus">
-              <FormSelect value={teacherCampusId} options={teacherCampusPickOptions} onChange={(id) => setTeacherCampusId(id)} required />
-            </Field>
-          ) : null}
-          {teacherTarget === "DEPARTMENT" ? (
-            <>
-              <Field label="Campus (filter)">
-                <FormSelect
-                  value={studentScope.campusId}
-                  options={teacherCampusPickOptions}
-                  onChange={async (campusId) => {
-                    setStudentScope((prev) => ({ ...prev, campusId, programId: "", branchId: "", batchId: "", classId: "", sectionId: "" }));
-                    setPrograms([]);
-                    setTeacherProgramId("");
-                    if (campusId) await loadPrograms(campusId);
-                  }}
-                  required
-                />
-              </Field>
-              <Field label="Department">
-                <FormSelect
-                  value={teacherProgramId}
-                  options={teacherProgramPickOptions}
-                  disabled={!studentScope.campusId}
-                  onChange={(id) => setTeacherProgramId(id)}
-                  required
-                />
-              </Field>
-            </>
-          ) : null}
-          {teacherTarget === "BRANCH" ? (
-            <>
-              <Field label="Campus">
-                <FormSelect
-                  value={studentScope.campusId}
-                  options={teacherCampusPickOptions}
-                  onChange={async (campusId) => {
-                    setStudentScope((prev) => ({ ...prev, campusId, programId: "", branchId: "", batchId: "", classId: "", sectionId: "" }));
-                    setPrograms([]);
-                    setBranches([]);
-                    setTeacherBranchId("");
-                    if (campusId) await loadPrograms(campusId);
-                  }}
-                  required
-                />
-              </Field>
-              <Field label="Department">
-                <FormSelect
-                  value={studentScope.programId}
-                  options={teacherProgramPickOptions}
-                  disabled={!studentScope.campusId}
-                  onChange={async (programId) => {
-                    setStudentScope((prev) => ({ ...prev, programId, branchId: "", batchId: "", classId: "", sectionId: "" }));
-                    setBranches([]);
-                    setTeacherBranchId("");
-                    if (programId && studentScope.campusId) await loadBranches(programId, studentScope.campusId);
-                  }}
-                  required
-                />
-              </Field>
-              <Field label="Branch">
-                <FormSelect
-                  value={teacherBranchId}
-                  options={teacherBranchPickOptions}
-                  disabled={!studentScope.programId}
-                  onChange={(id) => setTeacherBranchId(id)}
-                  required
-                />
-              </Field>
-            </>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 export function AnnouncementCreatePage() {
-  const navigate = useNavigate();
+  const navigate = useAnnouncementNavigate();
+  const paths = useAnnouncementPaths();
+  const { variant } = useAnnouncementPortal();
+  const { user } = useAuth();
+  const engage = useOptionalTeacherEngage();
+  const canManage = variant !== "teacher" || canTeacherManageAnnouncements(user, engage?.setup ?? null);
   const { showToast } = useToast();
   const { sendJson, uploadFile } = useAnnouncementsApi();
-  const structure = useStructureLists();
+  const studentStructure = useStructureLists();
+  const teacherStructure = useStructureLists();
   const [isSaving, setIsSaving] = useState(false);
   const [audience, setAudience] = useState<Audience>("STUDENTS");
-  const [studentScope, setStudentScope] = useState<StudentScope>({
-    campusId: "",
-    programId: "",
-    branchId: "",
-    batchId: "",
-    classId: "",
-    sectionId: ""
-  });
-  const [teacherTarget, setTeacherTarget] = useState<TeacherTarget>("INSTITUTION");
-  const [teacherCampusId, setTeacherCampusId] = useState("");
-  const [teacherProgramId, setTeacherProgramId] = useState("");
-  const [teacherBranchId, setTeacherBranchId] = useState("");
+  const [studentScope, setStudentScope] = useState<StudentScope>({ campusId: "", programId: "", branchId: "", batchId: "", classId: "", sectionId: "" });
+  const [teacherScope, setTeacherScope] = useState<TeacherScope>({ campusId: "", programId: "", branchId: "" });
+  const [teacherRoleFilter, setTeacherRoleFilter] = useState<TeacherRoleFilter>("ALL");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [priority, setPriority] = useState<Priority>("NORMAL");
@@ -645,25 +352,63 @@ export function AnnouncementCreatePage() {
   const [expiresAt, setExpiresAt] = useState("");
   const [file, setFile] = useState<File | null>(null);
 
+  const teacherSectionOptions = useMemo((): readonly FormSelectOption[] => {
+    return toFormSelectOptions((engage?.setup?.sections ?? []).map((s) => [s.id, s.label] as const)) as readonly FormSelectOption[];
+  }, [engage?.setup?.sections]);
+
   useEffect(() => {
-    void structure.loadCampuses();
-  }, [structure.loadCampuses]);
+    if (variant !== "teacher") return;
+    const defaultSection = engage?.activeSectionId ?? engage?.setup?.sections[0]?.id ?? "";
+    if (defaultSection && !studentScope.sectionId) {
+      setStudentScope((scope) => ({ ...scope, sectionId: defaultSection }));
+    }
+  }, [variant, engage?.activeSectionId, engage?.setup?.sections, studentScope.sectionId]);
+
+  useEffect(() => {
+    if (variant === "teacher") return;
+    void (async () => {
+      try {
+        const [studentCampuses, teacherCampuses] = await Promise.all([
+          studentStructure.loadCampuses(),
+          teacherStructure.loadCampuses()
+        ]);
+        if (!studentCampuses.length) {
+          showToast("No campuses returned — check database seed or Department & Branch setup.", "error");
+        }
+        if (import.meta.env.DEV && studentCampuses.length !== teacherCampuses.length) {
+          console.warn("Announcement create: student/teacher campus lists differ");
+        }
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : "Could not load campuses", "error");
+      }
+    })();
+    // Load once on mount — do not re-bind to unstable hook object identity
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (variant === "teacher" && !canManage) {
+    return <Navigate to={paths.hub} replace />;
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (variant === "teacher") {
+      if (!studentScope.sectionId) {
+        showToast("Select a section.", "error");
+        return;
+      }
+    } else {
+      const scopeErr = validateAnnouncementTargeting(audience, studentScope, teacherScope);
+      if (scopeErr) {
+        showToast(scopeErr, "error");
+        return;
+      }
+    }
     setIsSaving(true);
     try {
-      const studentPayload = audience === "TEACHERS" ? {} : deepestStudentPayload(studentScope);
-      let teacherScope = "NONE";
-      let tc: string | undefined;
-      let tp: string | undefined;
-      let tb: string | undefined;
-      if (audience === "TEACHERS" || audience === "BOTH") {
-        teacherScope = teacherTarget;
-        if (teacherTarget === "CAMPUS") tc = teacherCampusId;
-        if (teacherTarget === "DEPARTMENT") tp = teacherProgramId;
-        if (teacherTarget === "BRANCH") tb = teacherBranchId;
-      }
+      const studentPayload =
+        variant === "teacher" ? { sectionId: studentScope.sectionId } : audience === "TEACHERS" ? {} : deepestStudentPayload(studentScope);
+      const teacherPayload = audience === "STUDENTS" ? {} : teacherTargetingPayload(teacherScope, teacherRoleFilter);
       const payload = {
         title: title.trim(),
         body: body.trim(),
@@ -673,10 +418,7 @@ export function AnnouncementCreatePage() {
         pinned,
         expiresAt: expiresAt ? `${expiresAt}T23:59:59.000Z` : undefined,
         ...studentPayload,
-        teacherScope,
-        teacherCampusId: tc,
-        teacherProgramId: tp,
-        teacherBranchId: tb
+        ...teacherPayload
       };
       const created = await sendJson<{ announcement: { id: string } }>("/api/announcements", payload);
       if (file) {
@@ -688,7 +430,7 @@ export function AnnouncementCreatePage() {
         }
       }
       showToast("Announcement created");
-      navigate("/announcements/history");
+      navigate(paths.history);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Create failed", "error");
     } finally {
@@ -698,24 +440,34 @@ export function AnnouncementCreatePage() {
 
   return (
     <AnnouncementShell title="Create announcement">
-      <form className="mx-auto flex max-w-3xl flex-col gap-6" onSubmit={(e) => void submit(e)}>
-        <AnnouncementFormFields
-          audience={audience}
-          setAudience={setAudience}
-          studentScope={studentScope}
-          setStudentScope={setStudentScope}
-          teacherTarget={teacherTarget}
-          setTeacherTarget={setTeacherTarget}
-          teacherCampusId={teacherCampusId}
-          setTeacherCampusId={setTeacherCampusId}
-          teacherProgramId={teacherProgramId}
-          setTeacherProgramId={setTeacherProgramId}
-          teacherBranchId={teacherBranchId}
-          setTeacherBranchId={setTeacherBranchId}
-          structure={structure}
-        />
-
-        <div className="db-card db-form grid gap-4">
+      <form className="ann-form-shell mx-auto flex max-w-3xl flex-col gap-6" onSubmit={(e) => void submit(e)}>
+        {variant === "teacher" ? (
+          <div className="db-card db-form ann-content-card grid gap-4">
+            <Field label="Section">
+              <FormSelect
+                value={studentScope.sectionId}
+                options={teacherSectionOptions}
+                onChange={(id) => setStudentScope((scope) => ({ ...scope, sectionId: id }))}
+                required
+              />
+            </Field>
+            <p className="text-sm portal-text-muted">Student-targeted announcements only — limited to your assigned section.</p>
+          </div>
+        ) : (
+          <AnnouncementTargetingForm
+            audience={audience}
+            setAudience={setAudience}
+            studentScope={studentScope}
+            setStudentScope={setStudentScope}
+            teacherScope={teacherScope}
+            setTeacherScope={setTeacherScope}
+            teacherRoleFilter={teacherRoleFilter}
+            setTeacherRoleFilter={setTeacherRoleFilter}
+            studentStructure={studentStructure}
+            teacherStructure={teacherStructure}
+          />
+        )}
+        <div className="db-card db-form ann-content-card grid gap-4">
           <Field label="Title">
             <input className="db-input" value={title} onChange={(e) => setTitle(e.target.value)} required minLength={3} maxLength={200} />
           </Field>
@@ -723,7 +475,7 @@ export function AnnouncementCreatePage() {
             <textarea className="db-input min-h-[140px]" value={body} onChange={(e) => setBody(e.target.value)} required minLength={10} maxLength={8000} />
           </Field>
           <Field label="Priority">
-            <FormSelect
+            <SearchableSelect
               value={priority}
               options={[
                 ["NORMAL", "Normal"],
@@ -731,6 +483,9 @@ export function AnnouncementCreatePage() {
                 ["URGENT", "Urgent"]
               ]}
               onChange={(v) => setPriority(v as Priority)}
+              searchable={false}
+              clearable={false}
+              placeholder="Select priority"
             />
           </Field>
           <Field label="Pin on lists">
@@ -742,47 +497,59 @@ export function AnnouncementCreatePage() {
           <Field label="Expiry (optional)">
             <input className="db-input" type="date" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} />
           </Field>
-          <Field label="Attachment (PDF, DOCX, images — max 10MB)">
-            <input
-              className="db-input"
-              type="file"
-              accept=".pdf,.docx,.png,.jpg,.jpeg,.webp,.gif,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/*"
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          <Field label="Attachment (PDF, DOCX, JPG, PNG — max 10MB)">
+            <FilePickerTrigger
+              label="Choose attachment"
+              hint="Tap to pick from library, camera, or files"
+              fileName={file?.name}
+              mode="documents"
+              showGoogleDrive
+              onFile={(picked) => setFile(picked)}
             />
           </Field>
-        </div>
-
-        <div className="flex flex-wrap gap-3">
-          <button className="db-submit" type="submit" disabled={isSaving}>
-            {isSaving ? "Publishing…" : "Publish announcement"}
-          </button>
-          <GlassButton onClick={() => navigate("/announcements")}>Cancel</GlassButton>
+          <FormActionRow
+            primaryLabel={isSaving ? "Publishing…" : "Publish announcement"}
+            primaryDisabled={isSaving}
+            onCancel={() => {
+              showToast("Create announcement cancelled", "info");
+              navigate(paths.hub);
+            }}
+          />
         </div>
       </form>
     </AnnouncementShell>
   );
 }
-
 export function AnnouncementHistoryPage() {
+  const navigate = useAnnouncementNavigate();
+  const paths = useAnnouncementPaths();
+  const { variant } = useAnnouncementPortal();
+  const { user } = useAuth();
   const { fetchJson } = useAnnouncementsApi();
   const { showToast } = useToast();
+  const engage = useOptionalTeacherEngage();
+  const canManage = variant !== "teacher" || canTeacherManageAnnouncements(user, engage?.setup ?? null);
   const [page, setPage] = useState(1);
   const [items, setItems] = useState<AnnouncementListItem[]>([]);
   const [total, setTotal] = useState(0);
   const pageSize = 20;
   const [status, setStatus] = useState<string>("");
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (notify = false) => {
     try {
       const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize), includeReadStatus: "true" });
       if (status) params.set("status", status);
-      const res = await fetchJson<Page<AnnouncementListItem>>(`/api/announcements?${params.toString()}`);
+      const path = appendSectionQuery(`/api/announcements?${params.toString()}`, engage?.activeSectionId ?? "");
+      const res = await fetchJson<Page<AnnouncementListItem>>(path);
       setItems(res.items);
       setTotal(res.total);
+      if (notify) {
+        showToast(res.total ? `${res.total} announcement(s) loaded` : "No announcements found", "info");
+      }
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Load failed", "error");
     }
-  }, [fetchJson, page, showToast, status]);
+  }, [engage?.activeSectionId, fetchJson, page, showToast, status]);
 
   useEffect(() => {
     void load();
@@ -790,9 +557,13 @@ export function AnnouncementHistoryPage() {
 
   return (
     <AnnouncementShell title="Announcement history">
-      <div className="mb-4 flex flex-wrap items-end gap-3">
+      <TeacherEngageSectionFilter className="mb-4" />
+      <div className="db-card db-form ann-filter-card mb-4 flex flex-wrap items-end gap-3">
+        {canManage ? (
+          <GlassButton onClick={() => navigate(paths.create)}>Create announcement</GlassButton>
+        ) : null}
         <Field label="Status">
-          <FormSelect
+          <SearchableSelect
             value={status}
             options={[
               ["", "All"],
@@ -800,22 +571,28 @@ export function AnnouncementHistoryPage() {
               ["DRAFT", "Draft"],
               ["ARCHIVED", "Archived"]
             ]}
-            onChange={setStatus}
+            onChange={(value) => {
+              setStatus(value);
+              setPage(1);
+              showToast("Status filter updated", "info");
+            }}
+            searchable={false}
+            placeholder="All statuses"
           />
         </Field>
-        <GlassButton onClick={() => void load()}>Refresh</GlassButton>
+        <GlassButton onClick={() => void load(true)}>Refresh</GlassButton>
       </div>
       <div className="grid gap-3">
         {items.map((row) => (
           <article
             key={row.id}
-            className="db-card motion-safe:transition motion-safe:duration-200 hover:-translate-y-0.5 hover:shadow-md dark:hover:shadow-slate-900/40"
+            className="db-card ann-list-card motion-safe:transition motion-safe:duration-200 hover:-translate-y-0.5 hover:shadow-md dark:hover:shadow-slate-900/40"
           >
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div>
                 <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50">{row.title}</h3>
                 <p className="mt-1 text-xs text-slate-500">
-                  {formatAudience(row.audience)} · {scopeSummary(row)} · {formatPriority(row.priority)}
+                  {formatAudience(row.audience)} ? {scopeSummary(row)} ? {formatPriority(row.priority)}
                 </p>
               </div>
               <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-bold text-slate-700 dark:bg-slate-800 dark:text-slate-200">{row.status}</span>
@@ -828,11 +605,11 @@ export function AnnouncementHistoryPage() {
               </div>
               <div>
                 <dt className="font-medium text-slate-600 dark:text-slate-400">Created</dt>
-                <dd>{new Date(row.createdAt).toLocaleString()}</dd>
+                <dd>{formatIstLocaleDateTime(row.createdAt)}</dd>
               </div>
               <div>
                 <dt className="font-medium text-slate-600 dark:text-slate-400">Expires</dt>
-                <dd>{row.expiresAt ? new Date(row.expiresAt).toLocaleDateString() : "—"}</dd>
+                <dd>{row.expiresAt ? formatIstLocaleDate(row.expiresAt) : "?"}</dd>
               </div>
               <div>
                 <dt className="font-medium text-slate-600 dark:text-slate-400">Read</dt>
@@ -842,7 +619,7 @@ export function AnnouncementHistoryPage() {
           </article>
         ))}
       </div>
-      <div className="mt-6 flex items-center justify-between gap-3">
+      <div className="ann-pagination mt-6 flex items-center justify-between gap-3">
         <p className="text-sm text-slate-500">
           Page {page} · {total} total
         </p>
@@ -855,338 +632,3 @@ export function AnnouncementHistoryPage() {
   );
 }
 
-export function AnnouncementModifyListPage() {
-  const navigate = useNavigate();
-  const { fetchJson } = useAnnouncementsApi();
-  const { showToast } = useToast();
-  const [search, setSearch] = useState("");
-  const [items, setItems] = useState<AnnouncementListItem[]>([]);
-
-  async function runSearch() {
-    try {
-      const params = new URLSearchParams({ page: "1", pageSize: "25" });
-      if (search.trim()) params.set("search", search.trim());
-      const res = await fetchJson<Page<AnnouncementListItem>>(`/api/announcements?${params.toString()}`);
-      setItems(res.items);
-      showToast("Search updated");
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Search failed", "error");
-    }
-  }
-
-  return (
-    <AnnouncementShell title="Modify announcement">
-      <div className="db-card db-form mb-6 flex flex-wrap gap-3">
-        <Field label="Search title, body, or ID prefix">
-          <input className="db-input min-w-[240px]" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search…" />
-        </Field>
-        <div className="flex items-end">
-          <GlassButton onClick={() => void runSearch()}>Search</GlassButton>
-        </div>
-      </div>
-      <div className="grid gap-4 md:grid-cols-2">
-        {items.map((row) => (
-          <button
-            key={row.id}
-            type="button"
-            className="db-card text-left motion-safe:transition hover:border-blue-300 hover:shadow-md dark:hover:border-blue-700"
-            onClick={() => navigate(`/announcements/modify/${row.id}`)}
-          >
-            <h3 className="font-semibold text-slate-900 dark:text-slate-50">{row.title}</h3>
-            <p className="mt-1 text-xs text-slate-500">{row.id}</p>
-            <p className="mt-2 line-clamp-3 text-sm text-slate-600 dark:text-slate-300">{row.body}</p>
-            <p className="mt-2 text-xs font-medium text-blue-700 dark:text-blue-300">Edit →</p>
-          </button>
-        ))}
-      </div>
-      {items.length === 0 ? <p className="db-empty">No results yet. Run a search.</p> : null}
-    </AnnouncementShell>
-  );
-}
-
-export function AnnouncementModifyEditPage() {
-  const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
-  const { showToast } = useToast();
-  const { fetchJson, sendJson, uploadFile } = useAnnouncementsApi();
-  const structure = useStructureLists();
-  const [loading, setLoading] = useState(true);
-  const [audience, setAudience] = useState<Audience>("STUDENTS");
-  const [studentScope, setStudentScope] = useState<StudentScope>({
-    campusId: "",
-    programId: "",
-    branchId: "",
-    batchId: "",
-    classId: "",
-    sectionId: ""
-  });
-  const [teacherTarget, setTeacherTarget] = useState<TeacherTarget>("INSTITUTION");
-  const [teacherCampusId, setTeacherCampusId] = useState("");
-  const [teacherProgramId, setTeacherProgramId] = useState("");
-  const [teacherBranchId, setTeacherBranchId] = useState("");
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
-  const [priority, setPriority] = useState<Priority>("NORMAL");
-  const [pinned, setPinned] = useState(false);
-  const [expiresAt, setExpiresAt] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
-
-  useEffect(() => {
-    void structure.loadCampuses();
-  }, [structure.loadCampuses]);
-
-  useEffect(() => {
-    if (!id) return;
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      try {
-        const res = await fetchJson<{ announcement: AnnouncementDetail }>(`/api/announcements/${id}`);
-        if (cancelled) return;
-        const a = res.announcement;
-        setTitle(a.title);
-        setBody(a.body);
-        setAudience((a.audience === "TEACHERS" || a.audience === "BOTH" || a.audience === "STUDENTS" ? a.audience : "STUDENTS") as Audience);
-        setPriority((a.priority as Priority) ?? "NORMAL");
-        setPinned(!!a.pinned);
-        setExpiresAt(a.expiresAt ? a.expiresAt.slice(0, 10) : "");
-        const s = a.scope;
-        setStudentScope({
-          campusId: s.campusId ?? "",
-          programId: s.programId ?? "",
-          branchId: s.branchId ?? "",
-          batchId: s.batchId ?? "",
-          classId: s.classId ?? "",
-          sectionId: s.sectionId ?? ""
-        });
-        const ts = a.teacherScope as string;
-        setTeacherTarget(ts === "NONE" || !ts ? "INSTITUTION" : (ts as TeacherTarget));
-        setTeacherCampusId(a.teacherCampusId ?? "");
-        setTeacherProgramId(a.teacherProgramId ?? "");
-        setTeacherBranchId(a.teacherBranchId ?? "");
-
-        const { loadPrograms, loadBranches, loadBatches, loadClasses, loadSections } = structure;
-        if (s.campusId) await loadPrograms(s.campusId);
-        if (s.programId && s.campusId) await loadBranches(s.programId, s.campusId);
-        if (s.branchId && s.programId && s.campusId) await loadBatches(s.branchId, s.programId, s.campusId);
-        if (s.batchId) await loadClasses(s.batchId);
-        if (s.classId) await loadSections(s.classId);
-      } catch (e) {
-        showToast(e instanceof Error ? e.message : "Load failed", "error");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- hydrate once per id
-  }, [id]);
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!id) return;
-    setIsSaving(true);
-    try {
-      const d = audience === "TEACHERS" ? {} : deepestStudentPayload(studentScope);
-      const scopePatch =
-        audience === "TEACHERS"
-          ? { campusId: null, programId: null, branchId: null, batchId: null, classId: null, sectionId: null }
-          : {
-              campusId: d.campusId ?? null,
-              programId: d.programId ?? null,
-              branchId: d.branchId ?? null,
-              batchId: d.batchId ?? null,
-              classId: d.classId ?? null,
-              sectionId: d.sectionId ?? null
-            };
-      let teacherScope = "NONE";
-      let tc: string | null = null;
-      let tp: string | null = null;
-      let tb: string | null = null;
-      if (audience === "TEACHERS" || audience === "BOTH") {
-        teacherScope = teacherTarget;
-        if (teacherTarget === "CAMPUS") tc = teacherCampusId || null;
-        else if (teacherTarget === "DEPARTMENT") tp = teacherProgramId || null;
-        else if (teacherTarget === "BRANCH") tb = teacherBranchId || null;
-      }
-      const payload = {
-        title: title.trim(),
-        body: body.trim(),
-        audience,
-        priority,
-        pinned,
-        expiresAt: expiresAt ? `${expiresAt}T23:59:59.000Z` : null,
-        ...scopePatch,
-        teacherScope,
-        teacherCampusId: tc,
-        teacherProgramId: tp,
-        teacherBranchId: tb
-      };
-      await sendJson(`/api/announcements/${id}`, payload, "PATCH");
-      if (file) {
-        try {
-          await uploadFile(id, file);
-          showToast("Attachment uploaded");
-        } catch (err) {
-          showToast(err instanceof Error ? err.message : "Attachment failed", "error");
-        }
-      }
-      showToast("Announcement updated");
-      navigate("/announcements/history");
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : "Update failed", "error");
-    } finally {
-      setIsSaving(false);
-    }
-  }
-
-  if (!id) return null;
-  if (loading) {
-    return (
-      <AnnouncementShell title="Modify announcement">
-        <p className="db-empty">Loading…</p>
-      </AnnouncementShell>
-    );
-  }
-
-  return (
-    <AnnouncementShell title="Edit announcement">
-      <form className="mx-auto flex max-w-3xl flex-col gap-6" onSubmit={(e) => void submit(e)}>
-        <AnnouncementFormFields
-          audience={audience}
-          setAudience={setAudience}
-          studentScope={studentScope}
-          setStudentScope={setStudentScope}
-          teacherTarget={teacherTarget}
-          setTeacherTarget={setTeacherTarget}
-          teacherCampusId={teacherCampusId}
-          setTeacherCampusId={setTeacherCampusId}
-          teacherProgramId={teacherProgramId}
-          setTeacherProgramId={setTeacherProgramId}
-          teacherBranchId={teacherBranchId}
-          setTeacherBranchId={setTeacherBranchId}
-          structure={structure}
-        />
-        <div className="db-card db-form grid gap-4">
-          <Field label="Title">
-            <input className="db-input" value={title} onChange={(e) => setTitle(e.target.value)} required minLength={3} maxLength={200} />
-          </Field>
-          <Field label="Description">
-            <textarea className="db-input min-h-[140px]" value={body} onChange={(e) => setBody(e.target.value)} required minLength={10} maxLength={8000} />
-          </Field>
-          <Field label="Priority">
-            <FormSelect
-              value={priority}
-              options={[
-                ["NORMAL", "Normal"],
-                ["IMPORTANT", "Important"],
-                ["URGENT", "Urgent"]
-              ]}
-              onChange={(v) => setPriority(v as Priority)}
-            />
-          </Field>
-          <Field label="Pin on lists">
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={pinned} onChange={(e) => setPinned(e.target.checked)} />
-              Pinned
-            </label>
-          </Field>
-          <Field label="Expiry (optional)">
-            <input className="db-input" type="date" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} />
-          </Field>
-          <Field label="Add attachment">
-            <input
-              className="db-input"
-              type="file"
-              accept=".pdf,.docx,.png,.jpg,.jpeg,.webp,.gif,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/*"
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            />
-          </Field>
-        </div>
-        <div className="flex flex-wrap gap-3">
-          <button className="db-submit" type="submit" disabled={isSaving}>
-            {isSaving ? "Saving…" : "Save changes"}
-          </button>
-          <GlassButton onClick={() => navigate("/announcements/modify")}>Back to search</GlassButton>
-        </div>
-      </form>
-    </AnnouncementShell>
-  );
-}
-
-export function AnnouncementArchivePage() {
-  const { fetchJson, sendJson } = useAnnouncementsApi();
-  const { showToast } = useToast();
-  const [search, setSearch] = useState("");
-  const [items, setItems] = useState<AnnouncementListItem[]>([]);
-  const [pick, setPick] = useState<AnnouncementListItem | null>(null);
-  const [open, setOpen] = useState(false);
-
-  async function runSearch() {
-    try {
-      const params = new URLSearchParams({ page: "1", pageSize: "25" });
-      if (search.trim()) params.set("search", search.trim());
-      params.set("status", "PUBLISHED");
-      const res = await fetchJson<Page<AnnouncementListItem>>(`/api/announcements?${params.toString()}`);
-      setItems(res.items);
-      showToast("Search updated");
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Search failed", "error");
-    }
-  }
-
-  async function confirmArchive() {
-    if (!pick) return;
-    try {
-      await sendJson(`/api/announcements/${pick.id}/archive`, {});
-      showToast("Announcement archived", "danger");
-      setOpen(false);
-      setPick(null);
-      await runSearch();
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Archive failed", "error");
-    }
-  }
-
-  return (
-    <AnnouncementShell title="Archive announcement">
-      <div className="db-card db-form mb-6 flex flex-wrap gap-3">
-        <Field label="Search">
-          <input className="db-input min-w-[240px]" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Title or ID…" />
-        </Field>
-        <div className="flex items-end">
-          <GlassButton onClick={() => void runSearch()}>Search</GlassButton>
-        </div>
-      </div>
-      <div className="grid gap-3 md:grid-cols-2">
-        {items.map((row) => (
-          <div key={row.id} className="db-card flex flex-col justify-between gap-3">
-            <div>
-              <h3 className="font-semibold">{row.title}</h3>
-              <p className="text-xs text-slate-500">{row.id}</p>
-            </div>
-            <GlassButton
-              tone="danger"
-              onClick={() => {
-                setPick(row);
-                setOpen(true);
-              }}
-            >
-              Archive (soft)
-            </GlassButton>
-          </div>
-        ))}
-      </div>
-      <ConfirmArchiveDialog
-        isOpen={open}
-        title="Archive this announcement?"
-        message="This only sets status to archived. Nothing is permanently deleted."
-        itemName={pick?.title}
-        onCancel={() => setOpen(false)}
-        onConfirm={confirmArchive}
-      />
-    </AnnouncementShell>
-  );
-}

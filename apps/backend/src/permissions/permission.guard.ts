@@ -3,6 +3,7 @@ import { Reflector } from "@nestjs/core";
 import { AuthUser, ScopeRef } from "../auth/auth.types";
 import { PermissionsService } from "./permissions.service";
 import { REQUIRED_PERMISSION_KEY, RequiredPermissionMetadata } from "./requires-permission.decorator";
+import { hasScopeBoundary, pickScopeRef } from "./scope.util";
 
 @Injectable()
 export class PermissionGuard implements CanActivate {
@@ -28,7 +29,7 @@ export class PermissionGuard implements CanActivate {
     }>();
     this.applyImplicitCampusScope(request);
 
-    const scope = request.body?.scope ?? (this.hasScopeFields(request.body) ? request.body : request.query);
+    const scope = metadata.skipRequestScope ? undefined : this.resolveRequestScope(request);
     const decision = this.permissions.can(request.user, {
       action: metadata.action,
       scope
@@ -53,16 +54,16 @@ export class PermissionGuard implements CanActivate {
     }
   }
 
-  private hasScopeFields(scope?: ScopeRef): boolean {
-    return Boolean(
-      scope?.campusGroupId ||
-        scope?.campusId ||
-        scope?.programId ||
-        scope?.branchId ||
-        scope?.batchId ||
-        scope?.classId ||
-        scope?.sectionId ||
-        scope?.subjectId
-    );
+  private resolveRequestScope(request: { query: ScopeRef; body: ScopeRef & { scope?: ScopeRef } }): ScopeRef | undefined {
+    const explicitScope = pickScopeRef(request.body?.scope);
+    if (hasScopeBoundary(explicitScope)) return explicitScope;
+
+    const bodyScope = pickScopeRef(request.body);
+    if (hasScopeBoundary(bodyScope)) return bodyScope;
+
+    const queryScope = pickScopeRef(request.query);
+    if (hasScopeBoundary(queryScope)) return queryScope;
+
+    return undefined;
   }
 }

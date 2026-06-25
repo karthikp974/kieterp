@@ -3,6 +3,8 @@ import { PermissionAction, Prisma, StudentTeamMemberRole, StudentTeamStatus, Str
 import { AuthUser, ScopeRef } from "../auth/auth.types";
 import { toPagination } from "../common/pagination.dto";
 import { PermissionsService } from "../permissions/permissions.service";
+import { sectionTreeToScope } from "../permissions/operational-scope.util";
+import { SharedGroupAcademicService } from "../permissions/shared-group-academic.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { CreateTeamDto, TeamQueryDto } from "./teams.dto";
 
@@ -10,7 +12,8 @@ import { CreateTeamDto, TeamQueryDto } from "./teams.dto";
 export class TeamsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly permissions: PermissionsService
+    private readonly permissions: PermissionsService,
+    private readonly sharedGroup: SharedGroupAcademicService
   ) {}
 
   async list(user: AuthUser, query: TeamQueryDto) {
@@ -69,8 +72,9 @@ export class TeamsService {
     }
 
     const allowedScopes = user.assignments.filter((assignment) => this.permissions.can(user, { action: PermissionAction.MANAGE_TEAMS, scope: assignment }).allowed);
+    const sectionWheres = await Promise.all(allowedScopes.map((scope) => this.scopeToSectionWhere(scope)));
     const sections = await this.prisma.section.findMany({
-      where: { status: StructureStatus.ACTIVE, OR: allowedScopes.map((scope) => this.scopeToSectionWhere(scope)) },
+      where: { status: StructureStatus.ACTIVE, OR: sectionWheres },
       include: this.sectionInclude,
       orderBy: { name: "asc" },
       take: 100
@@ -108,6 +112,9 @@ export class TeamsService {
     if (activeMembership) throw new ConflictException(`${activeMembership.studentProfile.rollNumber} is already in active team ${activeMembership.team.name}.`);
 
     try {
+      const orderedMemberIds = dto.leaderStudentProfileId
+        ? [dto.leaderStudentProfileId, ...memberIds.filter((id) => id !== dto.leaderStudentProfileId)]
+        : memberIds;
       const team = await this.prisma.studentTeam.create({
         data: {
           sectionId: dto.sectionId,
@@ -115,9 +122,15 @@ export class TeamsService {
           description: dto.description?.trim(),
           createdById: user.id,
           members: {
-            create: memberIds.map((studentProfileId) => ({
+            create: orderedMemberIds.map((studentProfileId, index) => ({
               studentProfileId,
-              role: studentProfileId === dto.leaderStudentProfileId ? StudentTeamMemberRole.LEADER : StudentTeamMemberRole.MEMBER
+              leaderRank: index + 1,
+              role:
+                dto.leaderStudentProfileId && studentProfileId === dto.leaderStudentProfileId
+                  ? StudentTeamMemberRole.LEADER
+                  : !dto.leaderStudentProfileId && index === 0
+                    ? StudentTeamMemberRole.LEADER
+                    : StudentTeamMemberRole.MEMBER
             }))
           }
         },
@@ -167,23 +180,16 @@ export class TeamsService {
   }
 
   private sectionToScope(section: Prisma.SectionGetPayload<{ include: TeamsService["sectionInclude"] }>): ScopeRef {
-    return {
-      campusId: section.class.batch.branch.program.campusId,
-      programId: section.class.batch.branch.programId,
-      branchId: section.class.batch.branchId,
-      batchId: section.class.batchId,
-      classId: section.classId,
-      sectionId: section.id
-    };
+    return sectionTreeToScope(section);
   }
 
-  private scopeToSectionWhere(scope: ScopeRef): Prisma.SectionWhereInput {
+  private async scopeToSectionWhere(scope: ScopeRef): Promise<Prisma.SectionWhereInput> {
     if (scope.sectionId) return { id: scope.sectionId };
     if (scope.classId) return { classId: scope.classId };
     if (scope.batchId) return { class: { batchId: scope.batchId } };
     if (scope.branchId) return { class: { batch: { branchId: scope.branchId } } };
     if (scope.programId) return { class: { batch: { branch: { programId: scope.programId } } } };
-    if (scope.campusId) return { class: { batch: { branch: { program: { campusId: scope.campusId } } } } };
+    if (scope.campusId) return this.sharedGroup.sectionWhereForCampusFilter(scope.campusId);
     return { id: "__no_scope__" };
   }
 
@@ -198,6 +204,8 @@ export class TeamsService {
       members: team.members.map((member) => ({
         id: member.id,
         role: member.role,
+        leaderRank: member.leaderRank,
+        leaderLabel: `L${member.leaderRank}`,
         student: { id: member.studentProfile.id, rollNumber: member.studentProfile.rollNumber, fullName: member.studentProfile.user.fullName }
       }))
     };
@@ -217,7 +225,7 @@ export class TeamsService {
   }
 
   private audit(user: AuthUser, action: string, entity: string, entityId: string, metadata?: Prisma.InputJsonObject) {
-    return this.prisma.auditLog.create({ data: { userId: user.id, action, entity, entityId, metadata } });
+    return this.prisma.auditLog.create({ data: { userId: user.auditUserId, action, entity, entityId, metadata } });
   }
 
   private readonly sectionInclude = {
@@ -232,6 +240,6 @@ export class TeamsService {
   private readonly include = {
     section: { include: { class: { include: { batch: { include: { branch: { include: { program: true } } } } } } } },
     createdBy: { select: { fullName: true } },
-    members: { include: { studentProfile: { include: { user: true } } }, orderBy: { joinedAt: "asc" } }
+    members: { include: { studentProfile: { include: { user: true } } }, orderBy: [{ leaderRank: "asc" }, { joinedAt: "asc" }] }
   } satisfies Prisma.StudentTeamInclude;
 }

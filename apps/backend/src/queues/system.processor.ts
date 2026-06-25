@@ -1,13 +1,39 @@
 import { Processor, WorkerHost } from "@nestjs/bullmq";
+import { Inject, forwardRef } from "@nestjs/common";
 import { PermissionAction, Prisma, UserStatus } from "@prisma/client";
 import { Job } from "bullmq";
 import { readFile, unlink } from "fs/promises";
 import { PDFParse } from "pdf-parse";
-import { AuthUser, ScopeRef } from "../auth/auth.types";
+import { AuthUser } from "../auth/auth.types";
 import { PermissionsService } from "../permissions/permissions.service";
+import { studentProfileToScope, studentScopeProfileInclude } from "../permissions/operational-scope.util";
 import { PrismaService } from "../prisma/prisma.service";
 import { ParsedResultRow, parseResultRows } from "../results/result-pdf-parser";
-import { RESULT_PDF_IMPORT_JOB, SYSTEM_QUEUE } from "./queue.constants";
+import { resolveResultSubjectByCode } from "../results/results-subject.util";
+import { StudentsService } from "../students/students.service";
+import type { CreateStudentDto } from "../students/students.dto";
+import { RESULT_PDF_IMPORT_JOB, STUDENT_BULK_IMPORT_JOB, SYSTEM_QUEUE } from "./queue.constants";
+import { RESULTS_IMPORT_INTERRUPTED_MESSAGE } from "../results/results-import.constants";
+
+type StudentBulkImportPayload = {
+  students: CreateStudentDto[];
+  requestedById: string;
+};
+
+type ImportProgress = {
+  phase: "queued" | "parsing" | "importing";
+  processed: number;
+  total: number;
+  percent: number;
+};
+
+function importingPercent(processed: number, total: number) {
+  if (!total) return 15;
+  return Math.min(99, 15 + Math.round((processed / total) * 84));
+}
+
+const IMPORT_PROGRESS_WRITE_MS = 350;
+const IMPORT_CANCEL_CHECK_EVERY = 40;
 
 type ResultPdfImportPayload = {
   filePath: string;
@@ -16,132 +42,283 @@ type ResultPdfImportPayload = {
   user: AuthUser;
 };
 
+type ImportStudent = Prisma.StudentProfileGetPayload<{ include: typeof studentScopeProfileInclude }>;
+
 @Processor(SYSTEM_QUEUE)
 export class SystemProcessor extends WorkerHost {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly permissions: PermissionsService
+    private readonly permissions: PermissionsService,
+    @Inject(forwardRef(() => StudentsService))
+    private readonly students: StudentsService
   ) {
     super();
   }
 
   async process(job: Job) {
-    await this.prisma.backgroundJobRecord.updateMany({ where: { externalId: job.id }, data: { status: "running" } });
+    await this.assertImportActive(String(job.id));
+    await this.prisma.backgroundJobRecord.updateMany({
+      where: { externalId: job.id },
+      data: {
+        status: "running",
+        result: {
+          progress: { phase: "parsing", processed: 0, total: 0, percent: 10 } satisfies ImportProgress
+        } as Prisma.InputJsonObject
+      }
+    });
 
     try {
-      const result = job.name === RESULT_PDF_IMPORT_JOB ? await this.processResultPdf(job.data as ResultPdfImportPayload) : { ok: true, jobName: job.name };
+      const result =
+        job.name === RESULT_PDF_IMPORT_JOB
+          ? await this.processResultPdf(String(job.id), job.data as ResultPdfImportPayload)
+          : job.name === STUDENT_BULK_IMPORT_JOB
+            ? await this.processStudentBulkImport(String(job.id), job.data as StudentBulkImportPayload)
+            : { ok: true, jobName: job.name };
+      await this.assertImportActive(String(job.id));
+      const summary = result as {
+        parsed?: number;
+        imported?: number;
+        skipped?: number;
+      };
+      const parsedTotal = summary.parsed ?? 0;
       await this.prisma.backgroundJobRecord.updateMany({
         where: { externalId: job.id },
-        data: { status: "completed", result: result as Prisma.InputJsonObject }
+        data: {
+          status: "completed",
+          result: {
+            ...(result as Record<string, unknown>),
+            progress: {
+              phase: "importing",
+              processed: parsedTotal,
+              total: parsedTotal,
+              percent: 100
+            } satisfies ImportProgress
+          } as Prisma.InputJsonObject
+        }
       });
 
       return result;
     } catch (error) {
+      const message = error instanceof Error ? error.message : "Background job failed.";
+      const cancelled = message.includes("interrupted") || message.includes("cancelled");
       await this.prisma.backgroundJobRecord.updateMany({
         where: { externalId: job.id },
-        data: { status: "failed", error: error instanceof Error ? error.message : "Background job failed." }
+        data: {
+          status: "failed",
+          error: cancelled ? RESULTS_IMPORT_INTERRUPTED_MESSAGE : message
+        }
       });
       throw error;
     }
   }
 
-  private async processResultPdf(payload: ResultPdfImportPayload) {
+  private async assertImportActive(importJobId: string) {
+    const job = await this.prisma.backgroundJobRecord.findUnique({
+      where: { id: importJobId },
+      select: { status: true, result: true }
+    });
+    if (!job) throw new Error(RESULTS_IMPORT_INTERRUPTED_MESSAGE);
+    if (job.status === "failed") throw new Error(RESULTS_IMPORT_INTERRUPTED_MESSAGE);
+    if ((job.result as { cancelled?: boolean } | null)?.cancelled) {
+      throw new Error(RESULTS_IMPORT_INTERRUPTED_MESSAGE);
+    }
+  }
+
+  private async processResultPdf(importJobId: string, payload: ResultPdfImportPayload) {
+    const recordId = await this.resolveImportRecordId(importJobId);
+    await this.updateImportProgress(recordId, { phase: "parsing", processed: 0, total: 0, percent: 10 });
+    await this.assertImportActive(recordId);
+
     let parsedRows: ParsedResultRow[] = [];
     try {
-      const file = await readFile(payload.filePath);
-      const parser = new PDFParse({ data: file });
-      try {
-        const parsed = await parser.getText();
-        parsedRows = parseResultRows(parsed.text);
-      } finally {
-        await parser.destroy();
+      if (payload.filePath.toLowerCase().endsWith(".txt")) {
+        const text = await readFile(payload.filePath, "utf8");
+        parsedRows = parseResultRows(text);
+      } else {
+        const file = await readFile(payload.filePath);
+        const parser = new PDFParse({ data: file });
+        try {
+          const parsed = await parser.getText();
+          parsedRows = parseResultRows(parsed.text);
+        } finally {
+          await parser.destroy();
+        }
       }
     } finally {
       await unlink(payload.filePath).catch(() => undefined);
     }
 
-    const summary = { parsed: parsedRows.length, imported: 0, skipped: 0, errors: [] as string[] };
+    await this.assertImportActive(recordId);
+
+    const total = parsedRows.length;
+    await this.updateImportProgress(
+      recordId,
+      { phase: "importing", processed: 0, total, percent: 15 },
+      { parsed: total, imported: 0, skipped: 0 }
+    );
+
+    const uniqueRolls = [...new Set(parsedRows.map((row) => row.rollNumber.toUpperCase()))];
+    const studentByRoll = new Map<string, ImportStudent>();
+    for (let index = 0; index < uniqueRolls.length; index += 400) {
+      const chunk = uniqueRolls.slice(index, index + 400);
+      const batch = await this.prisma.studentProfile.findMany({
+        where: {
+          currentStatus: UserStatus.ACTIVE,
+          OR: chunk.map((rollNumber) => ({ rollNumber: { equals: rollNumber, mode: "insensitive" as const } }))
+        },
+        include: studentScopeProfileInclude
+      });
+      for (const student of batch) {
+        studentByRoll.set(student.rollNumber.toUpperCase(), student);
+      }
+    }
+    const subjectCache = new Map<string, Awaited<ReturnType<typeof resolveResultSubjectByCode>>>();
+    const permissionCache = new Map<string, boolean>();
+
+    const summary = { parsed: total, imported: 0, skipped: 0, errors: [] as string[], importedRollNumbers: [] as string[] };
+    let processed = 0;
+    let lastProgressWrite = 0;
+
     for (const row of parsedRows) {
+      if (processed > 0 && processed % IMPORT_CANCEL_CHECK_EVERY === 0) {
+        await this.assertImportActive(recordId);
+      }
+
       try {
-        const student = await this.prisma.studentProfile.findFirst({
-          where: { rollNumber: { equals: row.rollNumber, mode: "insensitive" }, currentStatus: UserStatus.ACTIVE },
-          include: this.studentInclude
-        });
+        const student = studentByRoll.get(row.rollNumber.toUpperCase());
         if (!student) {
           summary.skipped += 1;
-          summary.errors.push(`${row.rollNumber}: student not found or inactive`);
-          continue;
-        }
-
-        const subjects = await this.prisma.subject.findMany({
-          where: { code: { equals: row.subjectCode, mode: "insensitive" }, status: "ACTIVE" },
-          orderBy: { semesterNumber: "desc" }
-        });
-        const subject = subjects.find((item) => item.branchId === student.section.class.batch.branchId);
-        if (!subject) {
-          summary.skipped += 1;
-          summary.errors.push(`${row.rollNumber}/${row.subjectCode}: subject not found for student branch`);
-          continue;
-        }
-
-        const scope = this.studentToScope(student, subject.id);
-        if (!this.permissions.can(payload.user, { action: PermissionAction.UPLOAD_RESULTS, scope }).allowed) {
-          summary.skipped += 1;
-          summary.errors.push(`${row.rollNumber}/${row.subjectCode}: upload permission denied`);
-          continue;
-        }
-
-        await this.prisma.resultEntry.upsert({
-          where: {
-            studentProfileId_subjectId_examType: {
-              studentProfileId: student.id,
-              subjectId: subject.id,
-              examType: payload.examType
-            }
-          },
-          create: {
-            studentProfileId: student.id,
-            subjectId: subject.id,
-            semesterNumber: subject.semesterNumber,
-            examType: payload.examType,
-            internals: row.internals,
-            grade: row.grade,
-            credits: row.credits,
-            status: row.status,
-            createdById: payload.user.id
-          },
-          update: {
-            semesterNumber: subject.semesterNumber,
-            internals: row.internals,
-            grade: row.grade,
-            credits: row.credits,
-            status: row.status
+          if (summary.errors.length < 50) {
+            summary.errors.push(`${row.rollNumber}: student not found or inactive`);
           }
-        });
-        summary.imported += 1;
+        } else {
+          const branchId = student.section.class.batch.branchId;
+          const subjectKey = `${branchId}:${row.subjectCode.toUpperCase()}`;
+          let subject = subjectCache.get(subjectKey);
+          if (!subject) {
+            subject = await resolveResultSubjectByCode(this.prisma, {
+              branchId,
+              subjectCode: row.subjectCode
+            });
+            subjectCache.set(subjectKey, subject);
+          }
+          const semesterNumber = subject.semesterNumber;
+
+          const scope = studentProfileToScope(student, subject.id);
+          const scopeKey = JSON.stringify(scope);
+          let allowed = permissionCache.get(scopeKey);
+          if (allowed === undefined) {
+            allowed = this.permissions.can(payload.user, { action: PermissionAction.UPLOAD_RESULTS, scope }).allowed;
+            permissionCache.set(scopeKey, allowed);
+          }
+          if (!allowed) {
+            summary.skipped += 1;
+            if (summary.errors.length < 50) {
+              summary.errors.push(`${row.rollNumber}/${row.subjectCode}: upload permission denied`);
+            }
+          } else {
+            await this.prisma.resultEntry.upsert({
+              where: {
+                studentProfileId_subjectId_examType: {
+                  studentProfileId: student.id,
+                  subjectId: subject.id,
+                  examType: payload.examType
+                }
+              },
+              create: {
+                studentProfileId: student.id,
+                subjectId: subject.id,
+                semesterNumber,
+                examType: payload.examType,
+                internals: row.internals,
+                grade: row.grade,
+                credits: row.credits,
+                status: row.status,
+                isPublished: false,
+                importJobId: recordId,
+                createdById: payload.user.id
+              },
+              update: {
+                semesterNumber,
+                internals: row.internals,
+                grade: row.grade,
+                credits: row.credits,
+                status: row.status,
+                isPublished: false,
+                importJobId: recordId
+              }
+            });
+            summary.imported += 1;
+            summary.importedRollNumbers.push(student.rollNumber.toUpperCase());
+          }
+        }
       } catch (error) {
         summary.skipped += 1;
-        summary.errors.push(`${row.rollNumber}/${row.subjectCode}: ${error instanceof Error ? error.message : "import failed"}`);
+        if (summary.errors.length < 50) {
+          summary.errors.push(`${row.rollNumber}/${row.subjectCode}: ${error instanceof Error ? error.message : "import failed"}`);
+        }
+      }
+
+      processed += 1;
+      const now = Date.now();
+      const shouldWriteProgress =
+        processed === total ||
+        processed === 1 ||
+        now - lastProgressWrite >= IMPORT_PROGRESS_WRITE_MS ||
+        processed % 25 === 0;
+      if (total && shouldWriteProgress) {
+        lastProgressWrite = now;
+        await this.updateImportProgress(
+          recordId,
+          {
+            phase: "importing",
+            processed,
+            total,
+            percent: importingPercent(processed, total)
+          },
+          { parsed: total, imported: summary.imported, skipped: summary.skipped }
+        );
       }
     }
 
-    return { ok: true, originalName: payload.originalName, ...summary, errors: summary.errors.slice(0, 50) };
+    summary.importedRollNumbers = [...new Set(summary.importedRollNumbers)];
+    return { ok: true, originalName: payload.originalName, importJobId: recordId, ...summary, errors: summary.errors.slice(0, 50) };
   }
 
-  private studentToScope(student: Prisma.StudentProfileGetPayload<{ include: SystemProcessor["studentInclude"] }>, subjectId?: string): ScopeRef {
-    return {
-      campusId: student.section.class.batch.branch.program.campusId,
-      programId: student.section.class.batch.branch.programId,
-      branchId: student.section.class.batch.branchId,
-      batchId: student.section.class.batchId,
-      classId: student.section.classId,
-      sectionId: student.sectionId,
-      subjectId
-    };
+  private async processStudentBulkImport(importJobId: string, payload: StudentBulkImportPayload) {
+    const recordId = await this.resolveImportRecordId(importJobId);
+    await this.assertImportActive(recordId);
+    return this.students.executeBulkImport(recordId, payload.students);
   }
 
-  private readonly studentInclude = {
-    user: true,
-    section: { include: { class: { include: { batch: { include: { branch: { include: { program: true } } } } } } } }
-  } satisfies Prisma.StudentProfileInclude;
+  private async resolveImportRecordId(importJobId: string) {
+    const record = await this.prisma.backgroundJobRecord.findFirst({
+      where: { OR: [{ id: importJobId }, { externalId: importJobId }] },
+      select: { id: true }
+    });
+    if (!record) throw new Error(RESULTS_IMPORT_INTERRUPTED_MESSAGE);
+    return record.id;
+  }
+
+  private async updateImportProgress(
+    importJobId: string,
+    progress: ImportProgress,
+    counters?: { parsed?: number; imported?: number; skipped?: number }
+  ) {
+    const existing = await this.prisma.backgroundJobRecord.findUnique({
+      where: { id: importJobId },
+      select: { result: true }
+    });
+    const prev = (existing?.result ?? {}) as Record<string, unknown>;
+    await this.prisma.backgroundJobRecord.update({
+      where: { id: importJobId },
+      data: {
+        result: {
+          ...prev,
+          ...(counters ?? {}),
+          progress
+        } as Prisma.InputJsonObject
+      }
+    });
+  }
 }

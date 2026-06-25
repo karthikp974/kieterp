@@ -76,6 +76,20 @@ describe("PermissionsService", () => {
     expect(service.can(user, { action: PermissionAction.MANAGE_TIMETABLE, scope: { subjectId: "dbms" } }).allowed).toBe(
       false
     );
+    expect(service.can(user, { action: PermissionAction.MANAGE_FEEDBACK }).allowed).toBe(true);
+  });
+
+  it("allows HTPO and CTPO to manage feedback; STPO has no engage access", () => {
+    const htpo = teacher([{ id: "htpo", role: TeacherRoleKind.HTPO, branchId: "csc", permissions: [] }]);
+    const ctpo = teacher([{ id: "ctpo", role: TeacherRoleKind.CTPO, sectionId: "section-a", permissions: [] }]);
+    const stpo = teacher([{ id: "stpo", role: TeacherRoleKind.STPO, subjectId: "dbms", permissions: [] }]);
+
+    expect(service.can(htpo, { action: PermissionAction.MANAGE_FEEDBACK }).allowed).toBe(true);
+    expect(service.can(ctpo, { action: PermissionAction.MANAGE_FEEDBACK }).allowed).toBe(true);
+    expect(service.can(stpo, { action: PermissionAction.MANAGE_FEEDBACK }).allowed).toBe(false);
+    expect(service.can(stpo, { action: PermissionAction.VIEW_FEEDBACK_ANALYTICS }).allowed).toBe(false);
+    expect(service.can(stpo, { action: PermissionAction.VIEW_ANNOUNCEMENTS }).allowed).toBe(false);
+    expect(service.can(stpo, { action: PermissionAction.MANAGE_ANNOUNCEMENTS }).allowed).toBe(false);
   });
 
   it("blocks KIET/KIEK users from KIEW scoped data", () => {
@@ -110,7 +124,7 @@ describe("PermissionsService", () => {
     expect(service.can(student, { action: PermissionAction.VIEW_DB_PORTAL }).allowed).toBe(false);
   });
 
-  it("allows students to view attendance but not mark attendance", () => {
+  it("blocks students from admin attendance and fee actions", () => {
     const student: PermissionSubject = {
       id: "student-1",
       type: UserType.STUDENT,
@@ -119,21 +133,11 @@ describe("PermissionsService", () => {
       assignments: []
     };
 
-    expect(service.can(student, { action: PermissionAction.VIEW_ATTENDANCE }).allowed).toBe(true);
+    expect(service.can(student, { action: PermissionAction.VIEW_ATTENDANCE }).allowed).toBe(false);
     expect(service.can(student, { action: PermissionAction.MARK_ATTENDANCE }).allowed).toBe(false);
-  });
-
-  it("allows students to view fees but not mark fees", () => {
-    const student: PermissionSubject = {
-      id: "student-1",
-      type: UserType.STUDENT,
-      campusId: "kiet",
-      campusGroupId: "kiet-kiek",
-      assignments: []
-    };
-
-    expect(service.can(student, { action: PermissionAction.VIEW_FEES }).allowed).toBe(true);
+    expect(service.can(student, { action: PermissionAction.VIEW_FEES }).allowed).toBe(false);
     expect(service.can(student, { action: PermissionAction.MARK_FEES }).allowed).toBe(false);
+    expect(service.can(student, { action: PermissionAction.VIEW_RESULTS }).allowed).toBe(false);
   });
 
   it("allows STPO to mark attendance only within assigned subject scope", () => {
@@ -161,7 +165,7 @@ describe("PermissionsService", () => {
     ).toBe(false);
   });
 
-  it("allows HTPO but not CTPO to manage timetable within assigned scope", () => {
+  it("allows HTPO and CTPO to manage timetable within assigned scope", () => {
     const htpo = teacher([
       {
         id: "htpo",
@@ -178,12 +182,22 @@ describe("PermissionsService", () => {
         permissions: []
       }
     ]);
+    const stpo = teacher([
+      {
+        id: "stpo",
+        role: TeacherRoleKind.STPO,
+        sectionId: "section-a",
+        subjectId: "dbms",
+        permissions: []
+      }
+    ]);
 
     expect(service.can(htpo, { action: PermissionAction.MANAGE_TIMETABLE, scope: { sectionId: "section-a" } }).allowed).toBe(true);
-    expect(service.can(ctpo, { action: PermissionAction.MANAGE_TIMETABLE, scope: { sectionId: "section-a" } }).allowed).toBe(false);
+    expect(service.can(ctpo, { action: PermissionAction.MANAGE_TIMETABLE, scope: { sectionId: "section-a" } }).allowed).toBe(true);
+    expect(service.can(stpo, { action: PermissionAction.MANAGE_TIMETABLE, scope: { sectionId: "section-a" } }).allowed).toBe(false);
   });
 
-  it("allows students to view results and only HTPO to upload results", () => {
+  it("allows students to view results and HTPO/CTPO to upload results", () => {
     const student: PermissionSubject = {
       id: "student-1",
       type: UserType.STUDENT,
@@ -193,14 +207,17 @@ describe("PermissionsService", () => {
     };
     const htpo = teacher([{ id: "htpo", role: TeacherRoleKind.HTPO, sectionId: "section-a", permissions: [] }]);
     const ctpo = teacher([{ id: "ctpo", role: TeacherRoleKind.CTPO, sectionId: "section-a", permissions: [] }]);
+    const stpo = teacher([{ id: "stpo", role: TeacherRoleKind.STPO, sectionId: "section-a", subjectId: "dbms", permissions: [] }]);
 
-    expect(service.can(student, { action: PermissionAction.VIEW_RESULTS }).allowed).toBe(true);
+    expect(service.can(student, { action: PermissionAction.VIEW_RESULTS }).allowed).toBe(false);
+    expect(service.can(student, { action: PermissionAction.VIEW_STUDENT_PORTAL }).allowed).toBe(true);
     expect(service.can(student, { action: PermissionAction.UPLOAD_RESULTS }).allowed).toBe(false);
     expect(service.can(htpo, { action: PermissionAction.UPLOAD_RESULTS, scope: { sectionId: "section-a" } }).allowed).toBe(true);
-    expect(service.can(ctpo, { action: PermissionAction.UPLOAD_RESULTS, scope: { sectionId: "section-a" } }).allowed).toBe(false);
+    expect(service.can(ctpo, { action: PermissionAction.UPLOAD_RESULTS, scope: { sectionId: "section-a" } }).allowed).toBe(true);
+    expect(service.can(stpo, { action: PermissionAction.UPLOAD_RESULTS, scope: { sectionId: "section-a" } }).allowed).toBe(false);
   });
 
-  it("allows students to view applications and CTPO/HTPO to manage scoped applications", () => {
+  it("allows students to view applications but not teacher portal roles", () => {
     const student: PermissionSubject = {
       id: "student-1",
       type: UserType.STUDENT,
@@ -209,11 +226,13 @@ describe("PermissionsService", () => {
       assignments: []
     };
     const ctpo = teacher([{ id: "ctpo", role: TeacherRoleKind.CTPO, sectionId: "section-a", permissions: [] }]);
+    const htpo = teacher([{ id: "htpo", role: TeacherRoleKind.HTPO, branchId: "csc", permissions: [] }]);
     const stpo = teacher([{ id: "stpo", role: TeacherRoleKind.STPO, subjectId: "dbms", permissions: [] }]);
 
     expect(service.can(student, { action: PermissionAction.VIEW_APPLICATIONS }).allowed).toBe(true);
     expect(service.can(student, { action: PermissionAction.MANAGE_APPLICATIONS }).allowed).toBe(false);
     expect(service.can(ctpo, { action: PermissionAction.MANAGE_APPLICATIONS, scope: { sectionId: "section-a" } }).allowed).toBe(true);
+    expect(service.can(htpo, { action: PermissionAction.MANAGE_APPLICATIONS, scope: { sectionId: "section-a" } }).allowed).toBe(false);
     expect(service.can(stpo, { action: PermissionAction.MANAGE_APPLICATIONS, scope: { sectionId: "section-a" } }).allowed).toBe(false);
   });
 

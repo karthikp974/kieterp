@@ -1,11 +1,17 @@
-import { ArrowLeft, Bell, Plus, Search, Trash2, UserRoundCog } from "lucide-react";
+import { ArrowLeft, Plus, Search, Trash2, UserRoundCog } from "lucide-react";
 import { FormEvent, InputHTMLAttributes, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/auth-context";
-import { AdminWorkflowMenuButton, OptionActionButton } from "../shared/OptionPage";
+import { AdminWorkflowMenuButton, OptionActionButton, WorkflowSection } from "../shared/OptionPage";
+import { ExistingRecordsPanel, ExistingRecordsPageIntro, WorkflowExistingRecordsPageShell } from "../shared/WorkflowExistingRecords";
 import { SearchableSelect } from "../shared/SearchableSelect";
+import { ProfileMenuButton } from "../shared/ProfileMenu";
+import { UserAvatar } from "../shared/UserAvatar";
+import { useConfirm } from "../shared/ConfirmDialog";
 import { useToast } from "../shared/toast-context";
 import { AcademicClass, Batch, Branch, Campus, PaginatedResponse, Program, Section, Subject } from "../structure/structure-types";
+import { programsForOperationalCampus } from "../shared/academic-catalog";
+import { formatAcademicYearLabel } from "../student-portal/fees/student-fees-types";
 
 type TeacherRole = "HTPO" | "CTPO" | "STPO";
 type TeacherStatus = "ACTIVE" | "INACTIVE" | "SUSPENDED";
@@ -66,43 +72,67 @@ const emptyAssignment = (): AssignmentDraft => ({
 
 export function TeachersHomePage() {
   const navigate = useNavigate();
-  const data = useTeacherData();
-  const { searchTeachers } = data;
-  const [query, setQuery] = useState("");
-  const [submittedQuery, setSubmittedQuery] = useState("");
-  const [page, setPage] = useState(1);
-  const pageSize = 5;
-
-  useEffect(() => {
-    void searchTeachers(submittedQuery, page, pageSize);
-  }, [page, pageSize, searchTeachers, submittedQuery]);
-
-  function search(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSubmittedQuery(query);
-    setPage(1);
-  }
 
   return (
     <TeacherShell title="Teachers" variant="main">
-      <section className="db-section teacher-action-stack">
-        <h2>Teacher Records</h2>
-        <GlassButton onClick={() => navigate("/teachers/add-teacher")}>Add Teacher</GlassButton>
-        <GlassButton onClick={() => navigate("/teachers/modify-teacher")}>Modify Teacher</GlassButton>
-        <GlassButton tone="danger" onClick={() => navigate("/teachers/delete-teacher")}>Delete Teacher</GlassButton>
-        <GlassButton onClick={() => navigate("/teachers/history")}>History</GlassButton>
-      </section>
-      <section className="db-section">
-        <h2>{submittedQuery.trim() ? "Search Results" : "Recently Added Teachers"}</h2>
-        <form className="db-search-bar" onSubmit={search}>
-          <Search size={18} />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search teacher name or teacher ID" />
-          <button>Search</button>
-        </form>
-        {data.teachers.length ? <TeacherSuggestions teachers={data.teachers} onSelect={() => undefined} /> : <p className="db-empty">{submittedQuery.trim() ? "No teachers found." : "No teachers added yet."}</p>}
-        <PaginationControls page={page} pageSize={pageSize} total={data.total} onPage={setPage} />
-      </section>
+      <WorkflowSection title="Create Records">
+        <OptionActionButton onClick={() => navigate("/teachers/add-teacher")}>Add Teacher</OptionActionButton>
+      </WorkflowSection>
+      <WorkflowSection title="Teacher Records">
+        <OptionActionButton onClick={() => navigate("/teachers/modify-teacher")}>Modify Teacher</OptionActionButton>
+        <OptionActionButton tone="danger" onClick={() => navigate("/teachers/delete-teacher")}>Delete Teacher</OptionActionButton>
+      </WorkflowSection>
+      <WorkflowSection title="Activity">
+        <OptionActionButton onClick={() => navigate("/teachers/existing-records")}>Existing records</OptionActionButton>
+        <OptionActionButton onClick={() => navigate("/teachers/history")}>History</OptionActionButton>
+      </WorkflowSection>
     </TeacherShell>
+  );
+}
+
+export function TeachersExistingRecordsPage() {
+  const data = useTeacherData();
+  const [campusId, setCampusId] = useState("");
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void data.searchTeachers(search, campusId || undefined, 1, 100);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [campusId, data.searchTeachers, search]);
+
+  return (
+    <WorkflowExistingRecordsPageShell title="Existing records">
+      <ExistingRecordsPageIntro title="Teachers catalog" description="Browse teachers already saved in KIET ERP." />
+      <ExistingRecordsPanel
+        title="Teachers"
+        total={data.total}
+        campusId={campusId}
+        campusOptions={data.campuses.map((campus) => [campus.id, campus.code])}
+        onCampusChange={setCampusId}
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Search name or employee code"
+        columns={[
+          { header: "Name" },
+          { header: "Employee code" },
+          { header: "Email" },
+          { header: "Roles" },
+          { header: "Assignments" }
+        ]}
+        rows={data.teachers.map((teacher) => ({
+          id: teacher.id,
+          cells: [
+            teacher.identity.fullName,
+            teacher.identity.employeeCode,
+            teacher.identity.email,
+            Object.keys(teacher.summary.roles).join(", ") || "-",
+            String(teacher.summary.assignments)
+          ]
+        }))}
+      />
+    </WorkflowExistingRecordsPageShell>
   );
 }
 
@@ -214,14 +244,14 @@ export function AddTeacherPage() {
           />
         ) : null}
         {step === 3 ? <ReviewStep assignments={assignments} data={data} identity={identity} onRemove={(index) => setAssignments((current) => current.filter((_, itemIndex) => itemIndex !== index))} /> : null}
-        <footer className="teacher-flow-footer">
+        <div className="teacher-flow-actions">
           <button type="button" className="teacher-secondary" disabled={step === 1} onClick={() => setStep((current) => Math.max(1, current - 1))}>Back</button>
           {step < 3 ? (
             <button type="button" className="db-submit" onClick={goNext}>Next</button>
           ) : (
             <button className="db-submit" disabled={isSaving}>{isSaving ? "Saving..." : "Create Teacher"}</button>
           )}
-        </footer>
+        </div>
       </form>
     </TeacherShell>
   );
@@ -239,9 +269,13 @@ function TeacherLookupPage({ mode }: { mode: "modify" | "delete" }) {
   const data = useTeacherData();
   const navigate = useNavigate();
   const { showToast } = useToast();
+  const { confirm, dialog } = useConfirm();
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<TeacherDetail | null>(null);
   const [editForm, setEditForm] = useState({ fullName: "", email: "", phone: "", joinedOn: "" });
+  const [editAssignments, setEditAssignments] = useState<AssignmentDraft[]>([]);
+  const [editAssignment, setEditAssignment] = useState<AssignmentDraft>(emptyAssignment);
+  const editAssignmentOptions = useAssignmentOptions(data, editAssignment);
   const [isArchiving, setIsArchiving] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const { searchTeachers } = data;
@@ -259,6 +293,31 @@ function TeacherLookupPage({ mode }: { mode: "modify" | "delete" }) {
       phone: detail.identity.phone ?? "",
       joinedOn: detail.identity.joinedOn ?? ""
     });
+    setEditAssignments(detail.assignments.map((item) => ({ ...item, semester: inferAssignmentSemester(item, data) })));
+    setEditAssignment(emptyAssignment());
+  }
+
+  function inferAssignmentSemester(assignment: AssignmentDraft, catalog: TeacherData) {
+    if (assignment.semester) return assignment.semester;
+    const classItem = catalog.classes.find((item) => item.id === assignment.classId);
+    return classItem ? String(classItem.semesterNumber) : "";
+  }
+
+  function addEditAssignment() {
+    const normalized = normalizeAssignment(editAssignment);
+    const error = validateAssignment(normalized);
+    if (error) {
+      showToast(error, "error");
+      return;
+    }
+    const key = assignmentKey(normalized);
+    if (editAssignments.some((item) => assignmentKey(item) === key)) {
+      showToast("Duplicate teacher assignment found.", "error");
+      return;
+    }
+    setEditAssignments((current) => [...current, normalized]);
+    setEditAssignment(emptyAssignment());
+    showToast("Assignment added", "success");
   }
 
   async function saveTeacher(event: FormEvent<HTMLFormElement>) {
@@ -266,7 +325,7 @@ function TeacherLookupPage({ mode }: { mode: "modify" | "delete" }) {
     if (!selected) return;
     setIsSaving(true);
     try {
-      const response = await data.sendJson<TeacherDetailResponse>(
+      await data.sendJson<TeacherDetailResponse>(
         `/api/teachers/${selected.id}`,
         {
           fullName: editForm.fullName,
@@ -276,7 +335,14 @@ function TeacherLookupPage({ mode }: { mode: "modify" | "delete" }) {
         },
         "PATCH"
       );
-      setSelected(response.teacher);
+      await data.sendJson<TeacherDetailResponse>(
+        `/api/teachers/${selected.id}/assignments`,
+        { assignments: editAssignments.map(cleanAssignment) },
+        "PATCH"
+      );
+      const refreshed = await data.teacherDetails(selected.id);
+      setSelected(refreshed);
+      setEditAssignments(refreshed.assignments.map((item) => ({ ...item, semester: inferAssignmentSemester(item, data) })));
       showToast("Teacher updated successfully", "success");
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Unable to update teacher", "error");
@@ -286,7 +352,15 @@ function TeacherLookupPage({ mode }: { mode: "modify" | "delete" }) {
   }
 
   async function archiveTeacher() {
-    if (!selected || !window.confirm("Archive this teacher? Their login sessions and active assignments will be turned off.")) return;
+    if (!selected) return;
+    const ok = await confirm({
+      title: "Archive teacher?",
+      message: "Their login sessions and active assignments will be turned off.",
+      itemName: selected.identity.fullName,
+      confirmLabel: "Archive",
+      icon: Trash2
+    });
+    if (!ok) return;
     setIsArchiving(true);
     try {
       await data.sendJson(`/api/teachers/${selected.id}`, {}, "DELETE");
@@ -305,13 +379,33 @@ function TeacherLookupPage({ mode }: { mode: "modify" | "delete" }) {
       {data.teachers.length ? <TeacherSuggestions teachers={data.teachers} onSelect={(teacher) => void selectTeacher(teacher)} /> : null}
       {selected && mode === "modify" ? (
         <form className="db-card db-form teacher-step-card" onSubmit={(event) => void saveTeacher(event)}>
-          <TeacherProfileCard data={data} teacher={selected} />
+          <TeacherProfileCard data={data} teacher={selected} assignments={editAssignments} />
           <div className="teacher-form-grid">
             <Field label="Full Name"><Input value={editForm.fullName} onChange={(fullName) => setEditForm({ ...editForm, fullName })} required /></Field>
             <Field label="Email"><Input type="email" value={editForm.email} onChange={(email) => setEditForm({ ...editForm, email })} required /></Field>
             <Field label="Phone"><Input inputMode="numeric" maxLength={10} value={editForm.phone} onChange={(phone) => setEditForm({ ...editForm, phone: normalizeIndianPhone(phone) })} /></Field>
             <Field label="Joined On"><Input type="date" value={editForm.joinedOn} onChange={(joinedOn) => setEditForm({ ...editForm, joinedOn })} /></Field>
           </div>
+          <section className="teacher-modify-assignments">
+            <div>
+              <h3>Sections &amp; subjects assigned</h3>
+              <p>Add or remove HTPO, CTPO, and STPO scopes. CTPO/STPO need a section; STPO also needs a subject.</p>
+            </div>
+            <div className="teacher-form-grid">
+              <Field label="Campus"><SearchableSelect value={editAssignment.campusId} options={data.campuses.map((item) => [item.id, item.code])} onChange={(campusId) => setEditAssignment({ ...editAssignment, campusId, programId: "", branchId: "", batchId: "", semester: "", classId: "", sectionId: "", subjectId: "" })} searchable={false} /></Field>
+              <Field label="Department"><SearchableSelect value={editAssignment.programId} options={editAssignmentOptions.programs.map((item) => [item.id, `${item.code} - ${item.name}`])} onChange={(programId) => setEditAssignment({ ...editAssignment, programId, branchId: "", batchId: "", semester: "", classId: "", sectionId: "", subjectId: "" })} searchable={false} /></Field>
+              <Field label="Branch"><SearchableSelect value={editAssignment.branchId} options={editAssignmentOptions.branches.map((item) => [item.id, `${item.code} - ${item.name}`])} onChange={(branchId) => setEditAssignment({ ...editAssignment, branchId, batchId: "", semester: "", classId: "", sectionId: "", subjectId: "" })} searchable={false} /></Field>
+              <Field label="Batch"><SearchableSelect value={editAssignment.batchId} options={editAssignmentOptions.batches.map((item) => [item.id, `${item.startYear}-${item.endYear}`])} onChange={(batchId) => setEditAssignment({ ...editAssignment, batchId, semester: "", classId: "", sectionId: "", subjectId: "" })} searchable={false} /></Field>
+              <Field label="Class"><SearchableSelect value={editAssignment.classId} options={editAssignmentOptions.classes.map((item) => [item.id, classLabel(item)])} onChange={(classId) => setEditAssignment({ ...editAssignment, classId, semester: String(data.classes.find((item) => item.id === classId)?.semesterNumber ?? ""), sectionId: "", subjectId: "" })} searchable={false} /></Field>
+              <Field label="Semester"><SearchableSelect value={editAssignment.semester} options={editAssignmentOptions.semesters.map((item) => [String(item), `Semester ${item}`])} onChange={(semester) => setEditAssignment({ ...editAssignment, semester, classId: data.classes.find((item) => item.id === editAssignment.classId)?.semesterNumber === Number(semester) ? editAssignment.classId : "", sectionId: "", subjectId: "" })} searchable={false} /></Field>
+              <Field label="Role"><SearchableSelect value={editAssignment.role} options={[["HTPO", "HTPO"], ["CTPO", "CTPO"], ["STPO", "STPO"]]} onChange={(role) => setEditAssignment({ ...editAssignment, role: role as TeacherRole, sectionId: "", subjectId: "" })} searchable={false} /></Field>
+              {editAssignment.role === "HTPO" ? <Field label="Select Branch"><SearchableSelect value={editAssignment.branchId} options={selectedBranchOption(editAssignment, data)} onChange={(branchId) => setEditAssignment({ ...editAssignment, branchId })} placeholder="Select branch above first" searchable={false} /></Field> : null}
+              {editAssignment.role !== "HTPO" ? <Field label="Section"><SearchableSelect value={editAssignment.sectionId ?? ""} options={editAssignmentOptions.sections.map((item) => [item.id, item.name])} onChange={(sectionId) => setEditAssignment({ ...editAssignment, sectionId })} searchable={false} /></Field> : null}
+              {editAssignment.role === "STPO" ? <Field label="Subject"><SearchableSelect value={editAssignment.subjectId ?? ""} options={editAssignmentOptions.subjects.map((item) => [item.id, `${item.code} - ${item.name}`])} onChange={(subjectId) => setEditAssignment({ ...editAssignment, subjectId })} searchable={false} /></Field> : null}
+            </div>
+            <button type="button" className="teacher-add-assignment" onClick={addEditAssignment}><Plus size={16} /> Add assignment</button>
+            <AssignmentChips assignments={editAssignments} data={data} onRemove={(index) => setEditAssignments((current) => current.filter((_, itemIndex) => itemIndex !== index))} />
+          </section>
           <button className="db-submit" disabled={isSaving}>{isSaving ? "Saving..." : "Save Teacher"}</button>
         </form>
       ) : null}
@@ -319,10 +413,12 @@ function TeacherLookupPage({ mode }: { mode: "modify" | "delete" }) {
         <TeacherProfileCard
           data={data}
           teacher={selected}
+          assignments={selected.assignments}
           action={mode === "delete" ? <button type="button" className="teacher-delete-button" disabled={isArchiving} onClick={() => void archiveTeacher()}><Trash2 size={18} /> {isArchiving ? "Archiving..." : "Archive"}</button> : null}
         />
       ) : null}
       {!selected ? <p className="db-empty">Search and select a teacher to view profile, role chips, and assignment scopes.</p> : null}
+      {dialog}
     </TeacherShell>
   );
 }
@@ -404,13 +500,31 @@ function ReviewStep({ assignments, data, identity, onRemove }: { assignments: As
   );
 }
 
-function TeacherProfileCard({ action, data, teacher }: { action?: ReactNode; data: TeacherData; teacher: TeacherDetail }) {
+function TeacherProfileCard({
+  action,
+  assignments,
+  data,
+  teacher
+}: {
+  action?: ReactNode;
+  assignments: AssignmentDraft[];
+  data: TeacherData;
+  teacher: TeacherDetail;
+}) {
   const roleEntries = Object.entries(teacher.summary.roles);
+  const sectionLabels = assignedSectionLabels(assignments, data);
+  const subjectLabels = assignedSubjectLabels(assignments, data);
   return (
     <section className="db-card db-form teacher-profile-card">
       <div className="db-result-head">
         <div className="teacher-profile-head">
-          <div className="db-avatar">{initials(teacher.identity.fullName)}</div>
+          <UserAvatar
+            fullName={teacher.identity.fullName}
+            role="TEACHER"
+            id={teacher.id}
+            email={teacher.identity.email}
+            size="lg"
+          />
           <div>
             <h2>{teacher.identity.fullName}</h2>
             <p>{teacher.identity.employeeCode} / {teacher.identity.status}</p>
@@ -427,10 +541,10 @@ function TeacherProfileCard({ action, data, teacher }: { action?: ReactNode; dat
         <Info label="Designation" value={teacher.identity.designation || "-"} />
         <Info label="Joined On" value={teacher.identity.joinedOn || "-"} />
         <Info label="Campuses" value={teacher.summary.campuses.join(", ") || "-"} />
-        <Info label="Assignments" value={String(teacher.assignments.length)} />
+        <Info label="Sections Assigned" value={sectionLabels.length ? sectionLabels.join(" · ") : "-"} />
+        <Info label="Subjects Assigned" value={subjectLabels.length ? subjectLabels.join(" · ") : "-"} />
       </div>
-      <AssignmentChips assignments={teacher.assignments} data={data} readonly />
-      <p className="db-empty">Editing actions are intentionally limited here. The layout is ready for future edit expansion without disturbing the existing teacher form APIs.</p>
+      <RoleAssignmentChips assignments={assignments} data={data} />
     </section>
   );
 }
@@ -482,8 +596,9 @@ function useTeacherData() {
     setSubjects(subjectPage.items);
   }, [fetchJson]);
 
-  const searchTeachers = useCallback(async (query: string, page = 1, pageSize = 10) => {
+  const searchTeachers = useCallback(async (query: string, campusId?: string, page = 1, pageSize = 10) => {
     const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize), search: query, status: "ACTIVE" });
+    if (campusId) params.set("campusId", campusId);
     const result = await fetchJson<PaginatedResponse<TeacherListItem>>(`/api/teachers/search?${params.toString()}`);
     setTeachers(result.items);
     setTotal(result.total);
@@ -506,7 +621,7 @@ function useAssignmentOptions(data: TeacherData, assignment: AssignmentDraft) {
   const selectedClass = data.classes.find((item) => item.id === assignment.classId);
   const batchClasses = data.classes.filter((item) => item.batchId === assignment.batchId);
   return useMemo(() => ({
-    programs: data.programs.filter((item) => item.campusId === assignment.campusId),
+    programs: programsForOperationalCampus(data.programs, assignment.campusId, data.campuses),
     branches: data.branches.filter((item) => item.programId === assignment.programId),
     batches: data.batches.filter((item) => item.branchId === assignment.branchId),
     semesters: [...new Set(batchClasses.map((item) => item.semesterNumber))].sort((a, b) => a - b),
@@ -520,22 +635,17 @@ function TeacherShell({ children, title, variant = "workflow" }: { children: Rea
   const navigate = useNavigate();
   const { user } = useAuth();
   return (
-    <main className="db-workflow min-h-screen">
+    <main className="db-workflow ann-workflow min-h-screen promotion-workflow-layout">
       <header className="db-workflow-header">
         <div className="db-header-left">
           {variant === "main" ? <AdminWorkflowMenuButton /> : <button type="button" className="db-icon-button" onClick={() => navigate(-1)} aria-label="Back"><ArrowLeft size={20} /></button>}
           <h1>{title}</h1>
         </div>
         <div className="db-header-actions">
-          {variant === "main" ? (
-            <>
-              <button type="button" className="db-icon-button" aria-label="Notifications"><Bell size={18} /></button>
-            </>
-          ) : null}
-          <div className="db-avatar">{initials(user?.fullName ?? "Admin")}</div>
+          <ProfileMenuButton />
         </div>
       </header>
-      <div className="db-workflow-body">{children}</div>
+      <div className="db-workflow-body ann-workflow-body promotion-body">{children}</div>
     </main>
   );
 }
@@ -549,6 +659,67 @@ function Stepper({ setStep, step }: { step: number; setStep: (step: number) => v
       })}
     </div>
   );
+}
+
+function RoleAssignmentChips({ assignments, data }: { assignments: AssignmentDraft[]; data: TeacherData }) {
+  const htpoOnly = assignments.filter((item) => item.role === "HTPO");
+  if (!htpoOnly.length) return null;
+  return (
+    <div className="teacher-assignment-list">
+      {htpoOnly.map((assignment, index) => (
+        <div key={`${assignmentKey(assignment)}-${index}`} className="teacher-assignment-chip">
+          <div>
+            <strong>{assignment.role}</strong>
+            <span>{assignmentLabel(assignment, data)}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function assignedSectionLabels(assignments: AssignmentDraft[], data: TeacherData) {
+  const seen = new Set<string>();
+  const labels: string[] = [];
+  for (const assignment of assignments) {
+    if (!assignment.sectionId) continue;
+    const label = formatSectionAssignmentLabel(assignment, data);
+    if (!label || seen.has(label)) continue;
+    seen.add(label);
+    labels.push(label);
+  }
+  return labels;
+}
+
+function assignedSubjectLabels(assignments: AssignmentDraft[], data: TeacherData) {
+  const seen = new Set<string>();
+  const labels: string[] = [];
+  for (const assignment of assignments) {
+    if (!assignment.subjectId) continue;
+    const label = formatSubjectAssignmentLabel(assignment, data);
+    if (!label || seen.has(label)) continue;
+    seen.add(label);
+    labels.push(label);
+  }
+  return labels;
+}
+
+function formatSectionAssignmentLabel(assignment: AssignmentDraft, data: TeacherData) {
+  const section = data.sections.find((item) => item.id === assignment.sectionId);
+  if (!section) return "";
+  const classItem = data.classes.find((item) => item.id === (section.classId || assignment.classId));
+  const program = data.programs.find((item) => item.id === assignment.programId);
+  const yearLabel = classItem ? formatAcademicYearLabel(classItem.yearNumber) : "";
+  const departmentName = program?.name || program?.code || "";
+  return [section.name, yearLabel, departmentName].filter(Boolean).join(" · ");
+}
+
+function formatSubjectAssignmentLabel(assignment: AssignmentDraft, data: TeacherData) {
+  const subject = data.subjects.find((item) => item.id === assignment.subjectId);
+  if (!subject) return "";
+  const program = data.programs.find((item) => item.id === assignment.programId);
+  const departmentName = program?.name || program?.code || "";
+  return [subject.name, departmentName].filter(Boolean).join(" · ");
 }
 
 function AssignmentChips({ assignments, data, onRemove, readonly = false }: { assignments: AssignmentDraft[]; data: TeacherData; onRemove?: (index: number) => void; readonly?: boolean }) {
@@ -595,6 +766,10 @@ function PaginationControls({ onPage, page, pageSize, total }: { onPage: (page: 
       <button type="button" disabled={!canGoNext} onClick={() => onPage(page + 1)}>Next</button>
     </div>
   );
+}
+
+function ActionGroup({ children, title }: { children: ReactNode; title: string }) {
+  return <WorkflowSection title={title}>{children}</WorkflowSection>;
 }
 
 function GlassButton({ children, onClick, tone = "default" }: { children: ReactNode; onClick: () => void; tone?: "default" | "danger" }) {
@@ -701,6 +876,15 @@ function assignmentKey(assignment: AssignmentDraft) {
 }
 
 function assignmentLabel(assignment: AssignmentDraft, data: TeacherData) {
+  if (assignment.sectionId) {
+    const sectionLabel = formatSectionAssignmentLabel(assignment, data);
+    if (sectionLabel) return `${assignment.role}: ${sectionLabel}`;
+  }
+  if (assignment.subjectId) {
+    const subjectLabel = formatSubjectAssignmentLabel(assignment, data);
+    if (subjectLabel) return `${assignment.role}: ${subjectLabel}`;
+  }
+
   const campus = data.campuses.find((item) => item.id === assignment.campusId)?.code;
   const program = data.programs.find((item) => item.id === assignment.programId)?.code;
   const branch = data.branches.find((item) => item.id === assignment.branchId)?.code;

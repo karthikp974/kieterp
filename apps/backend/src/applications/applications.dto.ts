@@ -48,4 +48,7 @@ export class ApplicationQueryDto extends PaginationQueryDto {
   @IsString()
   campusId?: string;
 
+  @IsOptional()
+  @IsString()
+  branchId?: string;
 }

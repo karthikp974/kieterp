@@ -1,55 +1,8 @@
 import { Injectable } from "@nestjs/common";
-import { PermissionAction, TeacherRoleKind, UserType } from "@prisma/client";
+import { PermissionAction, UserType } from "@prisma/client";
+import { DEFAULT_TEACHER_ROLE_ACTIONS } from "./teacher-portal-modules";
 import { PermissionDecision, PermissionRequest, PermissionSubject } from "./permission.types";
 import { hasScopeBoundary, scopeContains } from "./scope.util";
-
-const DEFAULT_TEACHER_ROLE_ACTIONS: Record<TeacherRoleKind, PermissionAction[]> = {
-  STPO: [
-    PermissionAction.VIEW_TEACHER_PORTAL,
-    PermissionAction.VIEW_STUDENTS,
-    PermissionAction.VIEW_ATTENDANCE,
-    PermissionAction.MARK_ATTENDANCE,
-    PermissionAction.VIEW_RESULTS,
-    PermissionAction.VIEW_ANNOUNCEMENTS,
-    PermissionAction.VIEW_APPLICATIONS,
-    PermissionAction.VIEW_REPORTS,
-    PermissionAction.VIEW_TEAMS
-  ],
-  CTPO: [
-    PermissionAction.VIEW_TEACHER_PORTAL,
-    PermissionAction.VIEW_STUDENTS,
-    PermissionAction.VIEW_ATTENDANCE,
-    PermissionAction.MARK_ATTENDANCE,
-    PermissionAction.VIEW_FEES,
-    PermissionAction.MARK_FEES,
-    PermissionAction.VIEW_RESULTS,
-    PermissionAction.VIEW_ANNOUNCEMENTS,
-    PermissionAction.VIEW_APPLICATIONS,
-    PermissionAction.MANAGE_APPLICATIONS,
-    PermissionAction.MANAGE_ANNOUNCEMENTS,
-    PermissionAction.VIEW_REPORTS,
-    PermissionAction.VIEW_TEAMS,
-    PermissionAction.MANAGE_TEAMS
-  ],
-  HTPO: [
-    PermissionAction.VIEW_TEACHER_PORTAL,
-    PermissionAction.VIEW_STUDENTS,
-    PermissionAction.VIEW_ATTENDANCE,
-    PermissionAction.MARK_ATTENDANCE,
-    PermissionAction.VIEW_FEES,
-    PermissionAction.MARK_FEES,
-    PermissionAction.MANAGE_TIMETABLE,
-    PermissionAction.MANAGE_TEAMS,
-    PermissionAction.VIEW_TEAMS,
-    PermissionAction.VIEW_RESULTS,
-    PermissionAction.VIEW_ANNOUNCEMENTS,
-    PermissionAction.MANAGE_ANNOUNCEMENTS,
-    PermissionAction.VIEW_APPLICATIONS,
-    PermissionAction.MANAGE_APPLICATIONS,
-    PermissionAction.VIEW_REPORTS,
-    PermissionAction.UPLOAD_RESULTS
-  ]
-};
 
 @Injectable()
 export class PermissionsService {
@@ -76,9 +29,6 @@ export class PermissionsService {
     if (
       !new Set<PermissionAction>([
         PermissionAction.VIEW_STUDENT_PORTAL,
-        PermissionAction.VIEW_ATTENDANCE,
-        PermissionAction.VIEW_FEES,
-        PermissionAction.VIEW_RESULTS,
         PermissionAction.VIEW_APPLICATIONS,
         PermissionAction.VIEW_ANNOUNCEMENTS,
         PermissionAction.VIEW_TEAMS,
@@ -128,6 +78,20 @@ export class PermissionsService {
     }
 
     if (scope.campusId && user.campusId && scope.campusId !== user.campusId) {
+      // KIET + KIEK share one academic group — operational campus labels may differ.
+      if (user.campusGroupId && scope.campusGroupId && user.campusGroupId === scope.campusGroupId) {
+        return true;
+      }
+      return false;
+    }
+
+    // Group-scoped admin/teacher without a campus label can access either KIET or KIEK operational scope.
+    if (scope.campusId && user.campusGroupId && !user.campusId && scope.campusGroupId && user.campusGroupId === scope.campusGroupId) {
+      return true;
+    }
+
+    // Scoped to a campus group but request only sets campusId — validated async in CampusScopeService.
+    if (scope.campusId && user.campusGroupId && !user.campusId && !scope.campusGroupId) {
       return false;
     }
 

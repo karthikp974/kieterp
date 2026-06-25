@@ -1,12 +1,16 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma, StructureStatus } from "@prisma/client";
 import { toPagination } from "../common/pagination.dto";
+import { SharedGroupAcademicService } from "../permissions/shared-group-academic.service";
 import { PrismaService } from "../prisma/prisma.service";
-import { CreateSyllabusDto, SyllabusSearchQueryDto, SyllabusUnitDto, UpdateSyllabusDto } from "./syllabus.dto";
+import { CreateSyllabusDto, SyllabusSearchQueryDto, SyllabusTopicInputDto, SyllabusUnitDto, UpdateSyllabusDto } from "./syllabus.dto";
 
 @Injectable()
 export class SyllabusService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly sharedGroup: SharedGroupAcademicService
+  ) {}
 
   async searchSubjects(query: SyllabusSearchQueryDto) {
     const pagination = toPagination(query);
@@ -26,12 +30,25 @@ export class SyllabusService {
 
   async search(query: SyllabusSearchQueryDto) {
     const pagination = toPagination(query);
+    const campusScope = query.campusScope ?? "shared";
+    const programFilter = query.campusId
+      ? await this.sharedGroup.programCatalogFilter(query.campusId, undefined, campusScope)
+      : undefined;
     const where: Prisma.SyllabusWhereInput = {
       isArchived: false,
-      subjectId: query.subjectId,
+      ...(query.subjectId ? { subjectId: query.subjectId } : {}),
       subject: {
         status: StructureStatus.ACTIVE,
         isArchived: false,
+        ...(programFilter
+          ? {
+              branch: {
+                status: StructureStatus.ACTIVE,
+                isArchived: false,
+                program: programFilter
+              }
+            }
+          : {}),
         ...(query.search
           ? { OR: [{ name: { contains: query.search, mode: "insensitive" } }, { code: { contains: query.search, mode: "insensitive" } }] }
           : {})
@@ -54,7 +71,18 @@ export class SyllabusService {
     const created = await this.prisma.syllabus.create({
       data: {
         subjectId: dto.subjectId,
-        units: { create: units.map((unit, index) => ({ unitTitle: unit.unitTitle, unitOrder: unit.unitOrder ?? index + 1 })) }
+        units: {
+          create: units.map((unit, index) => ({
+            unitTitle: unit.unitTitle,
+            unitOrder: unit.unitOrder ?? index + 1,
+            topics: {
+              create: this.normalizeTopics(unit.topics).map((topic, topicIndex) => ({
+                topicTitle: topic.topicTitle,
+                topicOrder: topic.topicOrder ?? topicIndex + 1
+              }))
+            }
+          }))
+        }
       },
       include: this.include()
     });
@@ -68,21 +96,57 @@ export class SyllabusService {
     if (!units.length) throw new BadRequestException("Add at least one syllabus unit.");
 
     const updated = await this.prisma.$transaction(async (tx) => {
-      const keepIds = units.map((unit) => unit.id).filter(Boolean) as string[];
+      const keepUnitIds = units.map((unit) => unit.id).filter(Boolean) as string[];
       await tx.syllabusUnit.updateMany({
-        where: { syllabusId: id, id: { notIn: keepIds }, isArchived: false },
+        where: { syllabusId: id, id: { notIn: keepUnitIds }, isArchived: false },
         data: { isArchived: true, archivedAt: new Date() }
+      });
+      const archivedAt = new Date();
+      await tx.syllabusTopic.updateMany({
+        where: { unit: { syllabusId: id, id: { notIn: keepUnitIds }, isArchived: false }, isArchived: false },
+        data: { isArchived: true, archivedAt }
       });
 
       for (const [index, unit] of units.entries()) {
         const unitOrder = unit.unitOrder ?? index + 1;
+        const topicRows = this.normalizeTopics(unit.topics);
         if (unit.id) {
           await tx.syllabusUnit.update({
             where: { id: unit.id },
             data: { unitTitle: unit.unitTitle, unitOrder, isArchived: false, archivedAt: null }
           });
+          const keepTopicIds = topicRows.map((t) => t.id).filter(Boolean) as string[];
+          await tx.syllabusTopic.updateMany({
+            where: { unitId: unit.id, id: { notIn: keepTopicIds }, isArchived: false },
+            data: { isArchived: true, archivedAt: new Date() }
+          });
+          for (const [ti, topic] of topicRows.entries()) {
+            const topicOrder = topic.topicOrder ?? ti + 1;
+            if (topic.id) {
+              await tx.syllabusTopic.update({
+                where: { id: topic.id },
+                data: { topicTitle: topic.topicTitle, topicOrder, isArchived: false, archivedAt: null }
+              });
+            } else {
+              await tx.syllabusTopic.create({
+                data: { unitId: unit.id, topicTitle: topic.topicTitle, topicOrder }
+              });
+            }
+          }
         } else {
-          await tx.syllabusUnit.create({ data: { syllabusId: id, unitTitle: unit.unitTitle, unitOrder } });
+          await tx.syllabusUnit.create({
+            data: {
+              syllabusId: id,
+              unitTitle: unit.unitTitle,
+              unitOrder,
+              topics: {
+                create: topicRows.map((topic, topicIndex) => ({
+                  topicTitle: topic.topicTitle,
+                  topicOrder: topic.topicOrder ?? topicIndex + 1
+                }))
+              }
+            }
+          });
         }
       }
 
@@ -96,6 +160,10 @@ export class SyllabusService {
     await this.ensureSyllabus(id);
     const archivedAt = new Date();
     const archived = await this.prisma.$transaction(async (tx) => {
+      await tx.syllabusTopic.updateMany({
+        where: { unit: { syllabusId: id }, isArchived: false },
+        data: { isArchived: true, archivedAt }
+      });
       await tx.syllabusUnit.updateMany({ where: { syllabusId: id, isArchived: false }, data: { isArchived: true, archivedAt } });
       return tx.syllabus.update({ where: { id }, data: { isArchived: true, archivedAt }, include: this.include(true) });
     });
@@ -108,7 +176,13 @@ export class SyllabusService {
       subject: true,
       units: {
         where: includeArchivedUnits ? {} : { isArchived: false },
-        orderBy: { unitOrder: "asc" as const }
+        orderBy: { unitOrder: "asc" as const },
+        include: {
+          topics: {
+            where: includeArchivedUnits ? {} : { isArchived: false },
+            orderBy: { topicOrder: "asc" as const }
+          }
+        }
       }
     };
   }
@@ -129,6 +203,13 @@ export class SyllabusService {
     return units.filter((unit) => unit.unitTitle.trim()).map((unit) => ({ ...unit, unitTitle: unit.unitTitle.trim().replace(/\s+/g, " ") }));
   }
 
+  private normalizeTopics(topics: SyllabusTopicInputDto[] | undefined) {
+    if (!topics?.length) return [];
+    return topics
+      .map((topic) => ({ ...topic, topicTitle: topic.topicTitle.trim().replace(/\s+/g, " ") }))
+      .filter((topic) => topic.topicTitle.length > 0);
+  }
+
   private response(item: Prisma.SyllabusGetPayload<{ include: ReturnType<SyllabusService["include"]> }>) {
     return {
       id: item.id,
@@ -143,7 +224,15 @@ export class SyllabusService {
         unitTitle: unit.unitTitle,
         unitOrder: unit.unitOrder,
         isArchived: unit.isArchived,
-        archivedAt: unit.archivedAt
+        archivedAt: unit.archivedAt,
+        topics: unit.topics.map((topic) => ({
+          id: topic.id,
+          unitId: topic.unitId,
+          topicTitle: topic.topicTitle,
+          topicOrder: topic.topicOrder,
+          isArchived: topic.isArchived,
+          archivedAt: topic.archivedAt
+        }))
       }))
     };
   }

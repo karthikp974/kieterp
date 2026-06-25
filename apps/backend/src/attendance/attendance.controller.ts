@@ -1,11 +1,13 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Query, Res, UseGuards } from "@nestjs/common";
 import { PermissionAction } from "@prisma/client";
+import { Response } from "express";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { AuthUser } from "../auth/auth.types";
 import { PermissionGuard } from "../permissions/permission.guard";
 import { RequiresPermission } from "../permissions/requires-permission.decorator";
 import {
+  AttendanceExportQueryDto,
   AttendanceQueryDto,
   AttendanceScopeDto,
   BulkMarkAttendanceDto,
@@ -53,8 +55,8 @@ export class AttendanceController {
 
   @Get("export")
   @RequiresPermission(PermissionAction.VIEW_ATTENDANCE)
-  export(@CurrentUser() user: AuthUser, @Query() query: AttendanceQueryDto) {
-    return this.attendance.export(user, query);
+  export(@CurrentUser() user: AuthUser, @Query() query: AttendanceExportQueryDto, @Res() response: Response) {
+    return this.attendance.export(user, query, response);
   }
 
   @Get("correction-requests")

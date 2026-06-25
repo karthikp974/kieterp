@@ -1,19 +1,35 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException, StreamableFile } from "@nestjs/common";
 import {
+  AnnouncementAudience,
+  AnnouncementPriority,
+  AnnouncementStatus,
+  AnnouncementTeacherScope,
   FeedbackFormStatus,
   FeedbackFormType,
   FeedbackQuestionType,
   PermissionAction,
   Prisma,
   StructureStatus,
+  UserStatus,
   UserType
 } from "@prisma/client";
 import { AuthUser, ScopeRef } from "../auth/auth.types";
 import { toPagination } from "../common/pagination.dto";
 import { PermissionsService } from "../permissions/permissions.service";
+import { campusIdsForSharedMatching, studentProfileToScope, studentScopeProfileInclude } from "../permissions/operational-scope.util";
 import { PrismaService } from "../prisma/prisma.service";
 import {
+  assertTeacherCanAccessSectionScope,
+  formMatchesSectionIds,
+  getActiveTeacherProfile,
+  loadTeacherAssignedSections,
+  resolveTeacherEngageContext,
+  scopeForSectionId,
+  sectionScopedWhere
+} from "../portals/teacher-portal-section-scope.util";
+import {
   CreateFeedbackFormDto,
+  FeedbackExportQueryDto,
   FeedbackFormQueryDto,
   ParagraphAnswersQueryDto,
   SubmitFeedbackDto,
@@ -27,18 +43,19 @@ export class FeedbackService {
     private readonly permissions: PermissionsService
   ) {}
 
-  private readonly studentInclude = {
-    user: true,
-    section: { include: { class: { include: { branch: { include: { program: true } }, batch: true } } } }
-  } satisfies Prisma.StudentProfileInclude;
+  private readonly studentInclude = studentScopeProfileInclude;
 
   async listAdmin(user: AuthUser, query: FeedbackFormQueryDto) {
+    if (user.type === UserType.TEACHER) {
+      return this.listTeacherForms(user, query);
+    }
     this.assertAllowed(user, PermissionAction.MANAGE_FEEDBACK, {});
     const pagination = toPagination(query);
     const parts: Prisma.FeedbackFormWhereInput[] = [];
     if (query.status) parts.push({ status: query.status });
     if (query.formType) parts.push({ formType: query.formType });
     const where = parts.length ? { AND: parts } : {};
+    const orderField = query.orderBy === "createdAt" ? "createdAt" : "updatedAt";
     const [rows, total] = await Promise.all([
       this.prisma.feedbackForm.findMany({
         where,
@@ -46,7 +63,47 @@ export class FeedbackService {
           createdBy: { select: { id: true, fullName: true } },
           _count: { select: { submissions: true } }
         },
-        orderBy: { updatedAt: "desc" },
+        orderBy: { [orderField]: "desc" },
+        skip: pagination.skip,
+        take: pagination.take
+      }),
+      this.prisma.feedbackForm.count({ where })
+    ]);
+    return {
+      items: rows.map((r) => this.toAdminListDto(r)),
+      total,
+      page: pagination.page,
+      pageSize: pagination.pageSize
+    };
+  }
+
+  private async listTeacherForms(user: AuthUser, query: FeedbackFormQueryDto) {
+    const canManage = this.permissions.can(user, { action: PermissionAction.MANAGE_FEEDBACK }).allowed;
+    const canView = this.permissions.can(user, { action: PermissionAction.VIEW_FEEDBACK_ANALYTICS }).allowed;
+    if (!canManage && !canView) throw new ForbiddenException("You cannot access feedback forms.");
+
+    const teacher = await getActiveTeacherProfile(this.prisma, user.id);
+    const permissionAction = canManage ? PermissionAction.MANAGE_FEEDBACK : PermissionAction.VIEW_FEEDBACK_ANALYTICS;
+    const sections = await loadTeacherAssignedSections(this.prisma, this.permissions, user, teacher, permissionAction);
+    const ctx = resolveTeacherEngageContext(user, this.permissions, teacher, sections, query.sectionId);
+    if (!ctx.sectionIds.length) {
+      return { items: [], total: 0, page: query.page ?? 1, pageSize: query.pageSize ?? 25 };
+    }
+
+    const pagination = toPagination(query);
+    const parts: Prisma.FeedbackFormWhereInput[] = [sectionScopedWhere(ctx.sectionIds)];
+    if (query.status) parts.push({ status: query.status });
+    if (query.formType) parts.push({ formType: query.formType });
+    const where = { AND: parts };
+    const orderField = query.orderBy === "createdAt" ? "createdAt" : "updatedAt";
+    const [rows, total] = await Promise.all([
+      this.prisma.feedbackForm.findMany({
+        where,
+        include: {
+          createdBy: { select: { id: true, fullName: true } },
+          _count: { select: { submissions: true } }
+        },
+        orderBy: { [orderField]: "desc" },
         skip: pagination.skip,
         take: pagination.take
       }),
@@ -136,12 +193,21 @@ export class FeedbackService {
       }
       return { form: this.toStudentDetailDto(form) };
     }
-    throw new ForbiddenException("Teachers cannot access this endpoint.");
+    if (user.type === UserType.TEACHER) {
+      await this.assertTeacherCanAccessForm(user, form);
+      return { form: this.toAdminDetailDto(form) };
+    }
+    throw new ForbiddenException("Forbidden.");
   }
 
   async create(user: AuthUser, dto: CreateFeedbackFormDto) {
     if (user.type === UserType.STUDENT) throw new ForbiddenException("Students cannot create forms.");
-    this.assertAllowed(user, PermissionAction.MANAGE_FEEDBACK, {});
+    if (user.type === UserType.TEACHER) {
+      await this.assertTeacherManageFeedback(user);
+      dto = this.normalizeTeacherFeedbackDto(dto);
+    } else {
+      this.assertAllowed(user, PermissionAction.MANAGE_FEEDBACK, {});
+    }
     if (dto.formType === FeedbackFormType.OTHER && !dto.customType?.trim()) {
       throw new BadRequestException("Specify feedback type when choosing Other.");
     }
@@ -153,6 +219,11 @@ export class FeedbackService {
       classId: dto.classId,
       sectionId: dto.sectionId
     });
+    if (user.type === UserType.TEACHER) {
+      await this.assertTeacherSectionPayload(user, structural.sectionId);
+    } else {
+      this.assertAllowed(user, PermissionAction.MANAGE_FEEDBACK, structural);
+    }
     if (!dto.questions?.length) throw new BadRequestException("Add at least one question.");
     this.validateQuestions(dto.questions);
     const status = dto.status ?? FeedbackFormStatus.DRAFT;
@@ -199,8 +270,28 @@ export class FeedbackService {
   async update(user: AuthUser, id: string, dto: UpdateFeedbackFormDto) {
     const existing = await this.prisma.feedbackForm.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException("Feedback form not found.");
-    this.assertAllowed(user, PermissionAction.MANAGE_FEEDBACK, this.formToScope(existing));
+    if (user.type === UserType.TEACHER) {
+      await this.assertTeacherManageFeedback(user);
+      await this.assertTeacherCanAccessForm(user, existing);
+      if (dto.campusId !== undefined || dto.programId !== undefined || dto.branchId !== undefined || dto.batchId !== undefined || dto.classId !== undefined) {
+        throw new BadRequestException("Teachers can only target a section.");
+      }
+      if (dto.sectionId !== undefined && !dto.sectionId) {
+        throw new BadRequestException("Section is required.");
+      }
+    } else {
+      this.assertAllowed(user, PermissionAction.MANAGE_FEEDBACK, this.formToScope(existing));
+    }
     if (user.type === UserType.STUDENT) throw new ForbiddenException("Forbidden.");
+    const responseCount = await this.prisma.feedbackSubmission.count({ where: { formId: id } });
+    if (responseCount > 0) {
+      if (dto.questions) {
+        throw new BadRequestException("Cannot change questions after students have submitted responses.");
+      }
+      if (this.scopeFieldsChanged(existing, dto)) {
+        throw new BadRequestException("Cannot change audience targeting after students have submitted responses.");
+      }
+    }
     const mergedType = dto.formType ?? existing.formType;
     if (mergedType === FeedbackFormType.OTHER && !(dto.customType ?? existing.customType)?.trim()) {
       throw new BadRequestException("Specify feedback type when choosing Other.");
@@ -222,6 +313,9 @@ export class FeedbackService {
         classId: dto.classId !== undefined ? dto.classId ?? undefined : existing.classId ?? undefined,
         sectionId: dto.sectionId !== undefined ? dto.sectionId ?? undefined : existing.sectionId ?? undefined
       });
+      if (user.type === UserType.TEACHER && dto.sectionId !== undefined) {
+        await this.assertTeacherSectionPayload(user, structural.sectionId);
+      }
     }
     if (dto.questions) {
       if (!dto.questions.length) throw new BadRequestException("Add at least one question.");
@@ -283,9 +377,34 @@ export class FeedbackService {
   async archive(user: AuthUser, id: string) {
     const existing = await this.prisma.feedbackForm.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException("Feedback form not found.");
-    this.assertAllowed(user, PermissionAction.MANAGE_FEEDBACK, this.formToScope(existing));
+    if (user.type === UserType.TEACHER) {
+      await this.assertTeacherManageFeedback(user);
+      await this.assertTeacherCanAccessForm(user, existing);
+    } else {
+      this.assertAllowed(user, PermissionAction.MANAGE_FEEDBACK, this.formToScope(existing));
+    }
     await this.prisma.feedbackForm.update({ where: { id }, data: { status: FeedbackFormStatus.ARCHIVED } });
     await this.audit(user, "ARCHIVE_FEEDBACK_FORM", "FeedbackForm", id);
+    return { ok: true };
+  }
+
+  async remove(user: AuthUser, id: string) {
+    const existing = await this.prisma.feedbackForm.findUnique({
+      where: { id },
+      include: { _count: { select: { submissions: true } } }
+    });
+    if (!existing) throw new NotFoundException("Feedback form not found.");
+    if (user.type === UserType.TEACHER) {
+      await this.assertTeacherManageFeedback(user);
+      await this.assertTeacherCanAccessForm(user, existing);
+    } else {
+      this.assertAllowed(user, PermissionAction.MANAGE_FEEDBACK, this.formToScope(existing));
+    }
+    if (user.type === UserType.STUDENT) throw new ForbiddenException("Forbidden.");
+    await this.prisma.feedbackForm.delete({ where: { id } });
+    await this.audit(user, "DELETE_FEEDBACK_FORM", "FeedbackForm", id, {
+      submissionCount: existing._count.submissions
+    });
     return { ok: true };
   }
 
@@ -462,7 +581,119 @@ export class FeedbackService {
     };
   }
 
-  async exportCsv(user: AuthUser, formId: string) {
+  async formCompletion(user: AuthUser, formId: string) {
+    const form = await this.prisma.feedbackForm.findUnique({ where: { id: formId } });
+    if (!form) throw new NotFoundException("Feedback form not found.");
+    await this.assertTeacherCanAccessForm(user, form);
+    const scope = this.formToScope(form);
+    const students = await this.prisma.studentProfile.findMany({
+      where: this.buildStudentTargetWhere(scope),
+      include: {
+        user: { select: { fullName: true, email: true } },
+        section: { select: { name: true, code: true } }
+      },
+      orderBy: [{ section: { name: "asc" } }, { rollNumber: "asc" }]
+    });
+    const submissions = await this.prisma.feedbackSubmission.findMany({
+      where: { formId },
+      select: { studentProfileId: true, submittedAt: true },
+      orderBy: { submittedAt: "desc" }
+    });
+    const latestByStudent = new Map<string, Date>();
+    for (const row of submissions) {
+      if (!latestByStudent.has(row.studentProfileId)) {
+        latestByStudent.set(row.studentProfileId, row.submittedAt);
+      }
+    }
+    const submitted: {
+      studentProfileId: string;
+      rollNumber: string;
+      fullName: string;
+      email: string;
+      sectionName: string;
+      submittedAt: string;
+    }[] = [];
+    const pending: {
+      studentProfileId: string;
+      rollNumber: string;
+      fullName: string;
+      email: string;
+      sectionName: string;
+    }[] = [];
+    for (const student of students) {
+      const base = {
+        studentProfileId: student.id,
+        rollNumber: student.rollNumber,
+        fullName: student.user.fullName,
+        email: student.user.email,
+        sectionName: student.section.name
+      };
+      const at = latestByStudent.get(student.id);
+      if (at) submitted.push({ ...base, submittedAt: at.toISOString() });
+      else pending.push(base);
+    }
+    return {
+      formId: form.id,
+      title: form.title,
+      anonymous: form.anonymous,
+      totalTargeted: students.length,
+      submittedCount: submitted.length,
+      pendingCount: pending.length,
+      submitted,
+      pending
+    };
+  }
+
+  async sendReminders(user: AuthUser, formId: string) {
+    const form = await this.prisma.feedbackForm.findUnique({ where: { id: formId } });
+    if (!form) throw new NotFoundException("Feedback form not found.");
+    if (user.type === UserType.TEACHER) {
+      await this.assertTeacherManageFeedback(user);
+      await this.assertTeacherCanAccessForm(user, form);
+    } else {
+      this.assertAllowed(user, PermissionAction.MANAGE_FEEDBACK, this.formToScope(form));
+    }
+    if (form.status !== FeedbackFormStatus.ACTIVE) {
+      throw new BadRequestException("Reminders can only be sent for active forms.");
+    }
+    const now = new Date();
+    if (form.endsAt < now) throw new BadRequestException("This form has already closed.");
+    const completion = await this.formCompletion(user, formId);
+    if (!completion.pendingCount) {
+      return { ok: true, remindedCount: 0, announcementId: null as string | null };
+    }
+    const deadline = form.endsAt.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+    const announcement = await this.prisma.announcement.create({
+      data: {
+        title: `Reminder: ${form.title}`,
+        body: `Please complete the feedback form “${form.title}” before ${deadline}. Open Feedback in your student portal if you have not submitted yet.`,
+        audience: AnnouncementAudience.STUDENTS,
+        status: AnnouncementStatus.PUBLISHED,
+        priority: AnnouncementPriority.IMPORTANT,
+        campusId: form.campusId,
+        programId: form.programId,
+        branchId: form.branchId,
+        batchId: form.batchId,
+        classId: form.classId,
+        sectionId: form.sectionId,
+        teacherScope: AnnouncementTeacherScope.NONE,
+        createdById: user.id,
+        publishedAt: new Date(),
+        expiresAt: form.endsAt
+      }
+    });
+    await this.audit(user, "FEEDBACK_REMINDER", "FeedbackForm", formId, {
+      pendingCount: completion.pendingCount,
+      announcementId: announcement.id
+    });
+    return { ok: true, remindedCount: completion.pendingCount, announcementId: announcement.id };
+  }
+
+  async exportCsv(user: AuthUser, formId: string, query: FeedbackExportQueryDto = {}) {
+    const variant = query.variant ?? "responses";
+    if (variant === "completion") {
+      return this.exportCompletionCsv(user, formId);
+    }
     const form = await this.ensureFormForReport(user, formId);
     const questions = await this.prisma.feedbackQuestion.findMany({ where: { formId }, orderBy: { order: "asc" } });
     const submissions = await this.prisma.feedbackSubmission.findMany({
@@ -494,7 +725,103 @@ export class FeedbackService {
       lines.push([...base, ...vals].join(","));
     }
     const body = lines.join("\n");
-    return new StreamableFile(Buffer.from(body, "utf-8"), { type: "text/csv; charset=utf-8", disposition: `attachment; filename="feedback-${formId}.csv"` });
+    const filename = this.exportFilename(form.title, "responses");
+    return new StreamableFile(Buffer.from(body, "utf-8"), {
+      type: "text/csv; charset=utf-8",
+      disposition: `attachment; filename="${filename}"`
+    });
+  }
+
+  private async exportCompletionCsv(user: AuthUser, formId: string) {
+    const form = await this.prisma.feedbackForm.findUnique({ where: { id: formId } });
+    if (!form) throw new NotFoundException("Form not found.");
+    await this.assertTeacherCanAccessForm(user, form);
+    const completion = await this.formCompletion(user, formId);
+    const headers = ["status", "rollNumber", "fullName", "email", "section", "submittedAt"];
+    const lines = [headers.join(",")];
+    for (const row of completion.submitted) {
+      lines.push(
+        [
+          "submitted",
+          this.csvEscape(row.rollNumber),
+          this.csvEscape(row.fullName),
+          this.csvEscape(row.email),
+          this.csvEscape(row.sectionName),
+          row.submittedAt
+        ].join(",")
+      );
+    }
+    for (const row of completion.pending) {
+      lines.push(
+        [
+          "pending",
+          this.csvEscape(row.rollNumber),
+          this.csvEscape(row.fullName),
+          this.csvEscape(row.email),
+          this.csvEscape(row.sectionName),
+          ""
+        ].join(",")
+      );
+    }
+    const body = lines.join("\n");
+    const filename = this.exportFilename(form.title, "completion");
+    return new StreamableFile(Buffer.from(body, "utf-8"), {
+      type: "text/csv; charset=utf-8",
+      disposition: `attachment; filename="${filename}"`
+    });
+  }
+
+  private exportFilename(title: string, suffix: string) {
+    const slug =
+      title
+        .trim()
+        .replace(/[^\w\s-]/g, "")
+        .replace(/\s+/g, "-")
+        .replace(/-+/g, "-")
+        .slice(0, 80) || "feedback";
+    return `${slug}-${suffix}.csv`;
+  }
+
+  private buildStudentTargetWhere(scope: ScopeRef): Prisma.StudentProfileWhereInput {
+    const sectionFilter: Prisma.SectionWhereInput = { status: StructureStatus.ACTIVE, isArchived: false };
+    const classFilter: Prisma.AcademicClassWhereInput = { status: StructureStatus.ACTIVE, isArchived: false };
+    const branchFilter: Prisma.BranchWhereInput = { status: StructureStatus.ACTIVE, isArchived: false };
+    const programFilter: Prisma.ProgramWhereInput = { status: StructureStatus.ACTIVE, isArchived: false };
+    const base: Prisma.StudentProfileWhereInput = {
+      isArchived: false,
+      currentStatus: UserStatus.ACTIVE
+    };
+    if (scope.sectionId) {
+      return { ...base, sectionId: scope.sectionId, section: sectionFilter };
+    }
+    if (scope.classId) {
+      return { ...base, section: { ...sectionFilter, classId: scope.classId, class: classFilter } };
+    }
+    if (scope.batchId) {
+      return { ...base, section: { ...sectionFilter, class: { ...classFilter, batchId: scope.batchId } } };
+    }
+    if (scope.branchId) {
+      return { ...base, section: { ...sectionFilter, class: { ...classFilter, branchId: scope.branchId } } };
+    }
+    if (scope.programId) {
+      return {
+        ...base,
+        section: { ...sectionFilter, class: { ...classFilter, branch: { ...branchFilter, programId: scope.programId } } }
+      };
+    }
+    if (scope.campusId) {
+      return {
+        ...base,
+        section: {
+          ...sectionFilter,
+          class: { ...classFilter, branch: { ...branchFilter, program: { ...programFilter, campusId: scope.campusId } } }
+        }
+      };
+    }
+    return {
+      ...base,
+      section: { ...sectionFilter, class: { ...classFilter, branch: { ...branchFilter, program: programFilter } } }
+    };
   }
 
   private csvEscape(s: string) {
@@ -523,8 +850,67 @@ export class FeedbackService {
   private async ensureFormForReport(user: AuthUser, formId: string) {
     const form = await this.prisma.feedbackForm.findUnique({ where: { id: formId } });
     if (!form) throw new NotFoundException("Form not found.");
-    this.assertAllowed(user, PermissionAction.VIEW_FEEDBACK_ANALYTICS, this.formToScope(form));
+    await this.assertTeacherCanAccessForm(user, form);
     return form;
+  }
+
+  private async assertTeacherManageFeedback(user: AuthUser) {
+    if (!this.permissions.can(user, { action: PermissionAction.MANAGE_FEEDBACK }).allowed) {
+      throw new ForbiddenException("You cannot manage feedback forms.");
+    }
+  }
+
+  private normalizeTeacherFeedbackDto(dto: CreateFeedbackFormDto): CreateFeedbackFormDto {
+    if (dto.campusId || dto.programId || dto.branchId || dto.batchId || dto.classId) {
+      throw new BadRequestException("Teachers can only target a section.");
+    }
+    if (!dto.sectionId?.trim()) {
+      throw new BadRequestException("Section is required.");
+    }
+    return dto;
+  }
+
+  private async assertTeacherSectionPayload(user: AuthUser, sectionId?: string) {
+    if (!sectionId) throw new BadRequestException("Section is required.");
+    const teacher = await getActiveTeacherProfile(this.prisma, user.id);
+    const sections = await loadTeacherAssignedSections(
+      this.prisma,
+      this.permissions,
+      user,
+      teacher,
+      PermissionAction.MANAGE_FEEDBACK
+    );
+    const ctx = resolveTeacherEngageContext(user, this.permissions, teacher, sections);
+    if (!ctx.sectionIds.includes(sectionId)) {
+      throw new ForbiddenException("You cannot target this section.");
+    }
+    const scope = await scopeForSectionId(this.prisma, sectionId);
+    assertTeacherCanAccessSectionScope(user, this.permissions, scope, PermissionAction.MANAGE_FEEDBACK);
+  }
+
+  private async assertTeacherCanAccessForm(
+    user: AuthUser,
+    form: { campusId: string | null; programId: string | null; branchId: string | null; batchId: string | null; classId: string | null; sectionId: string | null }
+  ) {
+    if (user.type === UserType.ADMIN) {
+      this.assertAllowed(user, PermissionAction.VIEW_FEEDBACK_ANALYTICS, this.formToScope(form));
+      return;
+    }
+    if (user.type !== UserType.TEACHER) throw new ForbiddenException("Forbidden.");
+
+    const canManage = this.permissions.can(user, { action: PermissionAction.MANAGE_FEEDBACK }).allowed;
+    const canView = this.permissions.can(user, { action: PermissionAction.VIEW_FEEDBACK_ANALYTICS }).allowed;
+    if (!canManage && !canView) throw new ForbiddenException("You cannot access this feedback form.");
+
+    const teacher = await getActiveTeacherProfile(this.prisma, user.id);
+    const permissionAction = canManage ? PermissionAction.MANAGE_FEEDBACK : PermissionAction.VIEW_FEEDBACK_ANALYTICS;
+    const sections = await loadTeacherAssignedSections(this.prisma, this.permissions, user, teacher, permissionAction);
+    const ctx = resolveTeacherEngageContext(user, this.permissions, teacher, sections);
+    if (!form.sectionId || !formMatchesSectionIds(form, ctx.sectionIds)) {
+      throw new ForbiddenException("This feedback form is outside your assigned scope.");
+    }
+    const scope = await scopeForSectionId(this.prisma, form.sectionId);
+    assertTeacherCanAccessSectionScope(user, this.permissions, scope, permissionAction);
   }
 
   private normalizeAnswer(
@@ -565,8 +951,9 @@ export class FeedbackService {
     now: Date
   ): Prisma.FeedbackFormWhereInput {
     const s = this.studentToScope(student);
+    const campusIds = campusIdsForSharedMatching(student);
     const structural: Prisma.FeedbackFormWhereInput[] = [
-      { OR: [{ campusId: null }, { campusId: s.campusId }] },
+      { OR: [{ campusId: null }, { campusId: { in: campusIds } }] },
       { OR: [{ programId: null }, { programId: s.programId }] },
       { OR: [{ branchId: null }, { branchId: s.branchId }] },
       { OR: s.batchId ? [{ batchId: null }, { batchId: s.batchId }] : [{ batchId: null }] },
@@ -585,14 +972,15 @@ export class FeedbackService {
   }
 
   private studentToScope(student: Prisma.StudentProfileGetPayload<{ include: FeedbackService["studentInclude"] }>): ScopeRef {
-    return {
-      campusId: student.section.class.branch.program.campusId,
-      programId: student.section.class.branch.programId,
-      branchId: student.section.class.branchId,
-      batchId: student.section.class.batchId ?? undefined,
-      classId: student.section.classId,
-      sectionId: student.sectionId
-    };
+    return studentProfileToScope(student);
+  }
+
+  private scopeFieldsChanged(
+    existing: { campusId: string | null; programId: string | null; branchId: string | null; batchId: string | null; classId: string | null; sectionId: string | null },
+    dto: UpdateFeedbackFormDto
+  ) {
+    const keys = ["campusId", "programId", "branchId", "batchId", "classId", "sectionId"] as const;
+    return keys.some((key) => dto[key] !== undefined && (dto[key] ?? null) !== (existing[key] ?? null));
   }
 
   private formToScope(form: { campusId: string | null; programId: string | null; branchId: string | null; batchId: string | null; classId: string | null; sectionId: string | null }): ScopeRef {
@@ -653,7 +1041,18 @@ export class FeedbackService {
     return {};
   }
 
-  private toAdminListDto(row: { id: string; title: string; formType: FeedbackFormType; customType: string | null; status: FeedbackFormStatus; startsAt: Date; endsAt: Date; _count: { submissions: number } }) {
+  private toAdminListDto(row: {
+    id: string;
+    title: string;
+    formType: FeedbackFormType;
+    customType: string | null;
+    status: FeedbackFormStatus;
+    startsAt: Date;
+    endsAt: Date;
+    anonymous: boolean;
+    createdAt: Date;
+    _count: { submissions: number };
+  }) {
     return {
       id: row.id,
       title: row.title,
@@ -662,6 +1061,8 @@ export class FeedbackService {
       status: row.status,
       startsAt: row.startsAt,
       endsAt: row.endsAt,
+      anonymous: row.anonymous,
+      createdAt: row.createdAt,
       totalResponses: row._count.submissions
     };
   }
@@ -707,6 +1108,6 @@ export class FeedbackService {
   }
 
   private audit(user: AuthUser, action: string, entity: string, entityId: string, metadata?: Prisma.InputJsonObject) {
-    return this.prisma.auditLog.create({ data: { userId: user.id, action, entity, entityId, metadata } });
+    return this.prisma.auditLog.create({ data: { userId: user.auditUserId, action, entity, entityId, metadata } });
   }
 }

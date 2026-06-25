@@ -1,0 +1,70 @@
+/**
+ * Student portal typefaces (loaded last, overrides the global normalization for sp-* only):
+ *   Display + body  → Space Grotesk (weights 400, 500, 600, 700)
+ *   Labels, codes, numbers-as-data → Space Mono (weights 400, 700)
+ * Space Grotesk tops out at 700, so headings are capped at 700 here.
+ */
+
+.student-portal-root {
+  --sp-font-display: "Space Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --sp-font-mono: "Space Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: var(--sp-font-display);
+}
+
+.student-portal-root :is(h1, h2, h3, h4, h5, h6),
+.student-portal-root :is(p, span, div, a, button, label, input, textarea, select, dd, dt, td, th, li, strong, small) {
+  font-family: var(--sp-font-display);
+}
+
+/* Headings / titles — Space Grotesk, capped at 700 (its heaviest weight). */
+.student-portal-root :is(
+  .student-portal-panel-title,
+  .sp-dash-section-title,
+  .sp-dash-top-card-title,
+  .sp-dash-welcome-name,
+  .sp-att-section-title,
+  .sp-marks-section-title,
+  .sp-marks-sem-title,
+  .sp-syl-section-title,
+  .sp-subj-card-title,
+  .sp-fee-panel-title,
+  .sp-fee-modal-section-title,
+  .sp-ann-card-title,
+  .sp-fb-section-title,
+  .sp-fb-card-title,
+  .sp-profile-card-title,
+  .sp-app-card-title,
+  .sp-app-section-title,
+  .sp-rcpt-section-title
+) {
+  font-family: var(--sp-font-display) !important;
+  font-weight: 700 !important;
+}
+
+/* Space Mono — labels, codes, and numbers presented as data. */
+.student-portal-root :is(
+  /* uppercase labels */
+  .sp-app-field span,
+  .sp-dash-stat-label,
+  .sp-dash-welcome-label,
+  .sp-dash-fee-total-label,
+  .sp-fee-summary-label,
+  .sp-fee-outstanding-label,
+  .sp-profile-field-label,
+  .sp-marks-metric-label,
+  .sp-att-ring-label,
+  .sp-att-chart-focus-label,
+  /* numeric values / metrics */
+  .sp-dash-top-card-metric,
+  .sp-dash-stat-value,
+  .sp-dash-fee-total-value,
+  .sp-dash-num-warn,
+  .sp-fee-outstanding-value,
+  .sp-marks-metric-val,
+  .sp-att-chart-focus-value,
+  .sp-att-stat-list strong,
+  /* codes (roll number, receipt no.) */
+  .sp-dash-welcome-meta strong
+) {
+  font-family: var(--sp-font-mono) !important;
+}

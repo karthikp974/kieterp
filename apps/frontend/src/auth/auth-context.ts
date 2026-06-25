@@ -8,6 +8,7 @@ export type AuthContextValue = {
   login: (identifier: string, password: string) => Promise<AuthUser>;
   logout: () => Promise<void>;
   authFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+  refreshProfile: () => Promise<AuthUser>;
 };
 
 export const AuthContext = createContext<AuthContextValue | undefined>(undefined);

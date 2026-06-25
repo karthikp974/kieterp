@@ -1,236 +1,220 @@
 import { FormEvent, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { School } from "lucide-react";
 import { useAuth } from "./auth-context";
+import {
+  DEMO_ADMIN_IDENTIFIER,
+  DEMO_ADMIN_PASSWORD,
+  DEMO_STUDENT_ACCOUNTS,
+  DEMO_STUDENT_PASSWORD,
+  DEMO_TEACHER_ACCOUNTS,
+  DEMO_TEACHER_PASSWORD
+} from "./demo-credentials";
 import { getDefaultPortal } from "./portal-redirect";
 import { useToast } from "../shared/toast-context";
+
+type DemoBoxProps = {
+  kind: "admin" | "teacher" | "student";
+  title: string;
+  subtitle?: string;
+  identifier: string;
+  password: string;
+  activeId: string | null;
+  boxId: string;
+  disabled: boolean;
+  onSelect: () => void;
+};
+
+function DemoAccountBox({ kind, title, subtitle, identifier, password, activeId, boxId, disabled, onSelect }: DemoBoxProps) {
+  return (
+    <button
+      type="button"
+      className={`login-demo-box login-demo-box--${kind}${activeId === boxId ? " is-active" : ""}`}
+      disabled={disabled}
+      onClick={onSelect}
+    >
+      <p className="login-demo-box-kind">{kind === "admin" ? "Admin" : kind === "teacher" ? "Teacher" : "Student"}</p>
+      <h3 className="login-demo-box-title">{title}</h3>
+      {subtitle ? <p className="login-demo-box-desc">{subtitle}</p> : null}
+      <dl className="login-demo-box-creds">
+        <div>
+          <dt>Login ID</dt>
+          <dd>{identifier}</dd>
+        </div>
+        <div>
+          <dt>Password</dt>
+          <dd>{password}</dd>
+        </div>
+      </dl>
+      <span className="login-demo-box-action">Sign in →</span>
+    </button>
+  );
+}
 
 export function LoginPage() {
   const { user, login } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
-  const [identifier, setIdentifier] = useState("admin");
-  const [password, setPassword] = useState("Admin@12345");
-  const [resetToken, setResetToken] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [mode, setMode] = useState<"login" | "forgot" | "reset">("login");
+
+  const [loginIdentifier, setLoginIdentifier] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [activeDemoId, setActiveDemoId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   if (user) {
-    return <Navigate to={getDefaultPortal(user.type)} replace />;
+    return <Navigate to={getDefaultPortal(user.type, user.username)} replace />;
   }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (isSubmitting) {
-      return;
-    }
+  async function performLogin(identifier: string, password: string, demoId: string | null = null) {
+    if (isSubmitting) return;
 
     setIsSubmitting(true);
     setError(null);
+    if (demoId) setActiveDemoId(demoId);
+
     try {
-      const loggedInUser = await login(identifier, password);
+      const loggedInUser = await login(identifier.trim(), password);
       showToast(`Welcome ${loggedInUser.fullName}`);
-      void navigate(getDefaultPortal(loggedInUser.type), { replace: true });
+      void navigate(getDefaultPortal(loggedInUser.type, loggedInUser.username), { replace: true });
     } catch (loginError) {
       const message = loginError instanceof Error ? loginError.message : "Login failed.";
       setError(message);
       showToast(message, "error");
+      setActiveDemoId(null);
     } finally {
       setIsSubmitting(false);
     }
   }
 
-  async function requestReset(event: FormEvent<HTMLFormElement>) {
+  async function submitManualLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isSubmitting) return;
-    setIsSubmitting(true);
-    setError(null);
-    try {
-      const response = await fetch("/api/auth/forgot-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ identifier })
-      });
-      if (!response.ok) throw new Error("Unable to prepare password reset.");
-      const data = (await response.json()) as { message: string; devResetToken?: string };
-      if (data.devResetToken) setResetToken(data.devResetToken);
-      setMode("reset");
-      showToast(data.message, "info");
-    } catch (resetError) {
-      const message = resetError instanceof Error ? resetError.message : "Unable to prepare password reset.";
-      setError(message);
-      showToast(message, "error");
-    } finally {
-      setIsSubmitting(false);
-    }
-  }
-
-  async function resetPassword(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (isSubmitting) return;
-    setIsSubmitting(true);
-    setError(null);
-    try {
-      const response = await fetch("/api/auth/reset-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token: resetToken, newPassword })
-      });
-      const data = (await response.json().catch(() => null)) as { message?: string } | null;
-      if (!response.ok) throw new Error(data?.message ?? "Password reset failed.");
-      showToast(data?.message ?? "Password updated. Please sign in again.");
-      setMode("login");
-      setPassword("");
-      setNewPassword("");
-      setResetToken("");
-    } catch (resetError) {
-      const message = resetError instanceof Error ? resetError.message : "Password reset failed.";
-      setError(message);
-      showToast(message, "error");
-    } finally {
-      setIsSubmitting(false);
-    }
+    await performLogin(loginIdentifier, loginPassword);
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-50 p-5">
-      <section className="w-full max-w-md rounded-3xl border bg-white p-8 shadow-xl">
-        <div className="mb-8 flex items-center gap-3">
-          <div className="rounded-2xl bg-blue-600 p-3 text-white">
-            <School size={26} />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-slate-950">College ERP Login</h1>
-            <p className="text-sm text-slate-500">Secure access for Admin, Teacher, and Student portals.</p>
-          </div>
-        </div>
+    <main className="login-page portal-no-footer">
+      <div className="login-page-shell">
+        <header className="login-hero">
+          <h1 className="login-title">
+            Welcome to your <span className="login-title-muted">campus.</span>
+          </h1>
+          <br />
+          <h5 className="login-demo-heading">Sign in demo accounts</h5>
+        </header>
 
-        {mode === "login" ? (
-        <form className="space-y-5" onSubmit={(event) => void handleSubmit(event)}>
-          <label className="block">
-            <span className="text-sm font-semibold text-slate-700">Roll Number / Employee Code</span>
+        <form className="login-form login-manual-form" onSubmit={(event) => void submitManualLogin(event)}>
+          <label className="login-field">
+            <span>Roll number / employee code</span>
             <input
-              value={identifier}
-              onChange={(event) => setIdentifier(event.target.value)}
-              className="mt-2 w-full rounded-xl border px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+              value={loginIdentifier}
+              onChange={(event) => setLoginIdentifier(event.target.value)}
+              className="login-input"
               autoComplete="username"
               type="text"
-              placeholder="admin / teacher employee code / student roll number"
+              placeholder="e.g. 22BTECH-AI-001 or HTPO001"
               required
             />
           </label>
-
-          <label className="block">
-            <span className="text-sm font-semibold text-slate-700">Password</span>
-            <input
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              className="mt-2 w-full rounded-xl border px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-              autoComplete="current-password"
-              type="password"
-              required
-            />
+          <label className="login-field">
+            <span>Password</span>
+            <div className="login-password-wrap">
+              <input
+                value={loginPassword}
+                onChange={(event) => setLoginPassword(event.target.value)}
+                className="login-input login-input--password"
+                autoComplete="current-password"
+                type={showPassword ? "text" : "password"}
+                required
+              />
+              <button
+                type="button"
+                className="login-password-toggle"
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                aria-pressed={showPassword}
+                onClick={() => setShowPassword((visible) => !visible)}
+              >
+                {showPassword ? (
+                  <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                    <path
+                      fill="currentColor"
+                      d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"
+                    />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                    <path
+                      fill="currentColor"
+                      d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-4 .71l2.17 2.17C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15"
+                    />
+                  </svg>
+                )}
+              </button>
+            </div>
           </label>
-
-          {error ? <p className="rounded-xl bg-red-50 p-3 text-sm font-medium text-red-700">{error}</p> : null}
-
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isSubmitting ? "Signing in..." : "Sign in"}
+          <button type="submit" className="login-submit" disabled={isSubmitting}>
+            {isSubmitting ? "Signing in…" : "Sign in →"}
           </button>
-          <button
-            type="button"
-            className="w-full text-center text-sm font-semibold text-blue-700"
-            onClick={() => {
-              setError(null);
-              setMode("forgot");
-            }}
-          >
-            Forgot password?
-          </button>
+          {error ? <p className="login-error">{error}</p> : null}
         </form>
-        ) : null}
 
-        {mode === "forgot" ? (
-          <form className="space-y-5" onSubmit={(event) => void requestReset(event)}>
-            <label className="block">
-              <span className="text-sm font-semibold text-slate-700">Roll Number / Employee Code</span>
-              <input
-                value={identifier}
-                onChange={(event) => setIdentifier(event.target.value)}
-                className="mt-2 w-full rounded-xl border px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-                autoComplete="username"
-                type="text"
-                placeholder="admin / teacher employee code / student roll number"
-                required
+        <section className="login-demo-groups" aria-label="Demo accounts">
+          <div className="login-demo-group">
+            <h6 className="login-demo-group-label">Admin</h6>
+            <div className="login-demo-grid">
+              <DemoAccountBox
+                kind="admin"
+                boxId="admin"
+                title="Institution admin"
+                identifier={DEMO_ADMIN_IDENTIFIER}
+                password={DEMO_ADMIN_PASSWORD}
+                activeId={activeDemoId}
+                disabled={isSubmitting}
+                onSelect={() => void performLogin(DEMO_ADMIN_IDENTIFIER, DEMO_ADMIN_PASSWORD, "admin")}
               />
-            </label>
+            </div>
+          </div>
 
-            {error ? <p className="rounded-xl bg-red-50 p-3 text-sm font-medium text-red-700">{error}</p> : null}
+          <div className="login-demo-group">
+            <h6 className="login-demo-group-label">Teachers</h6>
+            <div className="login-demo-grid">
+              {DEMO_TEACHER_ACCOUNTS.map((account) => (
+                <DemoAccountBox
+                  key={account.id}
+                  kind="teacher"
+                  boxId={account.id}
+                  title={account.fullName}
+                  subtitle={`${account.roles} — ${account.description}`}
+                  identifier={account.identifier}
+                  password={DEMO_TEACHER_PASSWORD}
+                  activeId={activeDemoId}
+                  disabled={isSubmitting}
+                  onSelect={() => void performLogin(account.identifier, DEMO_TEACHER_PASSWORD, account.id)}
+                />
+              ))}
+            </div>
+          </div>
 
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isSubmitting ? "Preparing reset..." : "Continue"}
-            </button>
-            <button type="button" className="w-full text-center text-sm font-semibold text-slate-600" onClick={() => setMode("login")}>
-              Back to login
-            </button>
-          </form>
-        ) : null}
-
-        {mode === "reset" ? (
-          <form className="space-y-5" onSubmit={(event) => void resetPassword(event)}>
-            <label className="block">
-              <span className="text-sm font-semibold text-slate-700">Reset Token</span>
-              <input
-                value={resetToken}
-                onChange={(event) => setResetToken(event.target.value)}
-                className="mt-2 w-full rounded-xl border px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-                autoComplete="one-time-code"
-                type="text"
-                placeholder="Paste reset token"
-                required
-              />
-            </label>
-            <label className="block">
-              <span className="text-sm font-semibold text-slate-700">New Password</span>
-              <input
-                value={newPassword}
-                onChange={(event) => setNewPassword(event.target.value)}
-                className="mt-2 w-full rounded-xl border px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-                autoComplete="new-password"
-                type="password"
-                required
-              />
-            </label>
-
-            {error ? <p className="rounded-xl bg-red-50 p-3 text-sm font-medium text-red-700">{error}</p> : null}
-
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isSubmitting ? "Updating password..." : "Reset password"}
-            </button>
-            <button type="button" className="w-full text-center text-sm font-semibold text-slate-600" onClick={() => setMode("login")}>
-              Back to login
-            </button>
-          </form>
-        ) : null}
-
-        <p className="mt-6 rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-500">
-          Demo admin username is prefilled for local development. Reset tokens are shown only outside production until email/SMS delivery is configured.
-        </p>
-      </section>
+          <div className="login-demo-group">
+            <h6 className="login-demo-group-label">Students</h6>
+            <div className="login-demo-grid">
+              {DEMO_STUDENT_ACCOUNTS.map((account) => (
+                <DemoAccountBox
+                  key={account.id}
+                  kind="student"
+                  boxId={account.id}
+                  title={account.fullName}
+                  identifier={account.identifier}
+                  password={DEMO_STUDENT_PASSWORD}
+                  activeId={activeDemoId}
+                  disabled={isSubmitting}
+                  onSelect={() => void performLogin(account.identifier, DEMO_STUDENT_PASSWORD, account.id)}
+                />
+              ))}
+            </div>
+          </div>
+        </section>
+      </div>
     </main>
   );
 }

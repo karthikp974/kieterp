@@ -18,7 +18,7 @@ type StudentTeam = {
 };
 type TeamOptions = { sections: TeamSection[]; students: TeamStudent[] };
 
-const inputClass = "w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100";
+const inputClass = "db-input";
 
 function useApi() {
   const { authFetch } = useAuth();
@@ -46,10 +46,10 @@ export function AdminTeamsPanel() {
 }
 
 export function TeacherTeamsPanel() {
-  return <TeamsManager title="Scoped Teams" description="Create and manage teams for your assigned section scope." />;
+  return <TeamsManager title="Scoped Teams" description="Create and manage teams for your assigned section scope." teacherScoped />;
 }
 
-function TeamsManager({ title, description }: { title: string; description: string }) {
+function TeamsManager({ title, description, teacherScoped = false }: { title: string; description: string; teacherScoped?: boolean }) {
   const { fetchJson, sendJson } = useApi();
   const { showToast } = useToast();
   const [teams, setTeams] = useState<StudentTeam[]>([]);
@@ -58,10 +58,18 @@ function TeamsManager({ title, description }: { title: string; description: stri
   const filteredStudents = useMemo(() => options.students.filter((student) => student.sectionId === form.sectionId), [form.sectionId, options.students]);
 
   async function load() {
-    const [optionData, teamPage] = await Promise.all([
-      fetchJson<TeamOptions>("/api/teams/options"),
-      fetchJson<PaginatedResponse<StudentTeam>>("/api/teams?pageSize=25").catch(() => ({ items: [], total: 0, page: 1, pageSize: 25 }))
-    ]);
+    const optionData = await fetchJson<TeamOptions>("/api/teams/options");
+    const teamParams = new URLSearchParams({ pageSize: "25" });
+    if (teacherScoped) {
+      const sectionId = optionData.sections[0]?.id ?? "";
+      if (sectionId) teamParams.set("sectionId", sectionId);
+    }
+    const teamPage = await fetchJson<PaginatedResponse<StudentTeam>>(`/api/teams?${teamParams.toString()}`).catch(() => ({
+      items: [],
+      total: 0,
+      page: 1,
+      pageSize: 25
+    }));
     setOptions(optionData);
     setTeams(teamPage.items);
     setForm((current) => ({ ...current, sectionId: current.sectionId || optionData.sections[0]?.id || "" }));
@@ -125,7 +133,7 @@ function TeamsManager({ title, description }: { title: string; description: stri
           ))}
           {filteredStudents.length === 0 ? <p className="p-3 text-sm text-slate-500">No students found for this section.</p> : null}
         </div>
-        <button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white">Create Team</button>
+        <button className="erp-panel-submit">Create Team</button>
       </form>
       <TeamList teams={teams} onArchive={archiveTeam} />
     </section>

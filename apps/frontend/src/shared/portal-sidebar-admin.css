@@ -1,0 +1,289 @@
+/**
+ * Portal sidebars (admin / teacher / student) — same width and layout (:root --erp-sidebar-width = 260px).
+ * One markup (.erp-sidebar-content); light + dark only change colors.
+ */
+
+.portal-root .erp-sidebar.teacher-portal-sidebar,
+.portal-root .erp-sidebar.student-portal-sidebar,
+.erp-shell .erp-sidebar.teacher-portal-sidebar,
+.erp-shell .erp-sidebar.student-portal-sidebar {
+  width: var(--erp-sidebar-width, 260px) !important;
+  padding: 0 !important;
+  gap: 0;
+  overflow-x: hidden;
+  border-right: 1px solid #e5e7eb;
+  background: #ffffff !important;
+  box-shadow: 10px 0 30px rgb(15 23 42 / 6%) !important;
+}
+
+.portal-root .erp-sidebar.teacher-portal-sidebar--desktop,
+.portal-root .erp-sidebar.student-portal-sidebar--desktop {
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: 100vh;
+  height: 100dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+:is(.portal-root, .erp-shell) :is(.erp-sidebar, .erp-mobile-drawer) .erp-sidebar-content {
+  padding: 0 12px 96px !important;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+:is(.portal-root, .erp-shell) :is(.erp-sidebar, .erp-mobile-drawer) .erp-brand {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: calc(100% + 24px);
+  max-width: none;
+  min-height: 76px;
+  margin: 0 -12px 18px;
+  box-sizing: border-box;
+  border-radius: 0;
+  background: var(--erp-blue) !important;
+  padding: 11px 16px;
+  color: #ffffff;
+}
+
+:is(.portal-root, .erp-shell) :is(.erp-sidebar, .erp-mobile-drawer) .erp-brand-title {
+  margin: 0;
+  color: #ffffff !important;
+  font-size: 21px !important;
+  font-weight: 800 !important;
+  line-height: 1;
+  letter-spacing: -0.03em !important;
+}
+
+:is(.portal-root, .erp-shell) :is(.erp-sidebar, .erp-mobile-drawer) .erp-brand-subtitle {
+  margin: 5px 0 0;
+  color: rgb(255 255 255 / 72%) !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+:is(.portal-root, .erp-shell) :is(.erp-sidebar, .erp-mobile-drawer) .erp-brand .erp-sidebar-close {
+  border-color: rgb(255 255 255 / 24%);
+  color: #ffffff !important;
+}
+
+:is(.portal-root, .erp-shell) :is(.erp-sidebar, .erp-mobile-drawer) .erp-brand .erp-sidebar-close:hover {
+  border-color: rgb(255 255 255 / 34%);
+  background: rgb(255 255 255 / 14%) !important;
+  color: #ffffff !important;
+}
+
+:is(.portal-root, .erp-shell) :is(.erp-sidebar, .erp-mobile-drawer) .erp-dark-profile {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 18px;
+  border: 1px solid var(--erp-menu-border, rgb(var(--erp-blue-rgb) / 14%)) !important;
+  border-radius: 20px !important;
+  background: #f7faff !important;
+  padding: 14px !important;
+  box-shadow: none !important;
+}
+
+:is(.portal-root, .erp-shell) :is(.erp-sidebar, .erp-mobile-drawer) .erp-dark-profile-name {
+  margin: 0;
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.04em;
+  color: #111827 !important;
+}
+
+:is(.portal-root, .erp-shell) :is(.erp-sidebar, .erp-mobile-drawer) .erp-dark-profile-meta {
+  margin: 3px 0 0;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  color: #6b7280 !important;
+}
+
+:is(.portal-root, .erp-shell) :is(.erp-sidebar, .erp-mobile-drawer) .erp-menu-groups {
+  display: grid;
+  gap: 24px !important;
+}
+
+:is(.portal-root, .erp-shell) :is(.erp-sidebar, .erp-mobile-drawer) .erp-menu-heading {
+  margin: 0 0 8px !important;
+  color: #7b8797 !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.16em !important;
+  text-transform: uppercase;
+}
+
+:is(.portal-root, .erp-shell) :is(.erp-sidebar, .erp-mobile-drawer) .erp-menu-list {
+  display: grid;
+  gap: 6px !important;
+}
+
+:is(.portal-root, .erp-shell) :is(.erp-sidebar, .erp-mobile-drawer) .erp-menu-button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 48px;
+  padding: 10px 14px !important;
+  border: 1px solid var(--erp-menu-border, rgb(var(--erp-blue-rgb) / 14%)) !important;
+  border-radius: 14px !important;
+  background: #ffffff !important;
+  color: #374151 !important;
+  font-size: 15px !important;
+  font-weight: 750 !important;
+  letter-spacing: -0.02em;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+:is(.portal-root, .erp-shell) :is(.erp-sidebar, .erp-mobile-drawer) .erp-menu-button:hover,
+:is(.portal-root, .erp-shell) :is(.erp-sidebar, .erp-mobile-drawer) .erp-menu-button.active {
+  border-color: rgb(var(--erp-blue-rgb) / 28%) !important;
+  background: var(--erp-blue-soft) !important;
+  color: var(--erp-blue) !important;
+}
+
+:is(.portal-root, .erp-shell) :is(.erp-sidebar, .erp-mobile-drawer) .erp-menu-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+:is(.portal-root, .erp-shell) :is(.erp-sidebar, .erp-mobile-drawer) .erp-menu-label svg {
+  display: grid;
+  width: 30px !important;
+  height: 30px !important;
+  min-width: 30px;
+  place-items: center;
+  border: 1px solid rgb(var(--erp-blue-rgb) / 16%) !important;
+  border-radius: 10px !important;
+  background: var(--erp-menu-icon-bg, #f4f8ff) !important;
+  padding: 6px;
+  color: var(--erp-blue) !important;
+  box-sizing: border-box;
+}
+
+:is(.portal-root, .erp-shell) :is(.erp-sidebar, .erp-mobile-drawer) .erp-menu-button.active svg,
+:is(.portal-root, .erp-shell) :is(.erp-sidebar, .erp-mobile-drawer) .erp-menu-button:hover svg {
+  color: var(--erp-blue) !important;
+  border-color: rgb(var(--erp-blue-rgb) / 28%) !important;
+}
+
+:is(.portal-root, .erp-shell) :is(.erp-sidebar, .erp-mobile-drawer) .erp-signout {
+  width: 100%;
+  margin-top: 24px;
+  border: 1px solid var(--erp-menu-border, rgb(var(--erp-blue-rgb) / 14%)) !important;
+  border-radius: 16px !important;
+  background: #ffffff !important;
+  padding: 10px 16px !important;
+  color: #374151 !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  cursor: pointer;
+}
+
+:is(.portal-root, .erp-shell) :is(.erp-sidebar, .erp-mobile-drawer) .erp-signout:hover {
+  background: #e8eef6 !important;
+  color: #111827 !important;
+}
+
+/* Dark: same sizes/placement — no blue brand strip (light mode only) */
+.portal-root[data-portal-theme="dark"] .erp-sidebar.teacher-portal-sidebar,
+.portal-root[data-portal-theme="dark"] .erp-sidebar.student-portal-sidebar,
+.erp-shell.dark .erp-sidebar.teacher-portal-sidebar,
+.erp-shell.dark .erp-sidebar.student-portal-sidebar {
+  border-right-color: var(--bd) !important;
+  background: var(--bg2) !important;
+  box-shadow: 10px 0 30px rgb(0 0 0 / 35%) !important;
+}
+
+.portal-root[data-portal-theme="dark"] :is(.erp-sidebar, .erp-mobile-drawer) .erp-brand {
+  background: var(--bg3) !important;
+  border-bottom: 1px solid var(--bd) !important;
+}
+
+.portal-root[data-portal-theme="dark"] :is(.erp-sidebar, .erp-mobile-drawer) .erp-brand-title {
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] :is(.erp-sidebar, .erp-mobile-drawer) .erp-brand-subtitle {
+  color: var(--t3) !important;
+}
+
+.portal-root[data-portal-theme="dark"] :is(.erp-sidebar, .erp-mobile-drawer) .erp-brand .erp-sidebar-close {
+  border-color: var(--bd2) !important;
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] :is(.erp-sidebar, .erp-mobile-drawer) .erp-brand .erp-sidebar-close:hover {
+  background: var(--bg4) !important;
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] :is(.erp-sidebar, .erp-mobile-drawer) .erp-dark-profile {
+  background: var(--bg3) !important;
+  border: 1px solid var(--bd) !important;
+}
+
+.portal-root[data-portal-theme="dark"] :is(.erp-sidebar, .erp-mobile-drawer) .erp-dark-profile-name {
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] :is(.erp-sidebar, .erp-mobile-drawer) .erp-dark-profile-meta {
+  color: var(--t3) !important;
+}
+
+.portal-root[data-portal-theme="dark"] :is(.erp-sidebar, .erp-mobile-drawer) .erp-menu-heading {
+  color: var(--t4) !important;
+}
+
+.portal-root[data-portal-theme="dark"] :is(.erp-sidebar, .erp-mobile-drawer) .erp-menu-button {
+  border-color: var(--bd2) !important;
+  background: var(--bg2) !important;
+  color: var(--t2) !important;
+}
+
+.portal-root[data-portal-theme="dark"] :is(.erp-sidebar, .erp-mobile-drawer) .erp-menu-button:hover {
+  border-color: var(--bd3) !important;
+  background: var(--bg4) !important;
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] :is(.erp-sidebar, .erp-mobile-drawer) .erp-menu-button.active {
+  border-color: var(--inv) !important;
+  background: var(--inv) !important;
+  color: var(--inv-t) !important;
+}
+
+.portal-root[data-portal-theme="dark"] :is(.erp-sidebar, .erp-mobile-drawer) .erp-menu-label svg {
+  border-color: var(--bd2) !important;
+  background: var(--bg4) !important;
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] :is(.erp-sidebar, .erp-mobile-drawer) .erp-menu-button:hover:not(.active) svg {
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] :is(.erp-sidebar, .erp-mobile-drawer) .erp-menu-button.active svg {
+  color: #0f172a !important;
+  background: #f4f8ff !important;
+}
+
+.portal-root[data-portal-theme="dark"] :is(.erp-sidebar, .erp-mobile-drawer) .erp-signout,
+.erp-shell.dark :is(.erp-sidebar, .erp-mobile-drawer) .erp-signout {
+  border-color: var(--bd2) !important;
+  background: var(--bg3) !important;
+  color: var(--t2) !important;
+}
+
+.portal-root[data-portal-theme="dark"] :is(.erp-sidebar, .erp-mobile-drawer) .erp-signout:hover,
+.erp-shell.dark :is(.erp-sidebar, .erp-mobile-drawer) .erp-signout:hover {
+  background: var(--bg4) !important;
+  color: var(--t1) !important;
+}

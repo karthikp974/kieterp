@@ -15,32 +15,32 @@ export class PromotionsController {
 
   @Get("semester-pairs")
   @RequiresPermission(PermissionAction.MANAGE_PROMOTIONS)
-  semesterPairs(@Query() query: PromotionSemesterPairsQueryDto) {
-    return this.promotions.semesterPairs(query.branchId);
+  semesterPairs(@CurrentUser() user: AuthUser, @Query() query: PromotionSemesterPairsQueryDto) {
+    return this.promotions.semesterPairs(user, query.branchId);
   }
 
   @Get("classes")
   @RequiresPermission(PermissionAction.MANAGE_PROMOTIONS)
-  classes(@Query() query: PromotionClassQueryDto) {
-    return this.promotions.classes(query);
+  classes(@CurrentUser() user: AuthUser, @Query() query: PromotionClassQueryDto) {
+    return this.promotions.classes(user, query);
   }
 
   @Get("sections")
   @RequiresPermission(PermissionAction.MANAGE_PROMOTIONS)
-  sections(@Query() query: PromotionSectionQueryDto) {
-    return this.promotions.sections(query);
+  sections(@CurrentUser() user: AuthUser, @Query() query: PromotionSectionQueryDto) {
+    return this.promotions.sections(user, query);
   }
 
   @Get("students")
   @RequiresPermission(PermissionAction.MANAGE_PROMOTIONS)
-  students(@Query() query: PromotionStudentsQueryDto) {
-    return this.promotions.students(query);
+  students(@CurrentUser() user: AuthUser, @Query() query: PromotionStudentsQueryDto) {
+    return this.promotions.students(user, query);
   }
 
   @Get("preview")
   @RequiresPermission(PermissionAction.MANAGE_PROMOTIONS)
-  preview(@Query("fromSectionId") fromSectionId: string, @Query("toSectionId") toSectionId: string) {
-    return this.promotions.preview(fromSectionId, toSectionId);
+  preview(@CurrentUser() user: AuthUser, @Query("fromSectionId") fromSectionId: string, @Query("toSectionId") toSectionId: string) {
+    return this.promotions.preview(user, fromSectionId, toSectionId);
   }
 
   @Post()
@@ -57,8 +57,8 @@ export class PromotionsController {
 
   @Get("history")
   @RequiresPermission(PermissionAction.MANAGE_PROMOTIONS)
-  history(@Query() query: PromotionHistoryQueryDto) {
-    return this.promotions.history(query);
+  history(@CurrentUser() user: AuthUser, @Query() query: PromotionHistoryQueryDto) {
+    return this.promotions.history(user, query);
   }
 }
 
@@ -69,26 +69,26 @@ export class PromotionAliasController {
 
   @Get("semester-pairs")
   @RequiresPermission(PermissionAction.MANAGE_PROMOTIONS)
-  semesterPairs(@Query() query: PromotionSemesterPairsQueryDto) {
-    return this.promotions.semesterPairs(query.branchId);
+  semesterPairs(@CurrentUser() user: AuthUser, @Query() query: PromotionSemesterPairsQueryDto) {
+    return this.promotions.semesterPairs(user, query.branchId);
   }
 
   @Get("classes")
   @RequiresPermission(PermissionAction.MANAGE_PROMOTIONS)
-  classes(@Query() query: PromotionClassQueryDto) {
-    return this.promotions.classes(query);
+  classes(@CurrentUser() user: AuthUser, @Query() query: PromotionClassQueryDto) {
+    return this.promotions.classes(user, query);
   }
 
   @Get("sections")
   @RequiresPermission(PermissionAction.MANAGE_PROMOTIONS)
-  sections(@Query() query: PromotionSectionQueryDto) {
-    return this.promotions.sections(query);
+  sections(@CurrentUser() user: AuthUser, @Query() query: PromotionSectionQueryDto) {
+    return this.promotions.sections(user, query);
   }
 
   @Get("students")
   @RequiresPermission(PermissionAction.MANAGE_PROMOTIONS)
-  students(@Query() query: PromotionStudentsQueryDto) {
-    return this.promotions.students(query);
+  students(@CurrentUser() user: AuthUser, @Query() query: PromotionStudentsQueryDto) {
+    return this.promotions.students(user, query);
   }
 
   @Post("promote")
@@ -99,7 +99,7 @@ export class PromotionAliasController {
 
   @Get("history")
   @RequiresPermission(PermissionAction.MANAGE_PROMOTIONS)
-  history(@Query() query: PromotionHistoryQueryDto) {
-    return this.promotions.history(query);
+  history(@CurrentUser() user: AuthUser, @Query() query: PromotionHistoryQueryDto) {
+    return this.promotions.history(user, query);
   }
 }

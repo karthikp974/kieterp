@@ -1,19 +1,24 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { AuthUser } from "../auth/auth.types";
 import { toPagination } from "../common/pagination.dto";
+import { CampusScopeService } from "../permissions/campus-scope.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { DatabaseRowsQueryDto, isDatabaseTableKey } from "./database-browser.dto";
-import { DATABASE_TABLE_MAP, DATABASE_TABLES, DatabaseTableDefinition } from "./database-browser.tables";
+import { ADMIN_DATABASE_TABLES, DATABASE_TABLE_MAP, DatabaseTableDefinition } from "./database-browser.tables";
 
 type CountRow = { count: bigint | number };
 type DatabaseRow = Record<string, unknown>;
 
 @Injectable()
 export class DatabaseBrowserService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly campusScope: CampusScopeService
+  ) {}
 
   tables() {
     return {
-      tables: DATABASE_TABLES.map((table) => ({
+      tables: ADMIN_DATABASE_TABLES.map((table) => ({
         key: table.key,
         label: table.label,
         columns: table.columns,
@@ -22,7 +27,11 @@ export class DatabaseBrowserService {
     };
   }
 
-  async rows(tableKey: string, query: DatabaseRowsQueryDto) {
+  async rows(tableKey: string, query: DatabaseRowsQueryDto, user: AuthUser) {
+    this.campusScope.assertInstitutionWideAdmin(
+      user,
+      "Database browser is only available to institution-wide administrators."
+    );
     const table = this.getTable(tableKey);
     const pagination = toPagination(query);
     const search = query.search?.trim();

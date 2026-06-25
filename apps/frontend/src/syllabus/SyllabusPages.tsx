@@ -1,9 +1,13 @@
-import { ArrowLeft, Bell, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Plus, Trash2 } from "lucide-react";
 import { FormEvent, ReactNode, useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/auth-context";
-import { AdminWorkflowMenuButton, OptionActionButton } from "../shared/OptionPage";
+import { AdminWorkflowMenuButton, OptionActionButton, WorkflowSection } from "../shared/OptionPage";
+import { ExistingRecordsPanel, ExistingRecordsPageIntro, WorkflowExistingRecordsPageShell } from "../shared/WorkflowExistingRecords";
+import { appendOwnedCampusFilter } from "../shared/existing-records-query.util";
 import { SearchableSelect } from "../shared/SearchableSelect";
+import { ProfileMenuButton } from "../shared/ProfileMenu";
+import { useConfirm } from "../shared/ConfirmDialog";
 import { useToast } from "../shared/toast-context";
 
 type Campus = { id: string; code: string; name: string };
@@ -12,27 +16,90 @@ type Branch = { id: string; departmentId: string; name: string; code: string };
 type ClassItem = { id: string; branchId: string; name: string; code: string; semesterNumber: number };
 type SectionItem = { id: string; classId: string; name: string; code: string };
 type SubjectOption = { id: string; subjectName: string; subjectCode: string; semester?: number; semesterLabel?: string };
-type UnitRow = { id?: string; unitTitle: string; unitOrder?: number };
-type Syllabus = { id: string; subjectId: string; subjectName: string; subjectCode: string; units: UnitRow[] };
+type SyllabusTopicRow = { id: string; topicTitle: string; topicOrder: number; isArchived?: boolean; archivedAt?: string | null };
+type UnitRow = { id?: string; unitTitle: string; unitOrder?: number; topics: string[] };
+type SyllabusUnitApi = { id?: string; unitTitle: string; unitOrder?: number; topics?: SyllabusTopicRow[] };
+type Syllabus = { id: string; subjectId: string; subjectName: string; subjectCode: string; units: SyllabusUnitApi[] };
 type PageResponse<T> = { items: T[]; total: number };
 type SyllabusFilter = { campusId: string; departmentId: string; branchId: string; classId: string; sectionId: string; semester: string; subjectId: string };
 
-const emptyUnit = (): UnitRow => ({ unitTitle: "" });
+const emptyUnit = (): UnitRow => ({ unitTitle: "", topics: [""] });
 const emptyFilter = (): SyllabusFilter => ({ campusId: "", departmentId: "", branchId: "", classId: "", sectionId: "", semester: "", subjectId: "" });
+
+function unitsForApi(units: UnitRow[]) {
+  return units.map((unit, index) => ({
+    id: unit.id,
+    unitTitle: unit.unitTitle,
+    unitOrder: unit.unitOrder ?? index + 1,
+    topics: unit.topics
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((topicTitle) => ({ topicTitle }))
+  }));
+}
 
 export function SyllabusHomePage() {
   const navigate = useNavigate();
+
   return (
     <SyllabusShell title="Syllabus" variant="main">
-      <ActionGroup title="Syllabus Records">
-        <GlassButton onClick={() => navigate("/syllabus/add-syllabus")}>Add Syllabus</GlassButton>
-        <GlassButton onClick={() => navigate("/syllabus/modify-syllabus")}>Modify Syllabus</GlassButton>
-        <GlassButton tone="danger" onClick={() => navigate("/syllabus/delete-syllabus")}>Delete Syllabus</GlassButton>
-      </ActionGroup>
-      <ActionGroup title="Activity">
-        <GlassButton onClick={() => navigate("/syllabus/history")}>History</GlassButton>
-      </ActionGroup>
+      <WorkflowSection title="Create Records">
+        <OptionActionButton onClick={() => navigate("/syllabus/add-syllabus")}>Add Syllabus</OptionActionButton>
+      </WorkflowSection>
+      <WorkflowSection title="Syllabus Records">
+        <OptionActionButton onClick={() => navigate("/syllabus/modify-syllabus")}>Modify Syllabus</OptionActionButton>
+        <OptionActionButton tone="danger" onClick={() => navigate("/syllabus/delete-syllabus")}>Delete Syllabus</OptionActionButton>
+      </WorkflowSection>
+      <WorkflowSection title="Activity">
+        <OptionActionButton onClick={() => navigate("/syllabus/existing-records")}>Existing records</OptionActionButton>
+        <OptionActionButton onClick={() => navigate("/syllabus/history")}>History</OptionActionButton>
+      </WorkflowSection>
     </SyllabusShell>
+  );
+}
+
+export function SyllabusExistingRecordsPage() {
+  const data = useSyllabusData();
+  const [campusId, setCampusId] = useState("");
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void data.loadCatalog({ campusId, search });
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [campusId, data.loadCatalog, search]);
+
+  return (
+    <WorkflowExistingRecordsPageShell title="Existing records">
+      <ExistingRecordsPageIntro title="Syllabus catalog" description="Browse syllabus records already saved in KIET ERP." />
+      <ExistingRecordsPanel
+        title="Syllabus"
+        total={data.syllabusTotal}
+        isLoading={data.isCatalogLoading}
+        campusId={campusId}
+        campusOptions={data.campuses.map((item) => [item.id, item.code])}
+        onCampusChange={setCampusId}
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Search subject code or name"
+        columns={[
+          { header: "Subject code" },
+          { header: "Subject" },
+          { header: "Units" },
+          { header: "Topics" }
+        ]}
+        rows={data.syllabi.map((item) => ({
+          id: item.id,
+          cells: [
+            item.subjectCode,
+            item.subjectName,
+            String(item.units.length),
+            String(item.units.reduce((count, unit) => count + (unit.topics?.length ?? 0), 0))
+          ]
+        }))}
+      />
+    </WorkflowExistingRecordsPageShell>
   );
 }
 
@@ -54,7 +121,10 @@ export function AddSyllabusPage() {
     }
     setSaving(true);
     try {
-      await data.sendJson("/api/syllabus", { subjectId: subject.id, units });
+      await data.sendJson("/api/syllabus", {
+        subjectId: subject.id,
+        units: unitsForApi(units)
+      });
       showToast("Syllabus created successfully");
       navigate("/syllabus");
     } catch (error) {
@@ -87,6 +157,7 @@ export function DeleteSyllabusPage() {
 function SyllabusEdit({ mode }: { mode: "modify" | "delete" }) {
   const data = useSyllabusData();
   const { showToast } = useToast();
+  const { confirm, dialog } = useConfirm();
   const navigate = useNavigate();
   const [filter, setFilter] = useState<SyllabusFilter>(emptyFilter);
   const subject = data.subjects.find((item) => item.id === filter.subjectId) ?? null;
@@ -101,14 +172,27 @@ function SyllabusEdit({ mode }: { mode: "modify" | "delete" }) {
     }
     void data.loadSyllabus(filter.subjectId).then(setSelected).catch((error) => showToast(error instanceof Error ? error.message : "Unable to load syllabus", "error"));
   }, [data.loadSyllabus, filter.subjectId, showToast]);
-  useEffect(() => { if (selected) setUnits(selected.units.length ? selected.units : [emptyUnit()]); }, [selected]);
+  useEffect(() => {
+    if (selected) {
+      setUnits(
+        selected.units.length
+          ? selected.units.map((unit) => ({
+              id: unit.id,
+              unitTitle: unit.unitTitle,
+              unitOrder: unit.unitOrder,
+              topics: unit.topics?.length ? unit.topics.map((t) => t.topicTitle) : [""]
+            }))
+          : [emptyUnit()]
+      );
+    }
+  }, [selected]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selected) return;
     setSaving(true);
     try {
-      setSelected(await data.sendJson(`/api/syllabus/${selected.id}`, { units }, "PATCH"));
+      setSelected(await data.sendJson(`/api/syllabus/${selected.id}`, { units: unitsForApi(units) }, "PATCH"));
       showToast("Syllabus updated successfully");
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Unable to update syllabus", "error");
@@ -118,7 +202,15 @@ function SyllabusEdit({ mode }: { mode: "modify" | "delete" }) {
   }
 
   async function archive() {
-    if (!selected || !window.confirm("Archive this syllabus and all units?")) return;
+    if (!selected) return;
+    const ok = await confirm({
+      title: "Archive syllabus?",
+      message: "All units in this syllabus will be archived.",
+      itemName: subject?.subjectName,
+      confirmLabel: "Archive",
+      icon: Trash2
+    });
+    if (!ok) return;
     try {
       await data.sendJson(`/api/syllabus/${selected.id}`, {}, "DELETE");
       showToast("Syllabus archived successfully", "warning");
@@ -141,19 +233,62 @@ function SyllabusEdit({ mode }: { mode: "modify" | "delete" }) {
         ) : null}
         {selected && mode === "delete" ? (
           <div className="db-archive-summary">
-            <div><p>{selected.subjectName}</p><span>{selected.subjectCode}</span>{selected.units.map((unit) => <span key={unit.id ?? unit.unitTitle}>{unit.unitOrder}. {unit.unitTitle}</span>)}</div>
+            <div>
+              <p>{selected.subjectName}</p>
+              <span>{selected.subjectCode}</span>
+              {selected.units.map((unit) => (
+                <div key={unit.id ?? unit.unitTitle}>
+                  <span>
+                    {unit.unitOrder}. {unit.unitTitle}
+                  </span>
+                  {unit.topics?.length ? (
+                    <ul>
+                      {unit.topics.map((t) => (
+                        <li key={t.id}>{t.topicTitle}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              ))}
+            </div>
             <button type="button" onClick={() => void archive()}><Trash2 size={18} /> Archive</button>
           </div>
         ) : null}
         {!selected && filter.subjectId ? <p className="db-empty">No active syllabus found for this subject.</p> : null}
       </form>
+      {dialog}
     </SyllabusShell>
   );
 }
 
 function UnitRows({ units, onChange }: { units: UnitRow[]; onChange: (units: UnitRow[]) => void }) {
   function update(index: number, unitTitle: string) {
-    onChange(units.map((unit, unitIndex) => unitIndex === index ? { ...unit, unitTitle, unitOrder: index + 1 } : unit));
+    onChange(units.map((unit, unitIndex) => (unitIndex === index ? { ...unit, unitTitle, unitOrder: index + 1 } : unit)));
+  }
+  function updateTopic(unitIndex: number, topicIndex: number, value: string) {
+    onChange(
+      units.map((unit, index) =>
+        index === unitIndex ? { ...unit, topics: unit.topics.map((topic, ti) => (ti === topicIndex ? value : topic)) } : unit
+      )
+    );
+  }
+  function addTopic(unitIndex: number) {
+    onChange(units.map((unit, index) => (index === unitIndex ? { ...unit, topics: [...unit.topics, ""] } : unit)));
+  }
+  function removeTopic(unitIndex: number, topicIndex: number) {
+    onChange(
+      units.map((unit, index) =>
+        index === unitIndex
+          ? { ...unit, topics: unit.topics.length > 1 ? unit.topics.filter((_, ti) => ti !== topicIndex) : [""] }
+          : unit
+      )
+    );
+  }
+  function addUnit() {
+    onChange([...units, emptyUnit()]);
+  }
+  function removeUnit(index: number) {
+    onChange(units.filter((_, unitIndex) => unitIndex !== index).map((row, rowIndex) => ({ ...row, unitOrder: rowIndex + 1 })));
   }
   function move(index: number, direction: -1 | 1) {
     const next = [...units];
@@ -163,18 +298,59 @@ function UnitRows({ units, onChange }: { units: UnitRow[]; onChange: (units: Uni
     onChange(next.map((unit, unitIndex) => ({ ...unit, unitOrder: unitIndex + 1 })));
   }
   return (
-    <section className="db-branch-rows">
-      <div className="db-branch-header"><h2>Syllabus Units</h2><button type="button" onClick={() => onChange([...units, emptyUnit()])}><Plus size={16} /> Add Unit</button></div>
-      {units.map((unit, index) => (
-        <div className="db-branch-row" key={unit.id ?? index}>
-          <Field label={`Unit ${index + 1}`}><Input value={unit.unitTitle} onChange={(value) => update(index, value)} required /></Field>
-          <div className="db-inline-actions">
-            <button type="button" onClick={() => move(index, -1)}>Up</button>
-            <button type="button" onClick={() => move(index, 1)}>Down</button>
-            {units.length > 1 ? <button type="button" onClick={() => onChange(units.filter((_, unitIndex) => unitIndex !== index).map((row, rowIndex) => ({ ...row, unitOrder: rowIndex + 1 })))}>Remove</button> : null}
+    <section className="db-branch-rows db-syllabus-units">
+      <div className="db-branch-header">
+        <h2>Units &amp; Topics</h2>
+      </div>
+      <p className="db-syllabus-hint">Structure: Subject → Syllabus → Units → Topics</p>
+      {units.map((unit, index) => {
+        const isLast = index === units.length - 1;
+        return (
+          <div className="db-branch-row db-syllabus-unit" key={unit.id ?? index}>
+            <Field label={`Unit ${index + 1}`}>
+              <Input value={unit.unitTitle} onChange={(value) => update(index, value)} required />
+            </Field>
+            <div className="db-syllabus-topics">
+              <span className="db-syllabus-topics-label">Topics</span>
+              {unit.topics.map((topic, topicIndex) => (
+                <div className="db-syllabus-topic-row" key={topicIndex}>
+                  <span className="db-syllabus-topic-num">Topic {topicIndex + 1}</span>
+                  <Input value={topic} onChange={(value) => updateTopic(index, topicIndex, value)} placeholder="Topic name" />
+                  <button
+                    type="button"
+                    className="db-syllabus-topic-del"
+                    aria-label={`Delete topic ${topicIndex + 1}`}
+                    onClick={() => removeTopic(index, topicIndex)}
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              ))}
+              <button type="button" className="db-syllabus-add-topic" onClick={() => addTopic(index)}>
+                <Plus size={14} /> Add topic
+              </button>
+            </div>
+            <div className="db-inline-actions">
+              <button type="button" onClick={() => move(index, -1)}>
+                Up
+              </button>
+              <button type="button" onClick={() => move(index, 1)}>
+                Down
+              </button>
+              {units.length > 1 ? (
+                <button type="button" onClick={() => removeUnit(index)}>
+                  Remove unit
+                </button>
+              ) : null}
+              {isLast ? (
+                <button type="button" className="db-syllabus-add-unit-btn" onClick={addUnit}>
+                  <Plus size={16} /> Add Unit
+                </button>
+              ) : null}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </section>
   );
 }
@@ -188,6 +364,9 @@ function useSyllabusData() {
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [sections, setSections] = useState<SectionItem[]>([]);
   const [subjects, setSubjects] = useState<SubjectOption[]>([]);
+  const [syllabi, setSyllabi] = useState<Syllabus[]>([]);
+  const [syllabusTotal, setSyllabusTotal] = useState(0);
+  const [isCatalogLoading, setIsCatalogLoading] = useState(true);
   const fetchJson = useCallback(async <T,>(path: string) => {
     const response = await authFetch(path);
     if (!response.ok) throw await responseError(response);
@@ -212,8 +391,23 @@ function useSyllabusData() {
     const page = await fetchJson<PageResponse<Syllabus>>(`/api/syllabus/search?${p}`);
     return page.items[0] ?? null;
   }, [fetchJson]);
+  const loadCatalog = useCallback(async (filters: { campusId?: string; search?: string }) => {
+    setIsCatalogLoading(true);
+    try {
+      const p = new URLSearchParams({ pageSize: "100" });
+      appendOwnedCampusFilter(p, filters.campusId);
+      if (filters.search?.trim()) p.set("search", filters.search.trim());
+      const page = await fetchJson<PageResponse<Syllabus>>(`/api/syllabus/search?${p}`);
+      setSyllabi(page.items);
+      setSyllabusTotal(page.total);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Unable to load existing records", "error");
+    } finally {
+      setIsCatalogLoading(false);
+    }
+  }, [fetchJson, showToast]);
   useEffect(() => { void loadCampuses().catch((error) => showToast(error instanceof Error ? error.message : "Unable to load campuses", "error")); }, [loadCampuses, showToast]);
-  return { campuses, departments, branches, classes, sections, subjects, sendJson, loadDepartments, loadBranches, loadClasses, loadSections, loadSubjects, loadSyllabus };
+  return { campuses, departments, branches, classes, sections, subjects, syllabi, syllabusTotal, isCatalogLoading, sendJson, loadDepartments, loadBranches, loadClasses, loadSections, loadSubjects, loadSyllabus, loadCatalog };
 }
 
 function useSyllabusCascade(data: ReturnType<typeof useSyllabusData>, filter: SyllabusFilter, patch: (patch: Partial<SyllabusFilter>) => void) {
@@ -266,15 +460,13 @@ function SelectedSubject({ subject }: { subject: SubjectOption }) {
 
 function SyllabusShell({ children, title, variant = "subpage" }: { children: ReactNode; title: string; variant?: "main" | "subpage" }) {
   const navigate = useNavigate();
-  const { user } = useAuth();
-  const initials = user?.fullName?.split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "CA";
-  return <main className="db-workflow min-h-screen"><header className="db-workflow-header"><div className="db-header-left">{variant === "main" ? <AdminWorkflowMenuButton /> : <button className="db-icon-button" type="button" onClick={() => navigate(-1)}><ArrowLeft size={20} /></button>}<h1>{title}</h1></div><div className="db-header-actions">{variant === "main" ? <><button className="db-icon-button" type="button"><Bell size={18} /></button></> : null}<div className="db-avatar">{initials}</div></div></header><section className="db-workflow-body">{children}</section></main>;
+  return <main className="db-workflow min-h-screen"><header className="db-workflow-header"><div className="db-header-left">{variant === "main" ? <AdminWorkflowMenuButton /> : <button className="db-icon-button" type="button" onClick={() => navigate(-1)}><ArrowLeft size={20} /></button>}<h1>{title}</h1></div><div className="db-header-actions"><ProfileMenuButton /></div></header><section className="db-workflow-body">{children}</section></main>;
 }
 
 function GlassButton({ children, onClick, tone = "default" }: { children: ReactNode; onClick: () => void; tone?: "default" | "danger" }) {
   return <OptionActionButton tone={tone} onClick={onClick}>{children}</OptionActionButton>;
 }
-function ActionGroup({ children, title }: { children: ReactNode; title: string }) { return <section className="db-section"><h2>{title}</h2><div className="db-module-grid">{children}</div></section>; }
+function ActionGroup({ children, title }: { children: ReactNode; title: string }) { return <WorkflowSection title={title}>{children}</WorkflowSection>; }
 function Field({ children, label }: { children: ReactNode; label: string }) { return <label className="db-field"><span>{label}</span>{children}</label>; }
 function Input({ onChange, ...props }: Omit<React.InputHTMLAttributes<HTMLInputElement>, "onChange"> & { onChange: (value: string) => void }) { return <input className="db-input" {...props} onChange={(event) => onChange(event.target.value)} />; }
 function Submit({ children, saving }: { children: ReactNode; saving: boolean }) { return <button className="db-submit" disabled={saving}>{saving ? "Saving..." : children}</button>; }

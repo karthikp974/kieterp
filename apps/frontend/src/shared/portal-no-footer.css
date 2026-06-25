@@ -1,0 +1,26 @@
+/**
+ * Portal chrome policy: no site/page footers or fixed bottom bars on any portal.
+ * Admin (.erp-shell), teacher (.portal-root), student (.portal-root), login.
+ */
+
+/* Hide site/page footers only — not form action bars (use div, not footer, for those) */
+.portal-no-footer > footer,
+.portal-root > footer,
+.erp-shell.portal-no-footer > footer,
+.login-shell > footer {
+  display: none !important;
+}
+
+.portal-no-footer .teacher-portal-bnav,
+.portal-root .teacher-portal-bnav {
+  display: none !important;
+}
+
+.portal-no-footer .sp-tt-foot,
+.portal-no-footer .sp-marks-foot,
+.portal-no-footer .sp-att-footnote,
+.portal-root .sp-tt-foot,
+.portal-root .sp-marks-foot,
+.portal-root .sp-att-footnote {
+  display: none !important;
+}

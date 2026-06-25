@@ -1,6 +1,12 @@
 import { Type } from "class-transformer";
 import { IsBoolean, IsDateString, IsEnum, IsOptional, IsString, MaxLength, MinLength, ValidateIf } from "class-validator";
-import { AnnouncementAudience, AnnouncementPriority, AnnouncementStatus, AnnouncementTeacherScope } from "@prisma/client";
+import {
+  AnnouncementAudience,
+  AnnouncementPriority,
+  AnnouncementStatus,
+  AnnouncementTeacherRoleFilter,
+  AnnouncementTeacherScope
+} from "@prisma/client";
 import { PaginationQueryDto } from "../common/pagination.dto";
 
 export class CreateAnnouncementDto {
@@ -68,6 +74,10 @@ export class CreateAnnouncementDto {
   @IsOptional()
   @IsString()
   teacherBranchId?: string;
+
+  @IsOptional()
+  @IsEnum(AnnouncementTeacherRoleFilter)
+  teacherRoleFilter?: AnnouncementTeacherRoleFilter;
 
   @IsOptional()
   @IsDateString()
@@ -151,6 +161,10 @@ export class UpdateAnnouncementDto {
   @ValidateIf((_, v) => v !== null)
   @IsString()
   teacherBranchId?: string | null;
+
+  @IsOptional()
+  @IsEnum(AnnouncementTeacherRoleFilter)
+  teacherRoleFilter?: AnnouncementTeacherRoleFilter;
 
   @IsOptional()
   @ValidateIf((_, v) => v !== null)

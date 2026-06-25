@@ -1,7 +1,9 @@
 import { AttendanceCorrectionStatus, AttendanceEntryStatus } from "@prisma/client";
+import { IntersectionType } from "@nestjs/mapped-types";
 import { Type } from "class-transformer";
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsDateString, IsEnum, IsOptional, IsString, MaxLength, MinLength, ValidateNested } from "class-validator";
 import { PaginationQueryDto } from "../common/pagination.dto";
+import { TabularExportFormatQueryDto } from "../common/export-query.dto";
 
 export class AttendanceScopeDto {
   @IsString()
@@ -47,11 +49,6 @@ export class MarkAttendanceDto {
 
   @IsDateString()
   attendanceDate!: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(30)
-  periodLabel?: string;
 
   @IsArray()
   @ArrayMinSize(1)
@@ -126,3 +123,5 @@ export class AttendanceQueryDto extends PaginationQueryDto {
   @IsDateString()
   to?: string;
 }
+
+export class AttendanceExportQueryDto extends IntersectionType(AttendanceQueryDto, TabularExportFormatQueryDto) {}

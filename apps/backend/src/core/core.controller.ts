@@ -38,8 +38,8 @@ export class CoreController {
 
   @Get("campuses")
   @RequiresPermission(PermissionAction.MANAGE_STRUCTURE)
-  campuses(@Query() query: PaginationQueryDto) {
-    return this.core.listCampuses(query);
+  campuses(@Query() query: PaginationQueryDto, @Req() request: { user: AuthUser }) {
+    return this.core.listCampuses(query, request.user);
   }
 
   @Get("campus-groups")
@@ -223,22 +223,25 @@ export class CoreController {
   }
 }
 
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 @Controller("campuses")
 export class CampusesController {
   constructor(private readonly core: CoreService) {}
 
   @Get()
+  @RequiresPermission(PermissionAction.VIEW_ADMIN_PORTAL)
   list(@Query() query: PaginationQueryDto, @Req() request: { user: AuthUser }) {
     return this.core.listCampuses(query, request.user);
   }
 
   @Get("search")
+  @RequiresPermission(PermissionAction.VIEW_ADMIN_PORTAL)
   search(@Query() query: PaginationQueryDto, @Req() request: { user: AuthUser }) {
     return this.core.listCampuses(query, request.user);
   }
 
   @Get(":id")
+  @RequiresPermission(PermissionAction.VIEW_ADMIN_PORTAL)
   get(@Param("id") id: string, @Req() request: { user: AuthUser }) {
     return this.core.getCampus(id, request.user);
   }

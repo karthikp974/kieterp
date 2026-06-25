@@ -1,16 +1,22 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
-import { PermissionAction, Prisma, StructureStatus, TimetableSlotStatus, UserType } from "@prisma/client";
+import { PermissionAction, Prisma, StructureStatus, TimetableSlotStatus, TimetableSlotType, UserType } from "@prisma/client";
+import { Response } from "express";
 import { AuthUser, ScopeRef } from "../auth/auth.types";
+import { buildExportBasename } from "../common/export-filename.util";
 import { toPagination } from "../common/pagination.dto";
+import { sendTabularExport } from "../common/tabular-export.util";
 import { PermissionsService } from "../permissions/permissions.service";
+import { SharedGroupAcademicService } from "../permissions/shared-group-academic.service";
 import { PrismaService } from "../prisma/prisma.service";
-import { CreateTimetableSlotDto, TimetableQueryDto, UpdateTimetableSlotDto } from "./timetable.dto";
+import { CreateTimetableSlotDto, TimetableExportQueryDto, TimetableQueryDto, UpdateTimetableSlotDto } from "./timetable.dto";
+import { formatTimeRange24Label, normalizeTimeTo24h } from "./normalize-timetable-time";
 
 @Injectable()
 export class TimetableService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly permissions: PermissionsService
+    private readonly permissions: PermissionsService,
+    private readonly sharedGroup: SharedGroupAcademicService
   ) {}
 
   async list(user: AuthUser, query: TimetableQueryDto) {
@@ -85,9 +91,10 @@ export class TimetableService {
           subjectId: dto.subjectId,
           teacherProfileId: dto.teacherProfileId,
           dayOfWeek: dto.dayOfWeek,
-          startTime: dto.startTime.trim(),
-          endTime: dto.endTime.trim(),
+          startTime: this.normalizeStoredTime(dto.startTime),
+          endTime: this.normalizeStoredTime(dto.endTime),
           room: dto.room?.trim(),
+          slotType: dto.slotType ?? TimetableSlotType.LECTURE,
           createdById: user.id
         },
         include: this.include
@@ -117,8 +124,8 @@ export class TimetableService {
       subjectId: dto.subjectId ?? existing.subjectId ?? undefined,
       teacherProfileId: dto.teacherProfileId ?? existing.teacherProfileId ?? undefined,
       dayOfWeek: dto.dayOfWeek ?? existing.dayOfWeek,
-      startTime: dto.startTime?.trim() ?? existing.startTime,
-      endTime: dto.endTime?.trim() ?? existing.endTime,
+      startTime: dto.startTime ? this.normalizeStoredTime(dto.startTime) : existing.startTime,
+      endTime: dto.endTime ? this.normalizeStoredTime(dto.endTime) : existing.endTime,
       room: dto.room?.trim() ?? existing.room ?? undefined
     };
     await this.validateScope(merged);
@@ -139,7 +146,8 @@ export class TimetableService {
           dayOfWeek: merged.dayOfWeek,
           startTime: merged.startTime,
           endTime: merged.endTime,
-          room: merged.room
+          room: merged.room,
+          ...(dto.slotType !== undefined ? { slotType: dto.slotType } : {})
         },
         include: this.include
       });
@@ -153,9 +161,9 @@ export class TimetableService {
     }
   }
 
-  async export(user: AuthUser, query: TimetableQueryDto) {
+  async export(user: AuthUser, query: TimetableExportQueryDto, response: Response) {
     const page = await this.list(user, { ...query, page: 1, pageSize: 100 });
-    const rows = [
+    const rows: (string | number)[][] = [
       ["Day", "Time", "Campus", "Branch", "Semester", "Section", "Subject", "Teacher", "Room"],
       ...page.items.map((slot) => [
         String(slot.dayOfWeek),
@@ -169,7 +177,13 @@ export class TimetableService {
         slot.room ?? ""
       ])
     ];
-    return { filename: "timetable-export.csv", csv: rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n") };
+    await sendTabularExport(
+      response,
+      query.format,
+      buildExportBasename("Timetable", "SectionSchedule"),
+      "Timetable export",
+      rows
+    );
   }
 
   async archive(user: AuthUser, id: string) {
@@ -209,7 +223,7 @@ export class TimetableService {
     }
     const section = await this.prisma.section.findUnique({
       where: { id: scope.sectionId },
-      include: { class: { include: { batch: { include: { branch: { include: { program: true } } } } } } }
+      include: { class: { include: { batch: { include: { branch: { include: { program: { include: { campus: true } } } } } } } } }
     });
     if (
       !section ||
@@ -221,11 +235,15 @@ export class TimetableService {
       section.class.batch.branchId !== scope.branchId ||
       section.class.batch.branch.status !== StructureStatus.ACTIVE ||
       section.class.batch.branch.programId !== scope.programId ||
-      section.class.batch.branch.program.status !== StructureStatus.ACTIVE ||
-      section.class.batch.branch.program.campusId !== scope.campusId
+      section.class.batch.branch.program.status !== StructureStatus.ACTIVE
     ) {
       throw new BadRequestException("Timetable scope is invalid or archived.");
     }
+    const operationalCampus = await this.sharedGroup.loadCampus(scope.campusId);
+    if (!operationalCampus || operationalCampus.status !== StructureStatus.ACTIVE) {
+      throw new BadRequestException("Campus does not exist or is archived.");
+    }
+    this.sharedGroup.assertScopeCampusMatchesSectionProgram(section.class.batch.branch.program, scope.campusId, operationalCampus);
     if (scope.subjectId) {
       const subject = await this.prisma.subject.findUnique({ where: { id: scope.subjectId } });
       if (!subject || subject.status !== StructureStatus.ACTIVE || subject.branchId !== scope.branchId || subject.semesterNumber !== section.class.semesterNumber) {
@@ -306,6 +324,7 @@ export class TimetableService {
     startTime: string;
     endTime: string;
     room: string | null;
+    slotType: TimetableSlotType;
     campus: { code: string };
     program: { code: string };
     branch: { code: string };
@@ -318,10 +337,11 @@ export class TimetableService {
     return {
       id: slot.id,
       dayOfWeek: slot.dayOfWeek,
-      time: `${slot.startTime}-${slot.endTime}`,
-      startTime: slot.startTime,
-      endTime: slot.endTime,
+      time: formatTimeRange24Label(slot.startTime, slot.endTime),
+      startTime: normalizeTimeTo24h(slot.startTime) ?? slot.startTime,
+      endTime: normalizeTimeTo24h(slot.endTime) ?? slot.endTime,
       room: slot.room,
+      slotType: slot.slotType,
       structure: {
         campusId: slot.campusId,
         programId: slot.programId,
@@ -344,7 +364,15 @@ export class TimetableService {
     };
   }
 
+  private normalizeStoredTime(value: string) {
+    const normalized = normalizeTimeTo24h(value);
+    if (!normalized) {
+      throw new BadRequestException("Time must be in 24-hour HH:mm format.");
+    }
+    return normalized;
+  }
+
   private async audit(user: AuthUser, action: string, entity: string, entityId?: string) {
-    await this.prisma.auditLog.create({ data: { action, entity, entityId, userId: user.id } });
+    await this.prisma.auditLog.create({ data: { action, entity, entityId, userId: user.auditUserId } });
   }
 }

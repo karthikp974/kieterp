@@ -1,11 +1,16 @@
-import { ArrowLeft, Bell, Copy, Download, Mail, Phone, Search, Trash2 } from "lucide-react";
+import { ArrowLeft, Copy, Download, Mail, Phone, Trash2 } from "lucide-react";
+import { istYear } from "../shared/ist-time";
 import { FormEvent, ReactNode, useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/auth-context";
-import { AdminWorkflowMenuButton, OptionActionButton } from "../shared/OptionPage";
+import { AdminWorkflowMenuButton, OptionActionButton, WorkflowSection } from "../shared/OptionPage";
 import { SearchableSelect } from "../shared/SearchableSelect";
+import { ProfileMenuButton } from "../shared/ProfileMenu";
+import { ExistingRecordsPanel, ExistingRecordsPageIntro, WorkflowExistingRecordsPageShell } from "../shared/WorkflowExistingRecords";
+import { appendOwnedCampusFilter } from "../shared/existing-records-query.util";
 import { useToast } from "../shared/toast-context";
 
+type Campus = { id: string; code: string; name: string };
 type Department = { id: string; name: string; code: string; durationYears: number };
 type Branch = { id: string; departmentId: string; name: string; code: string };
 type ClassItem = { id: string; name: string; code: string };
@@ -31,48 +36,68 @@ type PageResponse<T> = { items: T[]; total: number };
 
 export function BatchesHomePage() {
   const navigate = useNavigate();
-  const data = useBatchData();
-  const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<BatchItem | null>(null);
-  const [hasSearched, setHasSearched] = useState(false);
-
-  async function search(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSelected(null);
-    if (!query.trim()) {
-      setHasSearched(false);
-      return;
-    }
-    setHasSearched(true);
-    await data.searchBatches(query);
-  }
-
-  async function selectBatch(batch: BatchItem) {
-    setSelected(await data.batchDetails(batch.id));
-  }
 
   return (
     <BatchShell title="Batches" variant="main">
-      <form className="db-search-bar" onSubmit={(event) => void search(event)}>
-        <Search size={18} />
-        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search by Batch ID" />
-        <button>Search</button>
-      </form>
-      {hasSearched && data.batches.length ? (
-        <BatchListSection title="Search Results" items={data.batches} onSelect={selectBatch} />
-      ) : null}
-      {selected ? <BatchDetails batch={selected} onExport={data.downloadExport} /> : null}
-      <ActionGroup title="Create Records">
-        <GlassButton onClick={() => navigate("/batches/add-batch")}>Add Batch</GlassButton>
-      </ActionGroup>
-      <ActionGroup title="Batch Records">
-        <GlassButton onClick={() => navigate("/batches/modify-batch")}>Modify Batch</GlassButton>
-        <GlassButton tone="danger" onClick={() => navigate("/batches/delete-batch")}>Delete Batch</GlassButton>
-      </ActionGroup>
-      <ActionGroup title="Activity">
-        <GlassButton onClick={() => navigate("/batches/history")}>History</GlassButton>
-      </ActionGroup>
+      <WorkflowSection title="Create Records">
+        <OptionActionButton onClick={() => navigate("/batches/add-batch")}>Add Batch</OptionActionButton>
+      </WorkflowSection>
+      <WorkflowSection title="Batch Records">
+        <OptionActionButton onClick={() => navigate("/batches/modify-batch")}>Modify Batch</OptionActionButton>
+        <OptionActionButton tone="danger" onClick={() => navigate("/batches/delete-batch")}>Delete Batch</OptionActionButton>
+      </WorkflowSection>
+      <WorkflowSection title="Activity">
+        <OptionActionButton onClick={() => navigate("/batches/existing-records")}>Existing records</OptionActionButton>
+        <OptionActionButton onClick={() => navigate("/batches/history")}>History</OptionActionButton>
+      </WorkflowSection>
     </BatchShell>
+  );
+}
+
+export function BatchesExistingRecordsPage() {
+  const data = useBatchData();
+  const [campusId, setCampusId] = useState("");
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void data.loadCatalog({ campusId, search });
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [campusId, data.loadCatalog, search]);
+
+  return (
+    <WorkflowExistingRecordsPageShell title="Existing records">
+      <ExistingRecordsPageIntro title="Batches catalog" description="Browse batches already saved in KIET ERP." />
+      <ExistingRecordsPanel
+        title="Batches"
+        total={data.batchTotal}
+        isLoading={data.isCatalogLoading}
+        campusId={campusId}
+        campusOptions={data.campuses.map((item) => [item.id, item.code])}
+        onCampusChange={setCampusId}
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Search batch code"
+        columns={[
+          { header: "Department" },
+          { header: "Branch" },
+          { header: "Years" },
+          { header: "Batch" },
+          { header: "Batch code" }
+        ]}
+        rows={data.batches.map((batch) => ({
+          id: batch.id,
+          cells: [
+            formatOptionLabel(batch.department.code, batch.department.name),
+            formatOptionLabel(batch.branch.code, batch.branch.name),
+            `${batch.startYear}-${batch.endYear}`,
+            batch.batch,
+            batch.batchCode
+          ]
+        }))}
+      />
+    </WorkflowExistingRecordsPageShell>
   );
 }
 
@@ -81,7 +106,7 @@ export function AddBatchPage() {
   const { showToast } = useToast();
   const navigate = useNavigate();
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ departmentId: "", branchId: "", classId: "", sectionId: "", startYear: new Date().getFullYear(), batchCode: "" });
+  const [form, setForm] = useState({ departmentId: "", branchId: "", classId: "", sectionId: "", startYear: istYear(new Date()), batchCode: "" });
   const selectedDepartment = data.departments.find((item) => item.id === form.departmentId);
   const endYear = form.startYear + (selectedDepartment?.durationYears ?? 0);
   useBatchCascade(data, form, (patch) => setForm((current) => ({ ...current, ...patch })));
@@ -116,12 +141,24 @@ export function AddBatchPage() {
 export function ModifyBatchPage() {
   const data = useBatchData();
   const { showToast } = useToast();
-  const [query, setQuery] = useState("");
+  const [selection, setSelection] = useState({ departmentId: "", branchId: "", batchId: "" });
   const [selected, setSelected] = useState<BatchItem | null>(null);
   const [batchCode, setBatchCode] = useState("");
   const [saving, setSaving] = useState(false);
-  useEffect(() => { if (query.trim()) void data.searchBatches(query); }, [query, data]);
-  useEffect(() => { if (selected) setBatchCode(selected.batchCode); }, [selected]);
+
+  useBatchPickerCascade(data, selection, (patch) => setSelection((current) => ({ ...current, ...patch })));
+
+  useEffect(() => {
+    if (!selection.batchId) {
+      setSelected(null);
+      return;
+    }
+    void data.batchDetails(selection.batchId).then(setSelected).catch((error) => showToast(error instanceof Error ? error.message : "Unable to load batch", "error"));
+  }, [selection.batchId, data.batchDetails, showToast]);
+
+  useEffect(() => {
+    if (selected) setBatchCode(selected.batchCode);
+  }, [selected]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -139,14 +176,17 @@ export function ModifyBatchPage() {
 
   return (
     <BatchShell title="Modify Batch">
-      <SearchInput query={query} setQuery={setQuery} />
-      <SuggestionList items={data.batches} onSelect={setSelected} />
-      {selected ? (
-        <form className="db-card db-form" onSubmit={(event) => void submit(event)}>
-          <Field label="Batch Code"><Input value={batchCode} onChange={setBatchCode} required /></Field>
-          <Submit saving={saving}>Update Batch</Submit>
-        </form>
-      ) : null}
+      <form className="db-card db-form" onSubmit={(event) => void submit(event)}>
+        <BatchPickerSelects data={data} value={selection} onChange={(patch) => setSelection({ ...selection, ...patch })} />
+        {selected ? (
+          <>
+            <Field label="Batch Code"><Input value={batchCode} onChange={setBatchCode} required /></Field>
+            <Submit saving={saving}>Update Batch</Submit>
+          </>
+        ) : (
+          <EmptyState>Select a batch to modify.</EmptyState>
+        )}
+      </form>
     </BatchShell>
   );
 }
@@ -155,10 +195,19 @@ export function DeleteBatchPage() {
   const data = useBatchData();
   const { showToast } = useToast();
   const navigate = useNavigate();
-  const [query, setQuery] = useState("");
+  const [selection, setSelection] = useState({ departmentId: "", branchId: "", batchId: "" });
   const [selected, setSelected] = useState<BatchItem | null>(null);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
-  useEffect(() => { if (query.trim()) void data.searchBatches(query); }, [query, data]);
+
+  useBatchPickerCascade(data, selection, (patch) => setSelection((current) => ({ ...current, ...patch })));
+
+  useEffect(() => {
+    if (!selection.batchId) {
+      setSelected(null);
+      return;
+    }
+    void data.batchDetails(selection.batchId).then(setSelected).catch((error) => showToast(error instanceof Error ? error.message : "Unable to load batch", "error"));
+  }, [selection.batchId, data.batchDetails, showToast]);
 
   async function archive() {
     if (!selected) return;
@@ -174,9 +223,22 @@ export function DeleteBatchPage() {
 
   return (
     <BatchShell title="Delete Batch">
-      <SearchInput query={query} setQuery={setQuery} />
-      <SuggestionList items={data.batches} onSelect={setSelected} />
-      {selected ? <div className="db-archive-summary"><div><p>{selected.batch}</p><span>{selected.batchCode}</span></div><button type="button" onClick={() => setIsConfirmOpen(true)}><Trash2 size={18} /> Archive</button></div> : null}
+      <div className="db-card db-form">
+        <BatchPickerSelects data={data} value={selection} onChange={(patch) => setSelection({ ...selection, ...patch })} />
+        {selected ? (
+          <div className="db-archive-summary">
+            <div>
+              <p>{selected.batch}</p>
+              <span>{selected.batchCode}</span>
+            </div>
+            <button type="button" onClick={() => setIsConfirmOpen(true)}>
+              <Trash2 size={18} /> Archive
+            </button>
+          </div>
+        ) : (
+          <EmptyState>Select a batch to archive.</EmptyState>
+        )}
+      </div>
       <ConfirmArchiveDialog
         isOpen={isConfirmOpen}
         title="Archive batch?"
@@ -244,10 +306,13 @@ function useBatchData() {
   const { authFetch } = useAuth();
   const { showToast } = useToast();
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [campuses, setCampuses] = useState<Campus[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [sections, setSections] = useState<SectionItem[]>([]);
   const [batches, setBatches] = useState<BatchItem[]>([]);
+  const [batchTotal, setBatchTotal] = useState(0);
+  const [isCatalogLoading, setIsCatalogLoading] = useState(true);
   const fetchJson = useCallback(async <T,>(path: string) => {
     const response = await authFetch(path);
     if (!response.ok) throw await responseError(response);
@@ -258,6 +323,7 @@ function useBatchData() {
     if (!response.ok) throw await responseError(response);
     return (await response.json()) as T;
   }, [authFetch]);
+  const loadCampuses = useCallback(async () => setCampuses((await fetchJson<PageResponse<Campus>>("/api/campuses?pageSize=100")).items), [fetchJson]);
   const loadDepartments = useCallback(async () => setDepartments((await fetchJson<PageResponse<Department>>("/api/departments?pageSize=100")).items), [fetchJson]);
   const loadBranches = useCallback(async (departmentId?: string) => {
     const params = new URLSearchParams({ pageSize: "100" });
@@ -274,14 +340,109 @@ function useBatchData() {
     if (classId) params.set("classId", classId);
     setSections((await fetchJson<PageResponse<SectionItem>>(`/api/sections?${params}`)).items);
   }, [fetchJson]);
-  const searchBatches = useCallback(async (search: string) => {
-    const params = new URLSearchParams({ pageSize: "20", search });
-    setBatches((await fetchJson<PageResponse<BatchItem>>(`/api/batches/search?${params}`)).items);
+  const loadBatches = useCallback(async (departmentId?: string, branchId?: string) => {
+    if (!branchId) {
+      setBatches([]);
+      setBatchTotal(0);
+      return [];
+    }
+    const params = new URLSearchParams({ pageSize: "100" });
+    if (departmentId) params.set("departmentId", departmentId);
+    params.set("branchId", branchId);
+    const page = await fetchJson<PageResponse<BatchItem>>(`/api/batches?${params}`);
+    setBatches(page.items);
+    setBatchTotal(page.total);
+    return page.items;
   }, [fetchJson]);
+  const loadCatalog = useCallback(async (filters: { campusId?: string; search?: string }) => {
+    setIsCatalogLoading(true);
+    try {
+      const params = new URLSearchParams({ pageSize: "100" });
+      appendOwnedCampusFilter(params, filters.campusId);
+      if (filters.search?.trim()) params.set("search", filters.search.trim());
+      const page = await fetchJson<PageResponse<BatchItem>>(`/api/batches?${params}`);
+      setBatches(page.items);
+      setBatchTotal(page.total);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Unable to load existing records", "error");
+    } finally {
+      setIsCatalogLoading(false);
+    }
+  }, [fetchJson, showToast]);
   const batchDetails = useCallback((id: string) => fetchJson<BatchItem>(`/api/batches/${id}`), [fetchJson]);
   const downloadExport = useCallback((id: string, format: string) => window.open(`/api/batches/${id}/export?format=${format}`, "_blank", "noopener,noreferrer"), []);
-  useEffect(() => { void loadDepartments().catch((error) => showToast(error instanceof Error ? error.message : "Unable to load departments", "error")); }, [loadDepartments, showToast]);
-  return { departments, branches, classes, sections, batches, sendJson, loadBranches, loadClasses, loadSections, searchBatches, batchDetails, downloadExport };
+  useEffect(() => {
+    void Promise.all([loadCampuses(), loadDepartments()]).catch((error) =>
+      showToast(error instanceof Error ? error.message : "Unable to load batch options", "error")
+    );
+  }, [loadCampuses, loadDepartments, showToast]);
+  return { campuses, departments, branches, classes, sections, batches, batchTotal, isCatalogLoading, sendJson, loadBranches, loadClasses, loadSections, loadBatches, loadCatalog, batchDetails, downloadExport };
+}
+
+function useBatchPickerCascade(
+  data: ReturnType<typeof useBatchData>,
+  selection: { departmentId: string; branchId: string; batchId: string },
+  patch: (patch: Partial<{ departmentId: string; branchId: string; batchId: string }>) => void
+) {
+  useEffect(() => {
+    if (selection.departmentId) {
+      void data.loadBranches(selection.departmentId);
+    } else {
+      patch({ branchId: "", batchId: "" });
+      void data.loadBatches();
+    }
+  }, [selection.departmentId, data.loadBranches, data.loadBatches, patch]);
+  useEffect(() => {
+    if (selection.branchId) {
+      void data.loadBatches(selection.departmentId, selection.branchId);
+    } else {
+      patch({ batchId: "" });
+    }
+  }, [selection.branchId, selection.departmentId, data.loadBatches, patch]);
+}
+
+function BatchPickerSelects({
+  data,
+  value,
+  onChange
+}: {
+  data: ReturnType<typeof useBatchData>;
+  value: { departmentId: string; branchId: string; batchId: string };
+  onChange: (patch: Partial<{ departmentId: string; branchId: string; batchId: string }>) => void;
+}) {
+  return (
+    <>
+      <Field label="Select Department">
+        <SearchableSelect
+          value={value.departmentId}
+          onChange={(departmentId) => onChange({ departmentId, branchId: "", batchId: "" })}
+          options={data.departments.map((item) => [item.id, formatOptionLabel(item.code, item.name)])}
+          placeholder="Select Department"
+          searchable={false}
+        />
+      </Field>
+      <Field label="Select Branch">
+        <SearchableSelect
+          value={value.branchId}
+          onChange={(branchId) => onChange({ branchId, batchId: "" })}
+          options={data.branches.map((item) => [item.id, formatOptionLabel(item.code, item.name)])}
+          placeholder="Select Branch"
+          searchable={false}
+          disabled={!value.departmentId}
+        />
+      </Field>
+      <Field label="Select Batch">
+        <SearchableSelect
+          value={value.batchId}
+          onChange={(batchId) => onChange({ batchId })}
+          options={data.batches.map((item) => [item.id, `${item.batchCode} — ${item.batch}`])}
+          placeholder="Select Batch"
+          searchable={false}
+          disabled={!value.branchId}
+        />
+      </Field>
+    </>
+  );
 }
 
 function useBatchCascade(data: ReturnType<typeof useBatchData>, form: { departmentId: string; branchId: string; classId: string; sectionId: string }, patch: (patch: Partial<typeof form>) => void) {
@@ -321,21 +482,13 @@ function BatchHierarchy({ data, form, onChange }: { data: ReturnType<typeof useB
 
 function BatchShell({ children, title, variant = "subpage" }: { children: ReactNode; title: string; variant?: "main" | "subpage" }) {
   const navigate = useNavigate();
-  const { user } = useAuth();
-  const initials = user?.fullName?.split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "CA";
-  return <main className="db-workflow min-h-screen"><header className="db-workflow-header"><div className="db-header-left">{variant === "main" ? <AdminWorkflowMenuButton /> : <button className="db-icon-button" type="button" onClick={() => navigate(-1)}><ArrowLeft size={20} /></button>}<h1>{title}</h1></div><div className="db-header-actions">{variant === "main" ? <><button className="db-icon-button" type="button"><Bell size={18} /></button></> : null}<div className="db-avatar">{initials}</div></div></header><section className="db-workflow-body">{children}</section></main>;
+  return <main className="db-workflow min-h-screen"><header className="db-workflow-header"><div className="db-header-left">{variant === "main" ? <AdminWorkflowMenuButton /> : <button className="db-icon-button" type="button" onClick={() => navigate(-1)}><ArrowLeft size={20} /></button>}<h1>{title}</h1></div><div className="db-header-actions"><ProfileMenuButton /></div></header><section className="db-workflow-body">{children}</section></main>;
 }
 
-function SearchInput({ query, setQuery }: { query: string; setQuery: (value: string) => void }) { return <div className="db-search-bar"><Search size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search by Batch ID" /></div>; }
-function SuggestionList({ items, onSelect }: { items: BatchItem[]; onSelect: (item: BatchItem) => void }) { return <div className="db-suggestions">{items.map((item) => <button key={item.id} type="button" onClick={() => onSelect(item)}><strong>{item.batchCode}</strong><span>{item.batch}</span></button>)}</div>; }
-function BatchListSection({ items, onSelect, title }: { items: BatchItem[]; onSelect: (item: BatchItem) => void; title: string }) {
-  return (
-    <section className="db-section">
-      <h2>{title}</h2>
-      <SuggestionList items={items} onSelect={onSelect} />
-    </section>
-  );
+function EmptyState({ children }: { children: ReactNode }) {
+  return <p className="db-empty">{children}</p>;
 }
+
 function ConfirmArchiveDialog({
   isOpen,
   itemName,
@@ -377,7 +530,7 @@ function formatOptionLabel(code: string, name: string) {
 function GlassButton({ children, onClick, tone = "default" }: { children: ReactNode; onClick: () => void; tone?: "default" | "danger" }) {
   return <OptionActionButton tone={tone} onClick={onClick}>{children}</OptionActionButton>;
 }
-function ActionGroup({ children, title }: { children: ReactNode; title: string }) { return <section className="db-section"><h2>{title}</h2><div className="db-module-grid">{children}</div></section>; }
+function ActionGroup({ children, title }: { children: ReactNode; title: string }) { return <WorkflowSection title={title}>{children}</WorkflowSection>; }
 function Field({ children, label }: { children: ReactNode; label: string }) { return <label className="db-field"><span>{label}</span>{children}</label>; }
 function Input({ onChange, ...props }: Omit<React.InputHTMLAttributes<HTMLInputElement>, "onChange"> & { onChange: (value: string) => void }) { return <input className="db-input" {...props} onChange={(event) => onChange(event.target.value)} />; }
 function Submit({ children, saving }: { children: ReactNode; saving: boolean }) { return <button className="db-submit" disabled={saving}>{saving ? "Saving..." : children}</button>; }

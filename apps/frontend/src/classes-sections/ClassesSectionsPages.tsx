@@ -1,17 +1,46 @@
-import { ArrowLeft, Bell, Download, Plus, Search, Trash2 } from "lucide-react";
+import { ArrowLeft, Download, Plus, Trash2 } from "lucide-react";
 import { FormEvent, ReactNode, useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/auth-context";
-import { AdminWorkflowMenuButton, OptionActionButton } from "../shared/OptionPage";
+import { AdminWorkflowMenuButton, OptionActionButton, WorkflowSection } from "../shared/OptionPage";
 import { SearchableSelect } from "../shared/SearchableSelect";
+import { ProfileMenuButton } from "../shared/ProfileMenu";
+import { ExistingRecordsPanel, ExistingRecordsPageIntro, WorkflowExistingRecordsPageShell } from "../shared/WorkflowExistingRecords";
+import { appendOwnedCampusFilter } from "../shared/existing-records-query.util";
+import { useConfirm } from "../shared/ConfirmDialog";
 import { useToast } from "../shared/toast-context";
 
 type Campus = { id: string; code: string; name: string };
 type Department = { id: string; campusId: string; name: string; code: string };
 type Branch = { id: string; campusId: string; departmentId: string; name: string; code: string };
 type SectionRow = { id?: string; name: string; code: string };
-type ClassItem = { id: string; campusId: string; departmentId: string; branchId: string; name: string; code: string; sections: SectionRow[]; teachers?: TeacherSummary; students?: StudentRow[] };
-type SectionItem = { id: string; classId: string; campusId: string; departmentId: string; branchId: string; name: string; code: string; class: { id: string; name: string; code: string } };
+type ClassItem = {
+  id: string;
+  campusId: string;
+  departmentId: string;
+  branchId: string;
+  name: string;
+  code: string;
+  semesterNumber?: number;
+  sections: SectionRow[];
+  campus?: { id: string; code: string; name: string };
+  department?: { id: string; name: string; code: string };
+  branch?: { id: string; name: string; code: string };
+  teachers?: TeacherSummary;
+  students?: StudentRow[];
+};
+type SectionItem = {
+  id: string;
+  classId: string;
+  campusId: string;
+  departmentId: string;
+  branchId: string;
+  name: string;
+  code: string;
+  class: { id: string; name: string; code: string; semesterNumber: number };
+  department?: { id: string; name: string; code: string };
+  branch?: { id: string; name: string; code: string };
+};
 type TeacherSummary = { htpo: string[]; ctpo: string[]; stpo: string[] };
 type StudentRow = { id: string; fullName: string; rollNumber: string };
 type PageResponse<T> = { items: T[]; total: number };
@@ -20,52 +49,105 @@ const emptySection = (): SectionRow => ({ name: "", code: "" });
 
 export function ClassesSectionsHomePage() {
   const navigate = useNavigate();
-  const { classes, searchClasses, classDetails, downloadExport } = useClassesSectionsData();
-  const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<ClassItem | null>(null);
-  const [hasSearched, setHasSearched] = useState(false);
-
-  async function submitSearch(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSelected(null);
-    if (!search.trim()) {
-      setHasSearched(false);
-      return;
-    }
-    setHasSearched(true);
-    await searchClasses(search);
-  }
-
-  async function selectClass(item: ClassItem) {
-    setSelected(await classDetails(item.id));
-  }
 
   return (
     <WorkflowShell title="Classes & Sections" variant="main">
-      <form className="db-search-bar" onSubmit={(event) => void submitSearch(event)}>
-        <Search size={18} />
-        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search class name, class code, section name, or section code" />
-        <button>Search</button>
-      </form>
-      {hasSearched && classes.length ? <SuggestionList items={classes} onSelect={selectClass} /> : null}
-      {selected ? <ClassResult item={selected} onExport={downloadExport} /> : null}
-
-      <ActionGroup title="Create Records">
-        <GlassButton onClick={() => navigate("/classes-sections/add-class")}>Add Class</GlassButton>
-        <GlassButton onClick={() => navigate("/classes-sections/add-section")}>Add Section</GlassButton>
-      </ActionGroup>
-      <ActionGroup title="Class">
-        <GlassButton onClick={() => navigate("/classes-sections/modify-class")}>Modify Class</GlassButton>
-        <GlassButton tone="danger" onClick={() => navigate("/classes-sections/delete-class")}>Delete Class</GlassButton>
-      </ActionGroup>
-      <ActionGroup title="Section">
-        <GlassButton onClick={() => navigate("/classes-sections/modify-section")}>Modify Section</GlassButton>
-        <GlassButton tone="danger" onClick={() => navigate("/classes-sections/delete-section")}>Delete Section</GlassButton>
-      </ActionGroup>
-      <ActionGroup title="Activity">
-        <GlassButton onClick={() => navigate("/classes-sections/history")}>History</GlassButton>
-      </ActionGroup>
+      <WorkflowSection title="Create Records">
+        <OptionActionButton onClick={() => navigate("/classes-sections/add-class")}>Add Class</OptionActionButton>
+        <OptionActionButton onClick={() => navigate("/classes-sections/add-section")}>Add Section</OptionActionButton>
+      </WorkflowSection>
+      <WorkflowSection title="Class">
+        <OptionActionButton onClick={() => navigate("/classes-sections/modify-class")}>Modify Class</OptionActionButton>
+        <OptionActionButton tone="danger" onClick={() => navigate("/classes-sections/delete-class")}>Delete Class</OptionActionButton>
+      </WorkflowSection>
+      <WorkflowSection title="Section">
+        <OptionActionButton onClick={() => navigate("/classes-sections/modify-section")}>Modify Section</OptionActionButton>
+        <OptionActionButton tone="danger" onClick={() => navigate("/classes-sections/delete-section")}>Delete Section</OptionActionButton>
+      </WorkflowSection>
+      <WorkflowSection title="Activity">
+        <OptionActionButton onClick={() => navigate("/classes-sections/existing-records")}>Existing records</OptionActionButton>
+        <OptionActionButton onClick={() => navigate("/classes-sections/history")}>History</OptionActionButton>
+      </WorkflowSection>
     </WorkflowShell>
+  );
+}
+
+export function ClassesSectionsExistingRecordsPage() {
+  const data = useClassesSectionsData();
+  const [campusId, setCampusId] = useState("");
+  const [classSearch, setClassSearch] = useState("");
+  const [sectionSearch, setSectionSearch] = useState("");
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void data.loadCatalog({ campusId, classSearch, sectionSearch });
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [campusId, classSearch, data.loadCatalog, sectionSearch]);
+
+  return (
+    <WorkflowExistingRecordsPageShell title="Existing records">
+      <ExistingRecordsPageIntro
+        title="Classes & Sections catalog"
+        description="Browse classes and sections already saved in KIET ERP."
+      />
+      <div className="db-existing-records-stack">
+        <ExistingRecordsPanel
+          title="Classes"
+          total={data.classTotal}
+          isLoading={data.isCatalogLoading}
+          campusId={campusId}
+          campusOptions={data.campuses.map((item) => [item.id, item.code])}
+          onCampusChange={setCampusId}
+          search={classSearch}
+          onSearchChange={setClassSearch}
+          columns={[
+            { header: "Campus" },
+            { header: "Department" },
+            { header: "Branch" },
+            { header: "Class" },
+            { header: "Semester" },
+            { header: "Sections" }
+          ]}
+          rows={data.classes.map((item) => ({
+            id: item.id,
+            cells: [
+              item.campus?.code ?? "-",
+              item.department ? formatOptionLabel(item.department.code, item.department.name) : "-",
+              item.branch ? formatOptionLabel(item.branch.code, item.branch.name) : "-",
+              formatOptionLabel(item.code, item.name),
+              item.semesterNumber ? `Sem ${item.semesterNumber}` : "-",
+              String(item.sections.length)
+            ]
+          }))}
+        />
+        <ExistingRecordsPanel
+          title="Sections"
+          total={data.sectionTotal}
+          isLoading={data.isCatalogLoading}
+          campusId={campusId}
+          campusOptions={data.campuses.map((item) => [item.id, item.code])}
+          onCampusChange={setCampusId}
+          search={sectionSearch}
+          onSearchChange={setSectionSearch}
+          columns={[
+            { header: "Department" },
+            { header: "Branch" },
+            { header: "Class" },
+            { header: "Section" }
+          ]}
+          rows={data.sections.map((item) => ({
+            id: item.id,
+            cells: [
+              item.department ? formatOptionLabel(item.department.code, item.department.name) : "-",
+              item.branch ? formatOptionLabel(item.branch.code, item.branch.name) : "-",
+              `${formatOptionLabel(item.class.code, item.class.name)} / Sem ${item.class.semesterNumber}`,
+              formatOptionLabel(item.code, item.name)
+            ]
+          }))}
+        />
+      </div>
+    </WorkflowExistingRecordsPageShell>
   );
 }
 
@@ -199,6 +281,7 @@ export function ModifyClassPage() {
 export function DeleteClassPage() {
   const data = useClassesSectionsData();
   const { showToast } = useToast();
+  const { confirm, dialog } = useConfirm();
   const navigate = useNavigate();
   const [selection, setSelection] = useState({ campusId: "", departmentId: "", branchId: "", classId: "" });
   const [selected, setSelected] = useState<ClassItem | null>(null);
@@ -212,7 +295,15 @@ export function DeleteClassPage() {
   }, [selection.classId, data.classDetails, showToast]);
 
   async function archive() {
-    if (!selected || !window.confirm("Archive this class and all linked sections?")) return;
+    if (!selected) return;
+    const ok = await confirm({
+      title: "Archive class?",
+      message: "All linked sections will be archived.",
+      itemName: selected.name,
+      confirmLabel: "Archive",
+      icon: Trash2
+    });
+    if (!ok) return;
     try {
       await data.sendJson(`/api/classes/${selected.id}`, {}, "DELETE");
       showToast("Class archived successfully", "warning");
@@ -235,6 +326,7 @@ export function DeleteClassPage() {
         />
         {selected ? <ArchiveBox title={selected.name} code={selected.code} details={selected.sections.map((section) => `${section.code} - ${section.name}`)} onArchive={archive} /> : <EmptyState>Select a class to archive.</EmptyState>}
       </div>
+      {dialog}
     </WorkflowShell>
   );
 }
@@ -250,6 +342,7 @@ export function DeleteSectionPage() {
 function SectionEditPage({ mode }: { mode: "modify" | "delete" }) {
   const data = useClassesSectionsData();
   const { showToast } = useToast();
+  const { confirm, dialog } = useConfirm();
   const navigate = useNavigate();
   const [selection, setSelection] = useState({ campusId: "", departmentId: "", branchId: "", classId: "", sectionId: "" });
   const [selected, setSelected] = useState<SectionItem | null>(null);
@@ -285,7 +378,15 @@ function SectionEditPage({ mode }: { mode: "modify" | "delete" }) {
   }
 
   async function archive() {
-    if (!selected || !window.confirm("Archive this section?")) return;
+    if (!selected) return;
+    const ok = await confirm({
+      title: "Archive section?",
+      message: "The section will be hidden from future selections.",
+      itemName: selected.name,
+      confirmLabel: "Archive",
+      icon: Trash2
+    });
+    if (!ok) return;
     try {
       await data.sendJson(`/api/sections/${selected.id}`, {}, "DELETE");
       showToast("Section archived successfully", "warning");
@@ -325,26 +426,7 @@ function SectionEditPage({ mode }: { mode: "modify" | "delete" }) {
         {selected && mode === "delete" ? <ArchiveBox title={selected.name} code={selected.code} onArchive={archive} /> : null}
         {!selected ? <EmptyState>Select a section to {mode === "modify" ? "modify" : "archive"}.</EmptyState> : null}
       </div>
-    </WorkflowShell>
-  );
-}
-
-function SearchEditClass({ title, query, setQuery, data, selected, setSelected, form, setForm, onSubmit, isSaving }: {
-  title: string; query: string; setQuery: (value: string) => void; data: ReturnType<typeof useClassesSectionsData>; selected: ClassItem | null; setSelected: (item: ClassItem) => void; form: { name: string; code: string; sections: SectionRow[] }; setForm: (value: { name: string; code: string; sections: SectionRow[] }) => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; isSaving: boolean;
-}) {
-  useEffect(() => { if (query.trim()) void data.searchClasses(query); }, [query, data]);
-  return (
-    <WorkflowShell title={title}>
-      <SearchInput query={query} setQuery={setQuery} placeholder="Search class name or code" />
-      <SuggestionList items={data.classes} onSelect={setSelected} />
-      {selected ? (
-        <form className="db-card db-form" onSubmit={(event) => void onSubmit(event)}>
-          <Field label="Class Name"><Input value={form.name} onChange={(name) => setForm({ ...form, name })} required /></Field>
-          <Field label="Class Code"><Input value={form.code} onChange={(code) => setForm({ ...form, code })} required /></Field>
-          <SectionRows sections={form.sections} onChange={(sections) => setForm({ ...form, sections })} />
-          <Submit isSaving={isSaving}>Update Class</Submit>
-        </form>
-      ) : null}
+      {dialog}
     </WorkflowShell>
   );
 }
@@ -357,6 +439,9 @@ function useClassesSectionsData() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [sections, setSections] = useState<SectionItem[]>([]);
+  const [classTotal, setClassTotal] = useState(0);
+  const [sectionTotal, setSectionTotal] = useState(0);
+  const [isCatalogLoading, setIsCatalogLoading] = useState(true);
 
   const fetchJson = useCallback(async <T,>(path: string) => {
     const response = await authFetch(path);
@@ -382,32 +467,68 @@ function useClassesSectionsData() {
     if (departmentId) params.set("departmentId", departmentId);
     setBranches((await fetchJson<PageResponse<Branch>>(`/api/branches?${params}`)).items);
   }, [fetchJson]);
-  const loadClasses = useCallback(async (branchId?: string) => {
+  const loadClasses = useCallback(async (branchIdOrFilters?: string | { campusId?: string; search?: string; branchId?: string }) => {
     const params = new URLSearchParams({ pageSize: "100" });
-    if (branchId) params.set("branchId", branchId);
-    setClasses((await fetchJson<PageResponse<ClassItem>>(`/api/classes?${params}`)).items);
+    if (typeof branchIdOrFilters === "string") {
+      if (branchIdOrFilters) params.set("branchId", branchIdOrFilters);
+    } else if (branchIdOrFilters) {
+      appendOwnedCampusFilter(params, branchIdOrFilters.campusId);
+      if (branchIdOrFilters.branchId) params.set("branchId", branchIdOrFilters.branchId);
+      if (branchIdOrFilters.search?.trim()) params.set("search", branchIdOrFilters.search.trim());
+    }
+    const page = await fetchJson<PageResponse<ClassItem>>(`/api/classes?${params}`);
+    setClasses(page.items);
+    setClassTotal(page.total);
+    return page.items;
   }, [fetchJson]);
-  const loadSections = useCallback(async (classId?: string) => {
+  const loadSections = useCallback(async (classIdOrFilters?: string | { campusId?: string; search?: string; classId?: string }) => {
     const params = new URLSearchParams({ pageSize: "100" });
-    if (classId) params.set("classId", classId);
-    setSections((await fetchJson<PageResponse<SectionItem>>(`/api/sections?${params}`)).items);
+    if (typeof classIdOrFilters === "string") {
+      if (classIdOrFilters) params.set("classId", classIdOrFilters);
+    } else if (classIdOrFilters) {
+      appendOwnedCampusFilter(params, classIdOrFilters.campusId);
+      if (classIdOrFilters.classId) params.set("classId", classIdOrFilters.classId);
+      if (classIdOrFilters.search?.trim()) params.set("search", classIdOrFilters.search.trim());
+    }
+    const page = await fetchJson<PageResponse<SectionItem>>(`/api/sections?${params}`);
+    setSections(page.items);
+    setSectionTotal(page.total);
+    return page.items;
   }, [fetchJson]);
-  const searchClasses = useCallback(async (search: string) => {
-    const params = new URLSearchParams({ pageSize: "20", search });
-    setClasses((await fetchJson<PageResponse<ClassItem>>(`/api/classes/search?${params}`)).items);
-  }, [fetchJson]);
-  const searchSections = useCallback(async (search: string) => {
-    const params = new URLSearchParams({ pageSize: "20", search });
-    setSections((await fetchJson<PageResponse<SectionItem>>(`/api/sections/search?${params}`)).items);
-  }, [fetchJson]);
+  const loadCatalog = useCallback(async (filters: { campusId?: string; classSearch?: string; sectionSearch?: string }) => {
+    setIsCatalogLoading(true);
+    try {
+      await Promise.all([
+        loadClasses({ campusId: filters.campusId, search: filters.classSearch }),
+        loadSections({ campusId: filters.campusId, search: filters.sectionSearch })
+      ]);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Unable to load existing records", "error");
+    } finally {
+      setIsCatalogLoading(false);
+    }
+  }, [loadClasses, loadSections, showToast]);
   const classDetails = useCallback((id: string) => fetchJson<ClassItem>(`/api/classes/${id}`), [fetchJson]);
-  const downloadExport = useCallback((id: string, format: string) => {
-    window.open(`/api/classes/${id}/export?format=${format}`, "_blank", "noopener,noreferrer");
-  }, []);
 
   useEffect(() => { void loadCampuses().catch((error) => showToast(error instanceof Error ? error.message : "Unable to load campuses", "error")); }, [loadCampuses, showToast]);
 
-  return { campuses, departments, branches, classes, sections, sendJson, loadDepartments, loadBranches, loadClasses, loadSections, searchClasses, searchSections, classDetails, downloadExport };
+  return {
+    campuses,
+    departments,
+    branches,
+    classes,
+    sections,
+    classTotal,
+    sectionTotal,
+    isCatalogLoading,
+    sendJson,
+    loadDepartments,
+    loadBranches,
+    loadClasses,
+    loadSections,
+    loadCatalog,
+    classDetails
+  };
 }
 
 function useCascadingLoad(data: ReturnType<typeof useClassesSectionsData>, campusId: string, departmentId: string, branchId: string, setPatch: (patch: Partial<{ campusId: string; departmentId: string; branchId: string }>) => void, includeClass = false) {
@@ -432,8 +553,6 @@ function useCascadingLoad(data: ReturnType<typeof useClassesSectionsData>, campu
 
 function WorkflowShell({ children, title, variant = "subpage" }: { children: ReactNode; title: string; variant?: "main" | "subpage" }) {
   const navigate = useNavigate();
-  const { user } = useAuth();
-  const initials = user?.fullName?.split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "CA";
   return (
     <main className="db-workflow min-h-screen">
       <header className="db-workflow-header">
@@ -442,8 +561,7 @@ function WorkflowShell({ children, title, variant = "subpage" }: { children: Rea
           <h1>{title}</h1>
         </div>
         <div className="db-header-actions">
-          {variant === "main" ? <><button className="db-icon-button" type="button"><Bell size={18} /></button></> : null}
-          <div className="db-avatar">{initials}</div>
+          <ProfileMenuButton />
         </div>
       </header>
       <section className="db-workflow-body">{children}</section>
@@ -478,17 +596,11 @@ function SectionRows({ sections, onChange }: { sections: SectionRow[]; onChange:
   );
 }
 
-function SearchInput({ query, setQuery, placeholder }: { query: string; setQuery: (value: string) => void; placeholder: string }) {
-  return <div className="db-search-bar"><Search size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={placeholder} /></div>;
-}
 
 function EmptyState({ children }: { children: ReactNode }) {
   return <p className="db-empty">{children}</p>;
 }
 
-function SuggestionList<T extends { id: string; name: string; code: string }>({ items, onSelect }: { items: T[]; onSelect: (item: T) => void }) {
-  return <div className="db-suggestions">{items.map((item) => <button key={item.id} type="button" onClick={() => onSelect(item)}><strong>{item.name}</strong><span>{item.code}</span></button>)}</div>;
-}
 
 function formatOptionLabel(code: string, name: string) {
   return code.replace(/[^A-Z0-9]/gi, "").toUpperCase() === name.replace(/[^A-Z0-9]/gi, "").toUpperCase()
@@ -496,23 +608,8 @@ function formatOptionLabel(code: string, name: string) {
     : `${code} - ${name}`;
 }
 
-function ClassResult({ item, onExport }: { item: ClassItem; onExport: (id: string, format: string) => void }) {
-  return (
-    <section className="db-card db-form">
-      <div className="db-result-head">
-        <div><h2>{item.name}</h2><p>{item.code}</p></div>
-        <div className="db-export-actions">{["excel", "google-sheets", "pdf", "docx"].map((format) => <button key={format} type="button" onClick={() => onExport(item.id, format)}><Download size={14} /> {format}</button>)}</div>
-      </div>
-      <p className="db-empty">Sections: {item.sections.map((section) => `${section.code} - ${section.name}`).join(", ") || "-"}</p>
-      <p className="db-empty">HTPO: {item.teachers?.htpo.join(", ") || "-"}</p>
-      <p className="db-empty">CTPO: {item.teachers?.ctpo.join(", ") || "-"}</p>
-      <p className="db-empty">STPO: {item.teachers?.stpo.join(", ") || "-"}</p>
-      <table className="db-table"><thead><tr><th>Student Name</th><th>Roll Number</th></tr></thead><tbody>{(item.students ?? []).map((student) => <tr key={student.id}><td>{student.fullName}</td><td>{student.rollNumber}</td></tr>)}</tbody></table>
-    </section>
-  );
-}
 
-function ActionGroup({ children, title }: { children: ReactNode; title: string }) { return <section className="db-section"><h2>{title}</h2><div className="db-module-grid">{children}</div></section>; }
+function ActionGroup({ children, title }: { children: ReactNode; title: string }) { return <WorkflowSection title={title}>{children}</WorkflowSection>; }
 function GlassButton({ children, onClick, tone = "default" }: { children: ReactNode; onClick: () => void; tone?: "default" | "danger" }) {
   return <OptionActionButton tone={tone} onClick={onClick}>{children}</OptionActionButton>;
 }

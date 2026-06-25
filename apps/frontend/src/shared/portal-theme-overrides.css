@@ -1,0 +1,1828 @@
+/**
+ * Portal theme bridge — light = admin ERP tokens; dark = dashboard blacks (#000 / #0a0a0a / #111).
+ * Beats global admin !important card rules inside .portal-root.
+ */
+
+/* ——— Light: inherit admin design system (same as /admin) ——— */
+.portal-root[data-portal-theme="light"] {
+  --erp-bg: rgb(255, 255, 255);
+  --erp-card: rgb(255, 255, 255);
+  --erp-text: #111827;
+  --erp-muted: #6b7280;
+  --erp-border: #dfe7f1;
+  --erp-shadow: 0 12px 28px rgb(15 23 42 / 8%);
+  background: var(--erp-bg);
+  color: var(--erp-text);
+}
+
+.portal-root[data-portal-theme="light"] .teacher-portal-content,
+.portal-root[data-portal-theme="light"] .teacher-portal-content-inner,
+.portal-root[data-portal-theme="light"] .student-portal-body,
+.portal-root[data-portal-theme="light"] .student-portal-body-inner,
+.portal-root[data-portal-theme="light"] .student-portal-layout,
+.portal-root[data-portal-theme="light"] .portal-page-body {
+  background: var(--erp-bg);
+  color: var(--erp-text);
+}
+
+/* Timetable sticky headers — solid (no bleed-through on scroll) */
+.portal-root[data-portal-theme="light"] .sp-tt-corner,
+.portal-root[data-portal-theme="light"] .sp-tt-dayhead,
+.portal-root[data-portal-theme="light"] .sp-tt-periodhead,
+.portal-root[data-portal-theme="light"] .sp-tt-daycol {
+  background-color: #ffffff !important;
+}
+
+.portal-root[data-portal-theme="light"] .sp-tt-colhead {
+  background-color: #ffffff !important;
+}
+
+.portal-root[data-portal-theme="light"] .sp-tt-td {
+  background-color: #ffffff;
+}
+
+.portal-root[data-portal-theme="dark"] .sp-tt-corner,
+.portal-root[data-portal-theme="dark"] .sp-tt-dayhead,
+.portal-root[data-portal-theme="dark"] .sp-tt-periodhead,
+.portal-root[data-portal-theme="dark"] .sp-tt-daycol {
+  background-color: #0a0a0a !important;
+}
+
+.portal-root[data-portal-theme="dark"] .sp-tt-colhead {
+  background-color: #0a0a0a !important;
+}
+
+/* Light uses global .db-section / .db-card admin rules — ensure headings stay ERP blue */
+.portal-root[data-portal-theme="light"] .db-section h2,
+.portal-root[data-portal-theme="light"] .portal-page-header-eyebrow {
+  color: var(--erp-blue) !important;
+}
+
+.portal-root[data-portal-theme="light"] .portal-page-header-title {
+  color: #0f172a !important;
+}
+
+.portal-root[data-portal-theme="light"] .portal-page-header-desc {
+  color: var(--erp-muted) !important;
+}
+
+/* ——— Dark: all module body content (not just dashboard) ——— */
+.portal-root[data-portal-theme="dark"] .teacher-portal-content,
+.portal-root[data-portal-theme="dark"] .teacher-portal-content-inner,
+.portal-root[data-portal-theme="dark"] .portal-page-body {
+  background: var(--bg);
+  color: var(--t1);
+}
+
+.portal-root[data-portal-theme="dark"] .db-workflow {
+  background: var(--bg) !important;
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .db-workflow-body {
+  background: transparent !important;
+}
+
+/* Cards / sections / panels — force dark surfaces */
+.portal-root[data-portal-theme="dark"] .db-section,
+.portal-root[data-portal-theme="dark"] .db-card,
+.portal-root[data-portal-theme="dark"] .db-panel,
+.portal-root[data-portal-theme="dark"] .admin-panel,
+.portal-root[data-portal-theme="dark"] .admin-stat-card,
+.portal-root[data-portal-theme="dark"] .teacher-step-card,
+.portal-root[data-portal-theme="dark"] .rounded-2xl.border.bg-white,
+.portal-root[data-portal-theme="dark"] .rounded-xl.border.bg-white,
+.portal-root[data-portal-theme="dark"] .rounded-xl.border.bg-slate-50,
+.portal-root[data-portal-theme="dark"] section.rounded-2xl.border,
+.portal-root[data-portal-theme="dark"] .tp-card {
+  border-color: var(--bd) !important;
+  border-radius: 13px !important;
+  background: var(--bg2) !important;
+  color: var(--t1) !important;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .db-section h2,
+.portal-root[data-portal-theme="dark"] .db-section h3,
+.portal-root[data-portal-theme="dark"] .db-branch-header h2,
+.portal-root[data-portal-theme="dark"] .portal-page-header-title {
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .portal-page-header-eyebrow {
+  color: var(--t3) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .portal-page-header-desc {
+  color: var(--t2) !important;
+}
+
+/* Tailwind utility overrides inside teacher portal */
+.portal-root[data-portal-theme="dark"] .text-slate-950,
+.portal-root[data-portal-theme="dark"] .text-slate-900,
+.portal-root[data-portal-theme="dark"] .text-slate-800,
+.portal-root[data-portal-theme="dark"] .text-slate-700,
+.portal-root[data-portal-theme="dark"] .font-extrabold.text-slate-950,
+.portal-root[data-portal-theme="dark"] .font-bold.text-slate-950 {
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .text-slate-600,
+.portal-root[data-portal-theme="dark"] .text-slate-500,
+.portal-root[data-portal-theme="dark"] .text-slate-400,
+.portal-root[data-portal-theme="dark"] .text-\[color\:var\(--erp-muted\)\] {
+  color: var(--t3) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .bg-white,
+.portal-root[data-portal-theme="dark"] .bg-slate-50 {
+  background: var(--bg3) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .border-\[rgb\(var\(--erp-blue-rgb\)\/10\%\)\],
+.portal-root[data-portal-theme="dark"] .border-\[rgb\(var\(--erp-blue-rgb\)\/12\%\)\],
+.portal-root[data-portal-theme="dark"] .border-slate-200 {
+  border-color: var(--bd) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .bg-\[var\(--erp-blue-soft\)\],
+.portal-root[data-portal-theme="dark"] [class*="erp-blue-soft"] {
+  background: var(--bg4) !important;
+  border-color: var(--bd2) !important;
+  color: var(--t2) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .text-\[color\:var\(--erp-blue\)\] {
+  color: var(--t1) !important;
+}
+
+/* Tables */
+.portal-root[data-portal-theme="dark"] table,
+.portal-root[data-portal-theme="dark"] thead,
+.portal-root[data-portal-theme="dark"] tbody,
+.portal-root[data-portal-theme="dark"] tr,
+.portal-root[data-portal-theme="dark"] th,
+.portal-root[data-portal-theme="dark"] td {
+  border-color: var(--bd) !important;
+  color: var(--t2) !important;
+}
+
+.portal-root[data-portal-theme="dark"] th {
+  background: var(--bg3) !important;
+  color: var(--t4) !important;
+}
+
+.portal-root[data-portal-theme="dark"] tr:hover td {
+  background: var(--bg4) !important;
+}
+
+/* Forms */
+.portal-root[data-portal-theme="dark"] .db-input,
+.portal-root[data-portal-theme="dark"] .db-select,
+.portal-root[data-portal-theme="dark"] select,
+.portal-root[data-portal-theme="dark"] textarea,
+.portal-root[data-portal-theme="dark"] input[type="text"],
+.portal-root[data-portal-theme="dark"] input[type="email"],
+.portal-root[data-portal-theme="dark"] input[type="password"],
+.portal-root[data-portal-theme="dark"] input[type="number"],
+.portal-root[data-portal-theme="dark"] input[type="date"],
+.portal-root[data-portal-theme="dark"] input[type="search"] {
+  border-color: var(--bd2) !important;
+  background: var(--bg3) !important;
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .db-empty,
+.portal-root[data-portal-theme="dark"] .db-muted {
+  color: var(--t4) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .db-quick-stat {
+  border-color: var(--bd) !important;
+  background: var(--bg2) !important;
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .db-quick-stat span {
+  color: var(--t4) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .db-quick-stat strong {
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .db-info {
+  border-color: var(--bd2) !important;
+  background: var(--bg3) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .db-info span {
+  color: var(--t3) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .db-info strong {
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .db-archive-summary {
+  border: 1px solid rgb(248 113 113 / 22%) !important;
+  background: rgb(127 29 29 / 16%) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .db-archive-summary p {
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .db-archive-summary span {
+  color: var(--t3) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .db-archive-summary button {
+  background: #dc2626 !important;
+  color: #ffffff !important;
+}
+
+.portal-root[data-portal-theme="dark"] .db-archive-summary button:hover:not(:disabled) {
+  background: #b91c1c !important;
+}
+
+/* Buttons — keep readable on dark */
+.portal-root[data-portal-theme="dark"] .db-wf-btn--primary,
+.portal-root[data-portal-theme="dark"] .db-submit {
+  background: var(--inv) !important;
+  color: var(--inv-t) !important;
+  border-color: var(--inv) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .db-wf-btn:not(.db-wf-btn--primary) {
+  border-color: var(--bd2) !important;
+  background: var(--bg3) !important;
+  color: var(--t2) !important;
+}
+
+.portal-root[data-portal-theme="light"] .db-form-actions .db-wf-btn--primary,
+.portal-root[data-portal-theme="light"] .ann-form-shell .db-wf-actions .db-wf-btn--primary,
+.portal-root[data-portal-theme="light"] .db-form .db-wf-actions .db-wf-btn--primary {
+  border-color: var(--erp-blue) !important;
+  background: var(--erp-blue) !important;
+  color: #ffffff !important;
+}
+
+.portal-root[data-portal-theme="dark"] .db-form-actions .db-wf-btn--primary,
+.portal-root[data-portal-theme="dark"] .ann-form-shell .db-wf-actions .db-wf-btn--primary,
+.portal-root[data-portal-theme="dark"] .db-form .db-wf-actions .db-wf-btn--primary {
+  border-color: var(--inv) !important;
+  background: var(--inv) !important;
+  color: var(--inv-t) !important;
+}
+
+.portal-root .portal-engage-workflow .ann-form-shell .db-form-actions {
+  margin-top: 4px;
+  padding-bottom: clamp(8px, 2vw, 16px);
+}
+
+.portal-root .portal-engage-workflow .ann-scope-card .erp-searchable-select {
+  position: relative;
+  z-index: 2;
+}
+
+.portal-root .portal-engage-workflow .ann-scope-card .erp-select-trigger:not(:disabled) {
+  cursor: pointer;
+}
+
+/* Wizard steps + scope cards — flat portal surfaces (no white gradient fades) */
+.portal-root[data-portal-theme="dark"] .ann-wizard-steps,
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .ann-wizard-steps,
+.portal-root[data-portal-theme="dark"] .ann-workflow .ann-wizard-steps {
+  border-color: var(--bd2) !important;
+  background: var(--bg2) !important;
+  box-shadow: none !important;
+}
+
+.portal-root[data-portal-theme="dark"] .ann-wizard-step {
+  border-color: var(--bd2) !important;
+  background: var(--bg3) !important;
+  color: var(--t3) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .ann-wizard-step-num {
+  background: var(--bg4) !important;
+  color: var(--t2) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .ann-wizard-step.is-active {
+  border-color: var(--inv) !important;
+  background: var(--inv) !important;
+  color: var(--inv-t) !important;
+  box-shadow: none !important;
+}
+
+.portal-root[data-portal-theme="dark"] .ann-wizard-step.is-active .ann-wizard-step-num {
+  background: rgb(255 255 255 / 18%) !important;
+  color: var(--inv-t) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .ann-wizard-step.is-complete {
+  border-color: var(--bd3) !important;
+  background: var(--bg4) !important;
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .ann-wizard-step.is-complete .ann-wizard-step-num {
+  background: var(--inv) !important;
+  color: var(--inv-t) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .ann-scope-card,
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .ann-scope-card {
+  border-color: var(--bd2) !important;
+  background: var(--bg2) !important;
+  box-shadow: none !important;
+}
+
+.portal-root[data-portal-theme="dark"] .ann-scope-card > p,
+.portal-root[data-portal-theme="dark"] .ann-step-lead {
+  color: var(--t1) !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+}
+
+.portal-root[data-portal-theme="dark"] .fb-question-card,
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .fb-question-card,
+.portal-root[data-portal-theme="dark"] .ann-workflow .fb-question-card {
+  border-color: var(--bd2) !important;
+  background: var(--bg3) !important;
+  box-shadow: none !important;
+}
+
+.portal-root[data-portal-theme="dark"] .fb-question-card .db-icon-button {
+  border-color: var(--bd2) !important;
+  background: var(--bg4) !important;
+  color: var(--t1) !important;
+  box-shadow: none !important;
+}
+
+.portal-root[data-portal-theme="dark"] .fb-question-card .db-icon-button svg {
+  stroke: currentColor;
+}
+
+.portal-root[data-portal-theme="dark"] .fb-question-card .db-icon-button:hover:not(:disabled) {
+  background: var(--bg2) !important;
+  transform: none !important;
+}
+
+.portal-root[data-portal-theme="dark"] .fb-question-card .fb-question-card-delete {
+  color: #f87171 !important;
+}
+
+.portal-root[data-portal-theme="dark"] .fb-question-card .fb-question-card-delete:hover:not(:disabled) {
+  background: rgb(127 29 29 / 22%) !important;
+  border-color: rgb(248 113 113 / 35%) !important;
+  color: #fca5a5 !important;
+}
+
+.portal-root[data-portal-theme="dark"] .erp-required-toggle {
+  border-color: var(--bd2) !important;
+  background: var(--bg4) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .erp-required-toggle-label {
+  color: var(--t3) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .fb-form-options label {
+  color: var(--t2) !important;
+}
+
+.portal-root[data-portal-theme="light"] .fb-question-card {
+  border-color: #e2e8f0 !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
+}
+
+.portal-root[data-portal-theme="light"] .fb-question-card .db-icon-button {
+  border-color: #cbd5e1 !important;
+  background: rgb(255, 255, 255) !important;
+  color: #0f172a !important;
+  box-shadow: none !important;
+}
+
+.portal-root[data-portal-theme="light"] .fb-question-card .db-icon-button svg {
+  stroke: currentColor;
+}
+
+.portal-root[data-portal-theme="light"] .fb-question-card .fb-question-card-delete {
+  color: #dc2626 !important;
+}
+
+.portal-root[data-portal-theme="light"] .fb-question-card .fb-question-card-delete:hover:not(:disabled) {
+  background: #fef2f2 !important;
+  border-color: #fecaca !important;
+  color: #b91c1c !important;
+}
+
+.portal-root[data-portal-theme="light"] .ann-wizard-steps,
+.portal-root[data-portal-theme="light"] .portal-engage-workflow .ann-wizard-steps {
+  border-color: #e2e8f0 !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
+}
+
+.portal-root[data-portal-theme="light"] .ann-wizard-step {
+  border-color: #e2e8f0 !important;
+  background: rgb(255, 255, 255) !important;
+  color: #64748b !important;
+}
+
+.portal-root[data-portal-theme="light"] .ann-wizard-step.is-active {
+  border-color: var(--erp-blue) !important;
+  background: var(--erp-blue) !important;
+  color: #ffffff !important;
+  box-shadow: none !important;
+}
+
+.portal-root[data-portal-theme="light"] .ann-scope-card,
+.portal-root[data-portal-theme="light"] .portal-engage-workflow .ann-scope-card {
+  border-color: #e2e8f0 !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
+}
+
+.portal-root[data-portal-theme="dark"] .erp-file-picker-trigger {
+  border-color: var(--bd2) !important;
+  background: var(--bg3) !important;
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .erp-file-picker-trigger-hint {
+  color: var(--t3) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .ann-content-card.db-form,
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .db-card.db-form {
+  border: 1px solid var(--bd2) !important;
+  background: var(--bg2) !important;
+  color: var(--t1) !important;
+}
+
+/* SearchableSelect — use portal dark surfaces, not admin white */
+.portal-root[data-portal-theme="dark"] .erp-select-trigger {
+  min-height: 48px;
+  border: 1px solid var(--bd2) !important;
+  border-radius: 12px !important;
+  background: var(--bg3) !important;
+  color: var(--t1) !important;
+  box-shadow: none !important;
+}
+
+.portal-root[data-portal-theme="dark"] .ann-workflow .erp-select-trigger,
+.portal-root[data-portal-theme="dark"] .ann-form-shell .erp-select-trigger,
+.portal-root[data-portal-theme="light"] .ann-workflow .erp-select-trigger,
+.portal-root[data-portal-theme="light"] .ann-form-shell .erp-select-trigger {
+  min-height: 44px !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+}
+
+.portal-root[data-portal-theme="dark"] .erp-select-trigger:hover,
+.portal-root[data-portal-theme="dark"] .erp-select-trigger.open,
+.portal-root[data-portal-theme="dark"] .erp-searchable-select:focus-within .erp-select-trigger {
+  border-color: var(--bd3) !important;
+  box-shadow: 0 0 0 2px var(--accent-bg) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .erp-select-value,
+.portal-root[data-portal-theme="dark"] .erp-select-search-trigger input {
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .erp-select-placeholder,
+.portal-root[data-portal-theme="dark"] .erp-select-search-trigger input::placeholder {
+  color: var(--t3) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .erp-select-actions,
+.portal-root[data-portal-theme="dark"] .erp-select-chevron {
+  color: var(--t2) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .erp-select-clear {
+  background: var(--bg4) !important;
+  color: var(--t2) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .erp-select-panel {
+  border: 1px solid var(--bd2) !important;
+  border-radius: 12px !important;
+  background: var(--bg3) !important;
+  box-shadow: 0 16px 40px rgb(0 0 0 / 45%) !important;
+}
+
+/* Portaled to document.body — keep dark theme when outside .portal-root */
+html[data-portal-theme="light"] .erp-select-panel--portal {
+  border: 1px solid rgb(0 75 141 / 14%) !important;
+  background: #ffffff !important;
+  color: #172033 !important;
+  font-size: 13px !important;
+}
+
+html[data-portal-theme="light"] .erp-select-panel--portal .erp-select-option {
+  font-size: 13px !important;
+  font-weight: 600 !important;
+}
+
+html[data-portal-theme="light"] .erp-select-panel--portal .erp-select-option strong {
+  font-size: inherit !important;
+  font-weight: inherit !important;
+  color: inherit !important;
+}
+
+html[data-portal-theme="dark"] .erp-select-panel--portal {
+  border: 1px solid #2a2a2e !important;
+  border-radius: 12px !important;
+  background: #141416 !important;
+  box-shadow: 0 16px 40px rgb(0 0 0 / 45%) !important;
+}
+
+html[data-portal-theme="dark"] .erp-select-panel--portal .erp-select-search {
+  border-bottom: 1px solid #222226 !important;
+  background: #0a0a0b !important;
+}
+
+html[data-portal-theme="dark"] .erp-select-panel--portal .erp-select-search input {
+  color: #f4f4f5 !important;
+  background: transparent !important;
+}
+
+html[data-portal-theme="dark"] .erp-select-panel--portal .erp-select-option {
+  color: #f4f4f5 !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+}
+
+html[data-portal-theme="dark"] .erp-select-panel--portal .erp-select-option strong {
+  color: #f4f4f5 !important;
+  font-size: inherit !important;
+  font-weight: inherit !important;
+}
+
+html[data-portal-theme="dark"] .erp-select-panel--portal .erp-select-option small {
+  color: #71717a !important;
+}
+
+html[data-portal-theme="dark"] .erp-select-panel--portal .erp-select-option:hover,
+html[data-portal-theme="dark"] .erp-select-panel--portal .erp-select-option.active {
+  background: #222226 !important;
+}
+
+html[data-portal-theme="dark"] .erp-select-panel--portal .erp-select-option.selected {
+  background: #2a2a2e !important;
+  color: #f4f4f5 !important;
+}
+
+html[data-portal-theme="dark"] .erp-select-panel--portal .erp-select-state {
+  color: #71717a !important;
+}
+
+.portal-root[data-portal-theme="dark"] .erp-select-search {
+  border-bottom: 1px solid var(--bd) !important;
+  background: var(--bg2) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .erp-select-search input {
+  color: var(--t1) !important;
+  background: transparent !important;
+}
+
+.portal-root[data-portal-theme="dark"] .erp-select-option {
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .erp-select-option strong {
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .erp-select-option small {
+  color: var(--t3) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .erp-select-option:hover,
+.portal-root[data-portal-theme="dark"] .erp-select-option.active {
+  background: var(--bg4) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .erp-select-option.selected {
+  background: var(--accent-bg) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .erp-select-state {
+  color: var(--t3) !important;
+}
+
+.portal-root[data-portal-theme="dark"] input[type="time"] {
+  color-scheme: dark;
+}
+
+/* Skeletons / buffers */
+.portal-root[data-portal-theme="dark"] .teacher-portal-skel,
+.portal-root[data-portal-theme="dark"] .skeleton,
+.portal-root[data-portal-theme="dark"] .skel,
+.portal-root[data-portal-theme="dark"] [class*="skel-"],
+.portal-root[data-portal-theme="dark"] [class*="-skel"] {
+  background: var(--skeleton) !important;
+  background-size: 200% 100% !important;
+}
+
+.portal-root[data-portal-theme="dark"] .skeleton::after {
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 6%), transparent) !important;
+}
+
+/* KPI / tiles on dashboard */
+.portal-root[data-portal-theme="dark"] .teacher-portal-tile {
+  border-color: var(--bd) !important;
+  background: var(--bg2) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .teacher-portal-tile:hover {
+  border-color: var(--inv) !important;
+  background: var(--bg3) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .teacher-portal-tile-label {
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .teacher-portal-tile-desc {
+  color: var(--t3) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .teacher-portal-tile-icon {
+  border-color: var(--bd2) !important;
+  background: var(--bg3) !important;
+  color: var(--t1) !important;
+}
+
+/* ——— Toasts when portal is in dark mode (rendered at body level) ——— */
+html[data-portal-theme="dark"] .erp-toast {
+  border: 1px solid var(--bd2) !important;
+  border-radius: 10px !important;
+  background: #0a0a0a !important;
+  color: var(--t1) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65) !important;
+  backdrop-filter: none !important;
+}
+
+html[data-portal-theme="dark"] .erp-toast-content p {
+  color: var(--t1) !important;
+}
+
+html[data-portal-theme="dark"] .erp-toast-content button {
+  background: var(--bg4) !important;
+  color: var(--t3) !important;
+}
+
+html[data-portal-theme="dark"] .erp-toast-icon {
+  background: var(--bg4) !important;
+  color: var(--t1) !important;
+  border: 1px solid var(--bd2);
+}
+
+html[data-portal-theme="dark"] .erp-toast-danger .erp-toast-icon {
+  background: #3f1515 !important;
+  color: #fca5a5 !important;
+}
+
+html[data-portal-theme="dark"] .toast-progress {
+  background: #333 !important;
+}
+
+html[data-portal-theme="dark"] {
+  --bg: #000;
+  --bg2: #0a0a0a;
+  --bg3: #111;
+  --bg4: #1a1a1a;
+  --bd: #2a2a2a;
+  --bd2: #333;
+  --t1: #f0f0f0;
+  --t2: #ccc;
+  --t3: #888;
+  --t4: #555;
+  --inv: #fff;
+  --inv-t: #000;
+  --skeleton: linear-gradient(90deg, #1a1a1a 0%, #222 50%, #1a1a1a 100%);
+}
+
+/* ——— Portal semantic text/surfaces (dashboard + lists) ——— */
+.portal-text-muted {
+  color: var(--erp-muted, var(--t3));
+}
+
+.portal-text-strong {
+  color: var(--erp-text, var(--t1));
+}
+
+.portal-list-row {
+  border-color: rgb(var(--erp-blue-rgb, 0 75 141) / 10%);
+}
+
+.portal-role-pill {
+  border-color: var(--erp-border, var(--bd));
+  background: var(--erp-blue-soft, var(--bg4));
+  color: var(--erp-blue, var(--t1));
+}
+
+.portal-scope-row {
+  border-color: rgb(var(--erp-blue-rgb, 0 75 141) / 8%);
+}
+
+.portal-root[data-portal-theme="dark"] .portal-text-muted {
+  color: var(--t3) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .portal-text-strong {
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .portal-list-row {
+  border-color: var(--bd) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .portal-role-pill {
+  border-color: var(--bd2) !important;
+  background: var(--bg3) !important;
+  color: var(--t2) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .portal-scope-row {
+  border-color: var(--bd) !important;
+}
+
+/* ——— Dark: extra admin panel surfaces (attendance, finance, reports, etc.) ——— */
+.portal-root[data-portal-theme="dark"] .portal-module-page,
+.portal-root[data-portal-theme="dark"] .portal-page-header {
+  color: var(--t1);
+}
+
+.portal-root[data-portal-theme="dark"] .rounded-2xl.border,
+.portal-root[data-portal-theme="dark"] .rounded-xl.border,
+.portal-root[data-portal-theme="dark"] section.rounded-2xl,
+.portal-root[data-portal-theme="dark"] .overflow-hidden.rounded-xl.border {
+  border-color: var(--bd) !important;
+  background: var(--bg2) !important;
+  color: var(--t1) !important;
+  box-shadow: none !important;
+}
+
+.portal-root[data-portal-theme="dark"] .shadow-sm,
+.portal-root[data-portal-theme="dark"] .shadow-md {
+  box-shadow: none !important;
+}
+
+.portal-root[data-portal-theme="dark"] .bg-slate-50,
+.portal-root[data-portal-theme="dark"] .bg-slate-100,
+.portal-root[data-portal-theme="dark"] .erp-admin-form {
+  border-color: var(--bd) !important;
+  background: var(--bg3) !important;
+  color: var(--t2) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .text-slate-300 {
+  color: var(--t4) !important;
+}
+
+.portal-root[data-portal-theme="dark"] h2.text-xl,
+.portal-root[data-portal-theme="dark"] h3.text-sm,
+.portal-root[data-portal-theme="dark"] .text-xl.font-bold {
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .db-field label,
+.portal-root[data-portal-theme="dark"] label.db-field {
+  color: var(--t3) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .db-table-wrap,
+.portal-root[data-portal-theme="dark"] .admin-table,
+.portal-root[data-portal-theme="dark"] .db-table {
+  border-color: var(--bd) !important;
+  background: var(--bg2) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .student-management-root,
+.portal-root[data-portal-theme="dark"] .student-management-panel,
+.portal-root[data-portal-theme="dark"] .student-management-table {
+  border-color: var(--bd) !important;
+  background: var(--bg2) !important;
+  box-shadow: none !important;
+}
+
+.portal-root[data-portal-theme="dark"] .ann-list-card,
+.portal-root[data-portal-theme="dark"] .ann-workflow,
+.portal-root[data-portal-theme="dark"] .ann-workflow-body {
+  background: var(--bg) !important;
+  color: var(--t1) !important;
+}
+
+/* Feedback report cards — admin ann-workflow (no portal shell) */
+.ann-workflow .fb-report-hero,
+.ann-workflow .fb-report-q {
+  box-shadow: none !important;
+}
+
+.portal-root[data-portal-theme="dark"] .ann-pagination {
+  border: 1px solid var(--bd2) !important;
+  background: var(--bg2) !important;
+  color: var(--t1) !important;
+  box-shadow: none !important;
+}
+
+.portal-root[data-portal-theme="dark"] .skeleton,
+.portal-root[data-portal-theme="dark"] .teacher-portal-skeleton {
+  background: var(--bg) !important;
+}
+
+.portal-root[data-portal-theme="dark"] button.rounded-lg.bg-slate-100 {
+  border: 1px solid var(--bd2) !important;
+  background: var(--bg3) !important;
+  color: var(--t2) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .db-wf-btn--danger,
+.portal-root[data-portal-theme="dark"] .erp-confirm-danger {
+  color: #fca5a5 !important;
+}
+
+/* Dark shell: same admin layout (.erp-topbar / .erp-sidebar), monochrome colors only */
+.portal-root[data-portal-theme="dark"] .erp-topbar,
+.portal-root[data-portal-theme="dark"] .db-workflow-header {
+  background: var(--bg2) !important;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 35%) !important;
+  border-radius: 0 !important;
+}
+
+.portal-root[data-portal-theme="dark"] .erp-header-title,
+.portal-root[data-portal-theme="dark"] .erp-topbar-title,
+.portal-root[data-portal-theme="dark"] .db-header-left h1 {
+  color: var(--t1) !important;
+  font-size: clamp(20px, 2.2vw, 25px) !important;
+  font-weight: 1000 !important;
+  letter-spacing: -0.04em !important;
+}
+
+.portal-root[data-portal-theme="dark"] .erp-header-subtitle {
+  color: var(--t3) !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+}
+
+.portal-root[data-portal-theme="dark"] .erp-page-pill {
+  background: var(--bg4) !important;
+  color: var(--t2) !important;
+  font-size: 10px !important;
+  font-weight: 900 !important;
+}
+
+.portal-root[data-portal-theme="dark"] .erp-menu-toggle,
+.portal-root[data-portal-theme="dark"] .erp-icon-button {
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .erp-menu-toggle:hover,
+.portal-root[data-portal-theme="dark"] .erp-icon-button:hover {
+  background: var(--bg4) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .erp-mobile-drawer {
+  background: var(--bg2) !important;
+  border-color: var(--bd) !important;
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .teacher-portal-main,
+.portal-root[data-portal-theme="dark"] .student-portal-main,
+.portal-root[data-portal-theme="dark"] .teacher-portal-content,
+.portal-root[data-portal-theme="dark"] .teacher-portal-content-inner,
+.portal-root[data-portal-theme="dark"] .student-portal-body,
+.portal-root[data-portal-theme="dark"] .student-portal-body-inner,
+.portal-root[data-portal-theme="dark"] .htpo-edit-tt-page-wrap {
+  background: var(--bg) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .teacher-portal-layout,
+.portal-root[data-portal-theme="dark"] .student-portal-layout {
+  min-height: 100dvh;
+  background: var(--bg) !important;
+}
+
+.portal-root .htpo-edit-tt-page .erp-select-trigger {
+  min-height: 44px;
+  border-radius: 12px;
+}
+
+.portal-root .htpo-edit-tt-page .db-input {
+  min-height: 44px;
+  box-sizing: border-box;
+}
+
+.portal-root .htpo-edit-tt-page .erp-time-select .erp-select-trigger {
+  min-height: 44px;
+  border-radius: 12px;
+}
+
+.portal-root[data-portal-theme="dark"] .erp-time-select__sep {
+  color: var(--t2, #94a3b8);
+}
+
+/* Light: teacher KPI/cards match admin panel metrics */
+.portal-root[data-portal-theme="light"] .tp-card,
+.portal-root[data-portal-theme="light"] .tp-kpi {
+  border-color: #e6ebf2 !important;
+  border-radius: 13px !important;
+  background: #ffffff !important;
+  box-shadow: 0 8px 24px rgb(15 23 42 / 4%) !important;
+}
+
+.portal-root[data-portal-theme="light"] .tp-card-title {
+  font-size: 14px !important;
+  font-weight: 900 !important;
+  color: var(--erp-blue) !important;
+}
+
+.portal-root[data-portal-theme="light"] .tp-kpi-label {
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  letter-spacing: normal !important;
+  text-transform: none !important;
+  color: #64748b !important;
+}
+
+.portal-root[data-portal-theme="light"] .tp-kpi-value {
+  font-size: 28px !important;
+  font-weight: 800 !important;
+  color: #111827 !important;
+}
+
+/* Dark: same sizes as light/admin, dark palette only */
+.portal-root[data-portal-theme="dark"] .tp-card,
+.portal-root[data-portal-theme="dark"] .tp-kpi {
+  border-radius: 13px !important;
+}
+
+.portal-root[data-portal-theme="dark"] .tp-card-title {
+  font-size: 14px !important;
+  font-weight: 900 !important;
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .tp-kpi-label {
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  letter-spacing: normal !important;
+  text-transform: none !important;
+  color: var(--t3) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .tp-kpi-value {
+  font-size: 28px !important;
+  font-weight: 800 !important;
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="light"] .htpo-dashboard-title {
+  color: #111827 !important;
+}
+
+.portal-root[data-portal-theme="dark"] .htpo-sections-view-btn {
+  border-color: var(--bd2) !important;
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .htpo-sections-view-btn:hover {
+  background: var(--bg3) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .htpo-att-custom-overlay {
+  background: rgb(0 0 0 / 62%) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .htpo-att-custom-modal {
+  background: var(--bg2) !important;
+  border-color: var(--bd2) !important;
+  box-shadow: 0 24px 60px rgb(0 0 0 / 45%) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .htpo-att-custom-cancel {
+  border-color: var(--bd2) !important;
+  color: var(--t2) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .htpo-att-custom-cancel:hover {
+  background: var(--bg3) !important;
+}
+
+/* HTPO attendance — dark theme stays monochrome (no blue accents) */
+.portal-root[data-portal-theme="dark"] .htpo-section-att-card .erp-select-trigger,
+.portal-root[data-portal-theme="dark"] .htpo-att-custom-modal .erp-select-trigger,
+.portal-root[data-portal-theme="dark"] .htpo-att-period-select .erp-select-trigger {
+  border-color: var(--bd2) !important;
+  background: var(--bg3) !important;
+  box-shadow: none !important;
+}
+
+.portal-root[data-portal-theme="dark"] .htpo-section-att-card .erp-select-trigger:hover,
+.portal-root[data-portal-theme="dark"] .htpo-section-att-card .erp-select-trigger.open,
+.portal-root[data-portal-theme="dark"] .htpo-att-custom-modal .erp-select-trigger:hover,
+.portal-root[data-portal-theme="dark"] .htpo-att-custom-modal .erp-select-trigger.open,
+.portal-root[data-portal-theme="dark"] .htpo-att-period-select .erp-select-trigger:hover,
+.portal-root[data-portal-theme="dark"] .htpo-att-period-select .erp-select-trigger.open,
+.portal-root[data-portal-theme="dark"] .htpo-section-att-card .erp-searchable-select:focus-within .erp-select-trigger,
+.portal-root[data-portal-theme="dark"] .htpo-att-custom-modal .erp-searchable-select:focus-within .erp-select-trigger,
+.portal-root[data-portal-theme="dark"] .htpo-att-period-select .erp-searchable-select:focus-within .erp-select-trigger {
+  border-color: var(--bd3) !important;
+  box-shadow: none !important;
+}
+
+.portal-root[data-portal-theme="dark"] .htpo-att-period-edit {
+  color: var(--t2) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .htpo-att-custom-apply {
+  background: var(--inv) !important;
+  color: var(--inv-t) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .htpo-att-custom-apply:disabled {
+  opacity: 0.45 !important;
+}
+
+.portal-root[data-portal-theme="light"] .htpo-att-custom-modal {
+  background: #ffffff !important;
+  border-color: #dbe3ef !important;
+}
+
+.portal-root[data-portal-theme="light"] .htpo-att-custom-overlay {
+  background: rgb(15 23 42 / 38%) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .teacher-portal-panel-wrap > section,
+.portal-root[data-portal-theme="dark"] .teacher-portal-panel-wrap > .erp-admin-panel {
+  background: var(--bg2) !important;
+  border-color: var(--bd2) !important;
+}
+
+.portal-root[data-portal-theme="light"] .teacher-portal-module-title {
+  color: #111827 !important;
+}
+
+.portal-root[data-portal-theme="light"] .htpo-timetable-card .tp-card-title {
+  color: var(--erp-blue) !important;
+}
+
+/* Toast progress “buffer” track on dark */
+html[data-portal-theme="dark"] .erp-toast-success .toast-progress,
+html[data-portal-theme="dark"] .erp-toast-info .toast-progress,
+html[data-portal-theme="dark"] .erp-toast-error .toast-progress,
+html[data-portal-theme="dark"] .erp-toast-warning .toast-progress,
+html[data-portal-theme="dark"] .erp-toast-danger .toast-progress {
+  background: var(--bd2) !important;
+}
+
+html[data-portal-theme="dark"] .erp-toast .toast-progress {
+  background: #2a2a2a !important;
+}
+
+/* File picker — portaled to body, outside .portal-root */
+html[data-portal-theme="dark"] .erp-file-picker-overlay {
+  background: rgb(0 0 0 / 58%) !important;
+  backdrop-filter: blur(8px);
+}
+
+html[data-portal-theme="dark"] .erp-file-picker-dialog.erp-export-dialog {
+  border: 1px solid #3f3f46 !important;
+  background: #18181b !important;
+  box-shadow: 0 24px 60px rgb(0 0 0 / 45%) !important;
+  color: #f4f4f5 !important;
+}
+
+html[data-portal-theme="dark"] .erp-file-picker-dialog .erp-export-dialog-head h2 {
+  color: #f4f4f5 !important;
+}
+
+html[data-portal-theme="dark"] .erp-file-picker-dialog .erp-export-dialog-lead {
+  color: #a1a1aa !important;
+}
+
+html[data-portal-theme="dark"] .erp-file-picker-dialog .erp-export-option {
+  border: 1px solid #3f3f46 !important;
+  background: #27272a !important;
+  color: #f4f4f5 !important;
+}
+
+html[data-portal-theme="dark"] .erp-file-picker-dialog .erp-export-option:hover:not(:disabled) {
+  background: #323238 !important;
+  border-color: #52525b !important;
+}
+
+html[data-portal-theme="dark"] .erp-file-picker-dialog .erp-export-option--muted {
+  color: #d4d4d8 !important;
+}
+
+html[data-portal-theme="dark"] .erp-file-picker-dialog .db-icon-button {
+  border: 1px solid #3f3f46 !important;
+  background: #27272a !important;
+  color: #a1a1aa !important;
+}
+
+html[data-portal-theme="dark"] .erp-file-picker-cancel-link {
+  color: #e4e4e7 !important;
+}
+
+html[data-portal-theme="dark"] .erp-file-picker-cancel-link:hover {
+  color: #ffffff !important;
+}
+
+html[data-portal-theme="light"] .erp-file-picker-overlay {
+  background: rgb(15 23 42 / 40%) !important;
+}
+
+/* Export / completion dialogs — portaled to body, outside .portal-root */
+html[data-portal-theme="dark"] .erp-confirm-overlay {
+  background: rgb(0 0 0 / 58%) !important;
+  backdrop-filter: blur(8px);
+}
+
+html[data-portal-theme="dark"] .erp-export-dialog:not(.erp-file-picker-dialog) {
+  border: 1px solid #333 !important;
+  background: #0a0a0a !important;
+  box-shadow: 0 24px 60px rgb(0 0 0 / 55%) !important;
+  color: #f0f0f0 !important;
+}
+
+html[data-portal-theme="dark"] .erp-export-dialog:not(.erp-file-picker-dialog) .erp-export-dialog-head h2 {
+  color: #f0f0f0 !important;
+}
+
+html[data-portal-theme="dark"] .erp-export-dialog:not(.erp-file-picker-dialog) .erp-export-dialog-lead,
+html[data-portal-theme="dark"] .erp-export-dialog:not(.erp-file-picker-dialog) .erp-export-dialog-lead .text-slate-600 {
+  color: #888 !important;
+}
+
+html[data-portal-theme="dark"] .erp-export-dialog:not(.erp-file-picker-dialog) .erp-export-dialog-lead strong {
+  color: #f0f0f0 !important;
+}
+
+html[data-portal-theme="dark"] .erp-export-dialog:not(.erp-file-picker-dialog) .erp-export-option {
+  border: 1px solid #3f3f46 !important;
+  background: #27272a !important;
+  color: #f4f4f5 !important;
+}
+
+html[data-portal-theme="dark"] .erp-export-dialog:not(.erp-file-picker-dialog) .erp-export-option:hover:not(:disabled) {
+  background: #323238 !important;
+  border-color: #52525b !important;
+}
+
+html[data-portal-theme="dark"] .fb-export-option-desc {
+  color: #888 !important;
+}
+
+html[data-portal-theme="light"] .fb-export-option-desc {
+  color: #64748b !important;
+}
+
+html[data-portal-theme="dark"] .erp-export-dialog:not(.erp-file-picker-dialog) .db-icon-button {
+  border: 1px solid #333 !important;
+  background: #111 !important;
+  color: #ccc !important;
+}
+
+html[data-portal-theme="dark"] .erp-export-dialog:not(.erp-file-picker-dialog) .db-icon-button:hover {
+  background: #1a1a1a !important;
+  border-color: #444 !important;
+  color: #f0f0f0 !important;
+}
+
+html[data-portal-theme="dark"] .fb-completion-tabs button {
+  border-color: #333 !important;
+  background: #111 !important;
+  color: #888 !important;
+}
+
+html[data-portal-theme="dark"] .fb-completion-tabs button.is-active {
+  border-color: #f0f0f0 !important;
+  background: rgba(255 255 255 / 8%) !important;
+  color: #f0f0f0 !important;
+}
+
+html[data-portal-theme="dark"] .fb-completion-list {
+  border-color: #333 !important;
+  background: #111 !important;
+}
+
+html[data-portal-theme="dark"] .fb-completion-list th {
+  background: #1a1a1a !important;
+  color: #888 !important;
+}
+
+html[data-portal-theme="dark"] .fb-completion-list th,
+html[data-portal-theme="dark"] .fb-completion-list td {
+  border-bottom-color: #2a2a2a !important;
+  color: #f0f0f0 !important;
+}
+
+html[data-portal-theme="dark"] .fb-completion-list .text-slate-500 {
+  color: #888 !important;
+}
+
+html[data-portal-theme="dark"] .fb-completion-dialog .db-wf-btn:not(.db-wf-btn--primary) {
+  border-color: #333 !important;
+  background: #111 !important;
+  color: #ccc !important;
+}
+
+html[data-portal-theme="dark"] .fb-completion-dialog .db-wf-btn:not(.db-wf-btn--primary):hover:not(:disabled) {
+  background: #1a1a1a !important;
+  border-color: #444 !important;
+  color: #f0f0f0 !important;
+}
+
+html[data-portal-theme="dark"] .fb-completion-dialog .db-wf-btn--primary {
+  border-color: #ffffff !important;
+  background: #ffffff !important;
+  color: #000000 !important;
+}
+
+html[data-portal-theme="dark"] .fb-completion-dialog .db-wf-btn--primary:hover:not(:disabled) {
+  background: #e4e4e7 !important;
+  border-color: #e4e4e7 !important;
+  color: #000000 !important;
+}
+
+html[data-portal-theme="dark"] .fb-completion-dialog .db-wf-btn--primary svg {
+  stroke: currentColor;
+}
+
+html[data-portal-theme="light"] .fb-completion-tabs button {
+  border-color: rgb(148 163 184 / 35%) !important;
+  background: #ffffff !important;
+  color: #64748b !important;
+}
+
+html[data-portal-theme="light"] .fb-completion-tabs button.is-active {
+  border-color: var(--erp-blue) !important;
+  background: rgb(var(--erp-blue-rgb) / 8%) !important;
+  color: var(--erp-blue) !important;
+}
+
+html[data-portal-theme="light"] .fb-completion-dialog .db-wf-btn--primary {
+  border-color: var(--erp-blue) !important;
+  background: var(--erp-blue) !important;
+  color: #ffffff !important;
+}
+
+/* ===== Student portal — dark mode (all sidebar menu pages) ===== */
+.portal-root.student-portal-root[data-portal-theme="dark"] {
+  --sp-bg-app: var(--bg);
+  --sp-bg-sidebar: var(--bg2);
+  --sp-bg-header: var(--bg2);
+  --sp-text: var(--t1);
+  --sp-muted: var(--t3);
+  --sp-border: var(--bd);
+  --sp-accent: var(--inv);
+  --sp-nav-active-bg: var(--inv);
+  --sp-nav-active-text: var(--inv-t);
+  --sp-card: var(--bg2);
+  --sp-surface: var(--bg2);
+}
+
+/* Portaled syllabus bottom sheet (outside .student-portal-body) */
+.portal-root.student-portal-root[data-portal-theme="dark"].sp-subj-modal-overlay :is(
+  .sp-subj-modal,
+  .sp-subj-modal-head,
+  .sp-syl-subject-card
+) {
+  border-color: var(--bd) !important;
+  background: var(--bg2) !important;
+  color: var(--t1) !important;
+  box-shadow: none;
+}
+
+.portal-root.student-portal-root[data-portal-theme="dark"].sp-subj-modal-overlay :is(
+  .sp-subj-modal-head h2,
+  .sp-subj-modal-units-title,
+  .sp-subj-modal-unit-name,
+  .sp-syl-subject-name,
+  .sp-syl-pct-value,
+  .sp-syl-units-count strong,
+  .sp-syl-teacher strong,
+  .sp-subj-resource-title
+) {
+  color: var(--t1) !important;
+}
+
+.portal-root.student-portal-root[data-portal-theme="dark"].sp-subj-modal-overlay :is(
+  .sp-subj-modal-sub,
+  .sp-subj-modal-units-hint,
+  .sp-subj-modal-empty,
+  .sp-syl-subject-code,
+  .sp-syl-pct-label,
+  .sp-syl-units-count-label,
+  .sp-syl-teacher-label,
+  .sp-subj-resources-loading,
+  .sp-subj-resources-empty,
+  .sp-subj-resource-desc,
+  .sp-subj-resource-note
+) {
+  color: var(--t3) !important;
+}
+
+.portal-root.student-portal-root[data-portal-theme="dark"].sp-subj-modal-overlay :is(
+  .sp-subj-modal-unit-btn
+) {
+  border-color: rgb(255 255 255 / 14%) !important;
+  background: rgb(255 255 255 / 5%) !important;
+  color: var(--t1) !important;
+}
+
+.portal-root.student-portal-root[data-portal-theme="dark"].sp-subj-modal-overlay :is(
+  .sp-subj-modal-unit-btn--open
+) {
+  border-color: rgb(255 255 255 / 24%) !important;
+  background: rgb(255 255 255 / 10%) !important;
+}
+
+.portal-root.student-portal-root[data-portal-theme="dark"].sp-subj-modal-overlay :is(
+  .sp-subj-modal-unit-panel
+) {
+  border-left-color: rgb(255 255 255 / 22%) !important;
+}
+
+.portal-root.student-portal-root[data-portal-theme="dark"].sp-subj-modal-overlay :is(
+  .sp-syl-progress-fill,
+  .sp-subj-progress-fill
+) {
+  background: #d4d4d4 !important;
+}
+
+.portal-root.student-portal-root[data-portal-theme="light"].sp-subj-modal-overlay :is(
+  .sp-subj-modal,
+  .sp-subj-modal-head,
+  .sp-syl-subject-card
+) {
+  background: var(--sp-card, #fff);
+  color: var(--sp-text, #0f172a);
+}
+
+.portal-root.student-portal-root[data-portal-theme="dark"].sp-fee-modal-overlay :is(
+  .sp-fee-modal,
+  .sp-fee-sem-card
+) {
+  border-color: var(--bd) !important;
+  background: var(--bg2) !important;
+  color: var(--t1) !important;
+  box-shadow: none;
+}
+
+.portal-root.student-portal-root[data-portal-theme="dark"].sp-fee-modal-overlay .sp-fee-modal-head {
+  border-color: var(--bd) !important;
+  background: var(--bg2) !important;
+  color: var(--t1) !important;
+}
+
+.portal-root.student-portal-root[data-portal-theme="dark"].sp-fee-modal-overlay :is(
+  .sp-fee-modal-head h2,
+  .sp-fee-sem-card-head h3,
+  .sp-fee-td-head
+) {
+  color: var(--t1) !important;
+}
+
+.portal-root.student-portal-root[data-portal-theme="dark"].sp-fee-modal-overlay :is(
+  .sp-fee-modal-sub,
+  .sp-fee-modal-section-title,
+  .sp-fee-modal-empty,
+  .sp-fee-amount-sub,
+  .sp-fee-action-muted
+) {
+  color: var(--t3) !important;
+}
+
+.portal-root.student-portal-root[data-portal-theme="dark"].sp-fee-modal-overlay :is(
+  .sp-fee-modal-close,
+  .sp-fee-pdf-btn
+) {
+  border-color: rgb(255 255 255 / 18%) !important;
+  background: rgb(255 255 255 / 6%) !important;
+  color: var(--t1) !important;
+}
+
+.portal-root.student-portal-root[data-portal-theme="light"].sp-fee-modal-overlay :is(
+  .sp-fee-modal,
+  .sp-fee-sem-card
+) {
+  background: var(--sp-card, #fff);
+  color: var(--sp-text, #0f172a);
+}
+
+.portal-root.student-portal-root[data-portal-theme="light"].sp-fee-modal-overlay .sp-fee-modal-head {
+  background: var(--sp-card, #fff);
+}
+
+.portal-root[data-portal-theme="dark"] .student-portal-body :is(
+  .sp-dash-top-card,
+  .sp-dash-class-row,
+  .sp-dash-quick-btn,
+  .sp-dash-announce-card,
+  .sp-dash-card-skel,
+  .sp-dash-modal,
+  .sp-dash-stat-card,
+  .sp-dash-table-wrap,
+  .sp-att-stat-card,
+  .sp-att-chart-panel,
+  .sp-att-export-block,
+  .sp-att-table-wrap,
+  .sp-att-pager-btn,
+  .sp-marks-summary-card,
+  .sp-marks-chart-panel,
+  .sp-marks-sem,
+  .sp-syl-subject-card,
+  .sp-syl-unit-card,
+  .sp-syl-empty,
+  .sp-subj-card,
+  .sp-subj-modal,
+  .sp-fee-summary-card,
+  .sp-fee-panel,
+  .sp-fee-table-scroll,
+  .sp-rcpt-card,
+  .sp-rcpt-sem,
+  .sp-rcpt-table-scroll,
+  .sp-ann-search,
+  .sp-ann-card,
+  .sp-ann-modal,
+  .sp-notif-item,
+  .sp-fb-card,
+  .sp-fb-form,
+  .sp-fb-form-intro,
+  .sp-fb-question,
+  .sp-fb-textarea,
+  .sp-profile-card,
+  .sp-profile-input,
+  .sp-profile-textarea,
+  .sp-tt-scroll-outer,
+  .sp-tt-scroll,
+  .sp-tt-cell,
+  .student-portal-panel
+) {
+  border-color: var(--bd) !important;
+  background: var(--bg2) !important;
+  color: var(--t1) !important;
+  box-shadow: none !important;
+}
+
+.portal-root[data-portal-theme="dark"] .student-portal-body :is(
+  .sp-dash-welcome-name,
+  .sp-dash-class-subject,
+  .sp-dash-announce-title,
+  .sp-dash-top-card-metric,
+  .sp-att-title,
+  .sp-att-ring-label,
+  .sp-att-chart-title,
+  .sp-att-section-title,
+  .sp-att-td-subj,
+  .sp-att-sub strong,
+  .sp-marks-title,
+  .sp-marks-chart-title,
+  .sp-marks-sem-title,
+  .sp-marks-summary-val,
+  .sp-syl-pct-value,
+  .sp-syl-units-count strong,
+  .sp-syl-teacher strong,
+  .sp-syl-unit-order,
+  .sp-syl-title,
+  .sp-tt-title,
+  .sp-syl-subject-name,
+  .sp-syl-unit-title,
+  .sp-subj-card-title,
+  .sp-subj-page-title,
+  .sp-fee-outstanding-value,
+  .sp-fee-page-title,
+  .sp-fee-summary-breakdown,
+  .sp-rcpt-page-title,
+  .sp-ann-page-title,
+  .sp-ann-card-title,
+  .sp-notif-page-title,
+  .sp-notif-item-title,
+  .sp-fb-page-title,
+  .sp-fb-card-title,
+  .sp-profile-page-title,
+  .sp-profile-card-title,
+  .sp-profile-name,
+  .student-portal-panel-title
+) {
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .student-portal-body :is(
+  .sp-dash-welcome-label,
+  .sp-dash-welcome-meta,
+  .sp-dash-top-card-title,
+  .sp-dash-top-card-sub,
+  .sp-dash-empty,
+  .sp-dash-class-meta,
+  .sp-dash-announce-body,
+  .sp-dash-announce-meta,
+  .sp-att-sub,
+  .sp-att-meta,
+  .sp-att-ring-sub,
+  .sp-att-chart-desc,
+  .sp-att-section-desc,
+  .sp-att-history-count,
+  .sp-att-table-empty,
+  .sp-att-footnote,
+  .sp-marks-sub,
+  .sp-marks-meta,
+  .sp-marks-chart-desc,
+  .sp-marks-sem-sub,
+  .sp-marks-metric-label,
+  .sp-syl-sub,
+  .sp-syl-hint,
+  .sp-syl-empty,
+  .sp-subj-meta,
+  .sp-subj-page-meta,
+  .sp-subj-page-sub,
+  .sp-fee-page-meta,
+  .sp-fee-page-sub,
+  .sp-fee-outstanding-label,
+  .sp-rcpt-page-sub,
+  .sp-tt-sub,
+  .sp-tt-meta,
+  .sp-ann-page-sub,
+  .sp-ann-card-meta,
+  .sp-notif-page-sub,
+  .sp-notif-item-body,
+  .sp-notif-item-meta,
+  .sp-fb-page-sub,
+  .sp-fb-card-desc,
+  .sp-profile-page-sub,
+  .sp-profile-meta,
+  .student-portal-panel-lead,
+  .sp-dash-error
+) {
+  color: var(--t3) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .student-portal-body :is(
+  .sp-att-stat-list li,
+  .sp-marks-metric,
+  .sp-syl-progress-track,
+  .sp-subj-progress-track
+) {
+  background: var(--bg3) !important;
+  color: var(--t2) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .student-portal-body :is(
+  .sp-att-stat-list strong,
+  .sp-marks-metric-val,
+  .sp-marks-summary-val,
+  .sp-syl-pct-value,
+  .sp-syl-units-count strong,
+  .sp-syl-teacher strong,
+  .sp-syl-unit-order,
+  .sp-subj-progress-pct,
+  .sp-subj-modal-unit-order
+) {
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .student-portal-body :is(
+  .sp-syl-progress-fill,
+  .sp-subj-progress-fill
+) {
+  background: #d4d4d4 !important;
+}
+
+/* Modals / overlays sit outside .student-portal-body — same neutral dark progress colors */
+.portal-root[data-portal-theme="dark"] :is(
+  .sp-subj-modal,
+  .sp-subj-modal-overlay
+) :is(
+  .sp-syl-pct-value,
+  .sp-syl-units-count strong,
+  .sp-syl-teacher strong,
+  .sp-syl-unit-order,
+  .sp-subj-progress-pct,
+  .sp-subj-modal-unit-order
+) {
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] :is(
+  .sp-subj-modal,
+  .sp-subj-modal-overlay
+) :is(
+  .sp-syl-progress-fill,
+  .sp-subj-progress-fill
+) {
+  background: #d4d4d4 !important;
+}
+
+.portal-root[data-portal-theme="dark"] :is(
+  .sp-subj-modal,
+  .sp-subj-modal-overlay
+) :is(
+  .sp-subj-modal-unit-btn
+) {
+  border-color: rgba(255, 255, 255, 0.14) !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] :is(
+  .sp-subj-modal,
+  .sp-subj-modal-overlay
+) :is(
+  .sp-subj-modal-unit-btn--open
+) {
+  border-color: rgba(255, 255, 255, 0.24) !important;
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] :is(
+  .sp-subj-modal,
+  .sp-subj-modal-overlay
+) :is(
+  .sp-subj-modal-unit-panel
+) {
+  border-left-color: rgba(255, 255, 255, 0.22) !important;
+}
+
+.portal-root[data-portal-theme="dark"] :is(
+  .sp-subj-modal,
+  .sp-subj-modal-overlay
+) :is(
+  .sp-subj-modal-back
+) {
+  border-color: rgba(255, 255, 255, 0.28) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #fff !important;
+}
+
+.portal-root[data-portal-theme="dark"] :is(
+  .sp-subj-modal,
+  .sp-subj-modal-overlay
+) :is(
+  .sp-subj-modal-close
+) {
+  border-color: rgba(255, 255, 255, 0.28) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #fff !important;
+}
+
+.portal-root[data-portal-theme="dark"] :is(
+  .sp-subj-modal,
+  .sp-subj-modal-overlay
+) :is(
+  .sp-subj-modal-head h2,
+  .sp-subj-modal-units-title,
+  .sp-subj-resource-title,
+  .sp-subj-resource-link
+) {
+  color: #fff !important;
+}
+
+.portal-root[data-portal-theme="dark"] :is(
+  .sp-subj-modal,
+  .sp-subj-modal-overlay
+) :is(
+  .sp-subj-resource-link
+) {
+  text-decoration: underline dotted !important;
+  text-underline-offset: 3px;
+}
+
+.portal-root[data-portal-theme="dark"] .student-portal-body :is(
+  .sp-att-table th,
+  .sp-fee-table th,
+  .sp-rcpt-table th,
+  .sp-marks-table th,
+  .sp-dash-table th
+) {
+  background: var(--bg3) !important;
+  color: var(--t4) !important;
+  border-color: var(--bd) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .student-portal-body :is(
+  .sp-att-table td,
+  .sp-fee-table td,
+  .sp-rcpt-table td,
+  .sp-marks-table td,
+  .sp-dash-table td
+) {
+  color: var(--t2) !important;
+  border-color: var(--bd) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .student-portal-body .sp-dash-modal-overlay {
+  background: rgb(0 0 0 / 72%) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .student-portal-body .sp-ann-card--unread {
+  border-left-color: #93c5fd !important;
+  background: var(--bg3) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .student-portal-body :is(
+  .sp-att-badge--ok,
+  .sp-dash-badge--ok,
+  .sp-rcpt-badge--ok
+) {
+  background: rgb(34 197 94 / 18%) !important;
+  color: #86efac !important;
+}
+
+.portal-root[data-portal-theme="dark"] .student-portal-body :is(
+  .sp-att-badge--bad,
+  .sp-dash-badge--bad
+) {
+  background: rgb(239 68 68 / 18%) !important;
+  color: #fca5a5 !important;
+}
+
+.portal-root[data-portal-theme="dark"] .student-portal-body :is(
+  .sp-dash-link-all,
+  .sp-fb-back,
+  .sp-ann-search-btn,
+  .sp-att-export-btn:not(.sp-att-export-btn--secondary),
+  .sp-marks-pdf-btn,
+  .sp-fee-pay-btn,
+  .sp-fee-download-btn,
+  .sp-fee-receipt-btn,
+  .sp-rcpt-download-btn,
+  .sp-fb-btn--primary,
+  .sp-subj-view-btn
+) {
+  border-color: var(--inv) !important;
+  background: var(--inv) !important;
+  color: var(--inv-t) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .student-portal-body :is(
+  .sp-att-export-btn--secondary,
+  .sp-fb-btn--secondary,
+  .sp-profile-password-btn
+) {
+  border-color: var(--bd2) !important;
+  background: var(--bg3) !important;
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .student-portal-body .recharts-default-tooltip {
+  border-color: var(--bd2) !important;
+  background: var(--bg2) !important;
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .student-portal-body .recharts-legend-item-text {
+  color: var(--t2) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .student-portal-body .sp-att-chart-focus,
+.portal-root[data-portal-theme="dark"] .student-portal-body .sp-marks-chart-focus {
+  background: var(--bg3) !important;
+  border: 1px solid var(--bd);
+}
+
+.portal-root[data-portal-theme="dark"] .student-portal-body .sp-att-chart-focus-value,
+.portal-root[data-portal-theme="dark"] .student-portal-body .sp-marks-chart-focus .sp-att-chart-focus-value {
+  color: var(--t1) !important;
+}
+
+html[data-portal-theme="dark"] .erp-select-list {
+  scrollbar-color: rgb(255 255 255 / 22%) transparent;
+}
+
+html[data-portal-theme="dark"] .erp-select-list::-webkit-scrollbar-thumb {
+  background: rgb(255 255 255 / 22%);
+}
+
+.portal-root[data-portal-theme="dark"] .student-portal-body :is(
+  .sp-dash-skel-line,
+  .sp-att-skel-line,
+  .sp-tt-skel-line,
+  .sp-marks-skel-line,
+  .sp-syl-skel-line,
+  .sp-subj-skel,
+  .sp-fee-skel,
+  .sp-rcpt-skel,
+  .sp-ann-skel,
+  .sp-notif-skel,
+  .sp-fb-skel,
+  .sp-profile-skel,
+  .student-portal-route-skel-line,
+  .student-portal-route-skel-card
+) {
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+

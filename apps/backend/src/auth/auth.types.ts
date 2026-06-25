@@ -24,8 +24,12 @@ export type AuthUser = {
   campusId?: string | null;
   campusGroupId?: string | null;
   email: string;
+  username?: string | null;
   fullName: string;
+  avatarUrl?: string | null;
   assignments: TeacherAssignmentContext[];
+  /** User id written to AuditLog.userId (admin when owner / master login). */
+  auditUserId: string;
 };
 
 export type JwtAccessPayload = {

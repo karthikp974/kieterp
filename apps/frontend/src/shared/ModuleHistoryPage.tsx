@@ -1,8 +1,10 @@
-import { ArrowLeft, Bell, Search } from "lucide-react";
+import { ArrowLeft, Search } from "lucide-react";
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/auth-context";
 import { AdminWorkflowMenuButton } from "./OptionPage";
+import { ProfileMenuButton } from "./ProfileMenu";
+import { formatIstLocaleDateTime } from "./ist-time";
 
 type AuditUser = { id: string; fullName: string; email: string };
 type AuditLogItem = {
@@ -22,7 +24,7 @@ export type ModuleHistoryConfig = {
 };
 
 export function ModuleHistoryPage({ entities }: ModuleHistoryConfig) {
-  const { authFetch, user } = useAuth();
+  const { authFetch } = useAuth();
   const navigate = useNavigate();
   const [items, setItems] = useState<AuditLogItem[]>([]);
   const [query, setQuery] = useState("");
@@ -30,7 +32,6 @@ export function ModuleHistoryPage({ entities }: ModuleHistoryConfig) {
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const initials = user?.fullName?.split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "CA";
   const pageSize = 20;
   const canGoNext = page * pageSize < total;
 
@@ -72,9 +73,8 @@ export function ModuleHistoryPage({ entities }: ModuleHistoryConfig) {
           <h1>History</h1>
         </div>
         <div className="db-header-actions">
-          <button className="db-icon-button" type="button"><Bell size={18} /></button>
           <AdminWorkflowMenuButton />
-          <div className="db-avatar">{initials}</div>
+          <ProfileMenuButton />
         </div>
       </header>
       <section className="db-workflow-body">
@@ -115,7 +115,7 @@ function HistoryRow({ item }: { item: AuditLogItem }) {
         <span>{item.entity}{item.entityId ? ` • ${item.entityId}` : ""}</span>
       </div>
       <p>{formatMetadata(item.metadata)}</p>
-      <small>{item.user?.fullName ?? "System"} • {new Date(item.createdAt).toLocaleString()}</small>
+      <small>{item.user?.fullName ?? "System"} • {formatIstLocaleDateTime(item.createdAt)}</small>
     </article>
   );
 }

@@ -1,16 +1,18 @@
 import { ButtonHTMLAttributes } from "react";
+import { ErpButton } from "./design-system/ErpButton";
 
 type WfBtnProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: "primary" | "secondary" | "danger";
 };
 
-/** Plain institutional action (no glass row / chevron / inferred description). */
+/** Plain institutional action — uses centralized md button tokens. */
 export function WfBtn({ children, variant = "secondary", className = "", type = "button", ...rest }: WfBtnProps) {
-  const v =
-    variant === "primary" ? "db-wf-btn db-wf-btn--primary" : variant === "danger" ? "db-wf-btn db-wf-btn--danger" : "db-wf-btn";
+  const mapped = variant === "primary" ? "primary" : variant === "danger" ? "danger" : "secondary";
+  const legacy =
+    variant === "primary" ? "db-wf-btn--primary" : variant === "danger" ? "db-wf-btn--danger" : "";
   return (
-    <button type={type} className={`${v} ${className}`.trim()} {...rest}>
+    <ErpButton type={type} variant={mapped} size="md" className={`db-wf-btn ${legacy} ${className}`.trim()} {...rest}>
       {children}
-    </button>
+    </ErpButton>
   );
 }

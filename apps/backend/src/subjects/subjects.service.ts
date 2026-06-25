@@ -2,16 +2,20 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Prisma, StructureStatus } from "@prisma/client";
 import { toPagination } from "../common/pagination.dto";
 import { normalizeCode, normalizeName } from "../core/structure.util";
+import { SharedGroupAcademicService } from "../permissions/shared-group-academic.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { CreateSubjectModuleDto, SubjectSearchQueryDto, UpdateSubjectModuleDto } from "./subjects.dto";
 
 @Injectable()
 export class SubjectsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly sharedGroup: SharedGroupAcademicService
+  ) {}
 
   async search(query: SubjectSearchQueryDto) {
     const pagination = toPagination(query);
-    const where = this.subjectWhere(query);
+    const where = await this.subjectWhere(query);
     const [items, total] = await Promise.all([
       this.prisma.subject.findMany({
         where,
@@ -98,12 +102,14 @@ export class SubjectsService {
     return this.subjectResponse(archived);
   }
 
-  private subjectWhere(query: SubjectSearchQueryDto): Prisma.SubjectWhereInput {
+  private async subjectWhere(query: SubjectSearchQueryDto): Promise<Prisma.SubjectWhereInput> {
+    const campusScope = query.campusScope ?? "shared";
+    const programFilter = await this.sharedGroup.programCatalogFilter(query.campusId, query.departmentId, campusScope);
     return {
       status: StructureStatus.ACTIVE,
       isArchived: false,
-      branchId: query.branchId,
-      batchId: query.batchId,
+      ...(query.branchId ? { branchId: query.branchId } : {}),
+      ...(query.batchId ? { batchId: query.batchId } : {}),
       ...(query.semester ? { semesterNumber: query.semester } : {}),
       ...(query.classId || query.sectionId
         ? {
@@ -124,11 +130,7 @@ export class SubjectsService {
         status: StructureStatus.ACTIVE,
         isArchived: false,
         ...(query.departmentId ? { programId: query.departmentId } : {}),
-        program: {
-          status: StructureStatus.ACTIVE,
-          isArchived: false,
-          ...(query.campusId ? { campusId: query.campusId } : {})
-        }
+        ...(programFilter ? { program: programFilter } : {})
       },
       ...(query.search
         ? { OR: [{ code: { contains: query.search, mode: "insensitive" } }, { name: { contains: query.search, mode: "insensitive" } }] }
@@ -148,11 +150,21 @@ export class SubjectsService {
   }
 
   private async ensureRelationship(campusId: string, departmentId: string, branchId: string, batchId: string) {
+    const programFilter = await this.sharedGroup.programRelationFilter(campusId, departmentId);
     const branch = await this.prisma.branch.findFirst({
-      where: { id: branchId, programId: departmentId, status: StructureStatus.ACTIVE, isArchived: false, program: { campusId, status: StructureStatus.ACTIVE, isArchived: false } },
-      include: { program: true }
+      where: {
+        id: branchId,
+        programId: departmentId,
+        status: StructureStatus.ACTIVE,
+        isArchived: false,
+        ...(programFilter ? { program: programFilter } : {})
+      },
+      include: { program: { include: { campus: true } } }
     });
     if (!branch) throw new BadRequestException("Invalid campus, department, and branch relationship.");
+    const operationalCampus = await this.sharedGroup.loadCampus(campusId);
+    if (!operationalCampus) throw new BadRequestException("Campus does not exist or is archived.");
+    this.sharedGroup.assertOperationalCampusMatchesStructure(branch.program, operationalCampus);
     const batch = await this.prisma.batch.findFirst({ where: { id: batchId, branchId, status: StructureStatus.ACTIVE, isArchived: false } });
     if (!batch) throw new BadRequestException("Invalid batch for selected branch.");
     return branch;

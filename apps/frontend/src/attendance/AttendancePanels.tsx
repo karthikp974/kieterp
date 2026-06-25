@@ -1,16 +1,18 @@
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
+import { todayIstDate, formatIstLocaleDate } from "../shared/ist-time";
 import { useAuth } from "../auth/auth-context";
 import { SafeActionButton } from "../shared/SafeActionButton";
+import { ModuleExportButton } from "../shared/export";
 import { SearchableSelect } from "../shared/SearchableSelect";
 import { useToast } from "../shared/toast-context";
 import { AcademicClass, Batch, Branch, Campus, PaginatedResponse, Program, Section, Subject } from "../structure/structure-types";
+import { programsForOperationalCampus } from "../shared/academic-catalog";
 
 type AttendanceStatus = "PRESENT" | "ABSENT";
 type StudentRosterItem = { id: string; rollNumber: string; fullName: string };
 type AttendanceSession = {
   id: string;
   date: string;
-  periodLabel: string;
   structure: { campus: string; branch: string; semester: number; section: string; subject: string };
   markedBy: string;
   summary: { total: number; present: number; absent: number; percentage: number };
@@ -42,7 +44,7 @@ type TeacherAssignmentOption = {
   subject?: { id: string } | null;
 };
 
-const inputClass = "w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100";
+const inputClass = "db-input";
 
 function useApi() {
   const { authFetch } = useAuth();
@@ -75,7 +77,7 @@ export function AdminAttendancePanel() {
   const [sessions, setSessions] = useState<AttendanceSession[]>([]);
   const [corrections, setCorrections] = useState<CorrectionRequest[]>([]);
   const [holidays, setHolidays] = useState<AttendanceHoliday[]>([]);
-  const [holidayForm, setHolidayForm] = useState({ campusId: "", holidayDate: new Date().toISOString().slice(0, 10), title: "" });
+  const [holidayForm, setHolidayForm] = useState({ campusId: "", holidayDate: todayIstDate(), title: "" });
   const [campuses, setCampuses] = useState<Campus[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -101,18 +103,6 @@ export function AdminAttendancePanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page]);
 
-  async function exportAttendance() {
-    const result = await fetchJson<{ filename: string; csv: string }>("/api/attendance/export?pageSize=100");
-    const blob = new Blob([result.csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = result.filename;
-    link.click();
-    URL.revokeObjectURL(url);
-    showToast("Attendance export downloaded");
-  }
-
   async function createHoliday(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     await sendJson("/api/attendance/holidays", holidayForm);
@@ -135,15 +125,15 @@ export function AdminAttendancePanel() {
           <p className="text-sm text-slate-500">Admin view of marked attendance sessions.</p>
         </div>
         <div className="flex gap-2">
-          <SafeActionButton run={exportAttendance}>Export CSV</SafeActionButton>
+          <ModuleExportButton apiPath="/api/attendance/export" pageName="Attendance" cardName="SessionExport" queryParams={{ pageSize: "100" }} />
           <SafeActionButton run={() => load().then(() => showToast("Attendance refreshed"))}>Refresh</SafeActionButton>
         </div>
       </div>
-      <form className="mb-4 grid gap-3 rounded-xl border bg-slate-50 p-4 md:grid-cols-4" onSubmit={(event) => void createHoliday(event)}>
+      <form className="erp-admin-form mb-4 grid gap-3 rounded-xl border bg-slate-50 p-4 md:grid-cols-4" onSubmit={(event) => void createHoliday(event)}>
         <SearchableSelect value={holidayForm.campusId} options={campuses.map((campus) => [campus.id, campus.code])} onChange={(campusId) => setHolidayForm({ ...holidayForm, campusId })} required />
         <input className={inputClass} type="date" value={holidayForm.holidayDate} onChange={(event) => setHolidayForm({ ...holidayForm, holidayDate: event.target.value })} required />
         <input className={inputClass} placeholder="Holiday title" value={holidayForm.title} onChange={(event) => setHolidayForm({ ...holidayForm, title: event.target.value })} required />
-        <button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white">Add Holiday</button>
+        <button className="erp-panel-submit">Add Holiday</button>
       </form>
       <div className="mb-4 grid gap-4 lg:grid-cols-2">
         <MiniList title="Pending Corrections">
@@ -160,7 +150,7 @@ export function AdminAttendancePanel() {
         </MiniList>
         <MiniList title="Attendance Holidays">
           {holidays.length ? holidays.map((holiday) => (
-            <div key={holiday.id} className="border-b px-4 py-3 text-sm">{holiday.campus.code} / {new Date(holiday.holidayDate).toLocaleDateString()} / {holiday.title}</div>
+            <div key={holiday.id} className="border-b px-4 py-3 text-sm">{holiday.campus.code} / {formatIstLocaleDate(holiday.holidayDate)} / {holiday.title}</div>
           )) : <p className="px-4 py-3 text-sm text-slate-500">No holidays configured.</p>}
         </MiniList>
       </div>
@@ -196,11 +186,10 @@ export function TeacherAttendancePanel() {
     classId: "",
     sectionId: "",
     subjectId: "",
-    attendanceDate: new Date().toISOString().slice(0, 10),
-    periodLabel: "DAY"
+    attendanceDate: todayIstDate()
   });
 
-  const filteredPrograms = programs.filter((item) => item.campusId === form.campusId);
+  const filteredPrograms = programsForOperationalCampus(programs, form.campusId, campuses);
   const filteredBranches = branches.filter((item) => item.programId === form.programId);
   const filteredBatches = batches.filter((item) => item.branchId === form.branchId);
   const filteredClasses = classes.filter((item) => item.batchId === form.batchId);
@@ -222,24 +211,26 @@ export function TeacherAttendancePanel() {
   );
 
   async function loadStructure() {
-    const [dashboard, campusPage, programPage, branchPage, batchPage, classPage, sectionPage, subjectPage] = await Promise.all([
+    const [dashboard, structure] = await Promise.all([
       fetchJson<{ assignments: TeacherAssignmentOption[] }>("/api/portals/teacher/dashboard"),
-      fetchJson<PaginatedResponse<Campus>>("/api/campuses?pageSize=100"),
-      fetchJson<PaginatedResponse<Program>>("/api/core/programs?pageSize=100"),
-      fetchJson<PaginatedResponse<Branch>>("/api/core/branches?pageSize=100"),
-      fetchJson<PaginatedResponse<Batch>>("/api/core/batches?pageSize=100"),
-      fetchJson<PaginatedResponse<AcademicClass>>("/api/core/classes?pageSize=100"),
-      fetchJson<PaginatedResponse<Section>>("/api/core/sections?pageSize=100"),
-      fetchJson<PaginatedResponse<Subject>>("/api/core/subjects?pageSize=100")
+      fetchJson<{
+        campuses: Campus[];
+        programs: Program[];
+        branches: Branch[];
+        batches: Batch[];
+        classes: AcademicClass[];
+        sections: Section[];
+        subjects: Subject[];
+      }>("/api/portals/teacher/structure")
     ]);
     setAssignments(dashboard.assignments);
-    setCampuses(campusPage.items);
-    setPrograms(programPage.items);
-    setBranches(branchPage.items);
-    setBatches(batchPage.items);
-    setClasses(classPage.items);
-    setSections(sectionPage.items);
-    setSubjects(subjectPage.items);
+    setCampuses(structure.campuses);
+    setPrograms(structure.programs);
+    setBranches(structure.branches);
+    setBatches(structure.batches);
+    setClasses(structure.classes);
+    setSections(structure.sections);
+    setSubjects(structure.subjects);
     const firstAssignment = dashboard.assignments[0];
     setForm((current) => ({
       ...current,
@@ -274,7 +265,6 @@ export function TeacherAttendancePanel() {
       await sendJson("/api/attendance/mark", {
         scope,
         attendanceDate: form.attendanceDate,
-        periodLabel: form.periodLabel,
         entries: roster.map((student) => ({ studentProfileId: student.id, status: statuses[student.id] ?? "ABSENT" }))
       });
       setRoster([]);
@@ -329,7 +319,7 @@ export function TeacherAttendancePanel() {
   return (
     <section className="rounded-2xl border bg-white p-5 shadow-sm">
       <h2 className="text-xl font-bold text-slate-950">Mark Attendance</h2>
-      <p className="mb-4 text-sm text-slate-500">Select assigned scope, load roster, then submit once. Duplicate sessions are blocked by backend.</p>
+      <p className="mb-4 text-sm text-slate-500">Select assigned scope, pick the date, load roster, then submit once per day. Duplicate day sessions are blocked by backend.</p>
       <form className="space-y-4" onSubmit={(event) => void markAttendance(event)}>
         <div className="grid gap-3 md:grid-cols-4">
           <Select value={assignmentId} items={assignments.map((item) => [item.id, `${item.role} - ${item.scopeLabel}`])} onChange={applyAssignment} />
@@ -341,7 +331,6 @@ export function TeacherAttendancePanel() {
           <Select value={form.sectionId} items={filteredSections.map((item) => [item.id, item.name])} onChange={(sectionId) => setForm({ ...form, sectionId })} />
           <Select value={form.subjectId} items={[["", "General / CTPO"], ...filteredSubjects.map((item) => [item.id, `${item.code} - ${item.name}`])]} onChange={(subjectId) => setForm({ ...form, subjectId })} required={false} />
           <input className={inputClass} type="date" value={form.attendanceDate} onChange={(event) => setForm({ ...form, attendanceDate: event.target.value })} required />
-          <input className={inputClass} value={form.periodLabel} onChange={(event) => setForm({ ...form, periodLabel: event.target.value })} required />
         </div>
         <SafeActionButton run={loadRoster}>Load Roster</SafeActionButton>
         {roster.length ? (
@@ -354,7 +343,7 @@ export function TeacherAttendancePanel() {
                 <SearchableSelect value={statuses[student.id] ?? "ABSENT"} options={[["PRESENT", "Present"], ["ABSENT", "Absent"]]} onChange={(status) => setStatuses({ ...statuses, [student.id]: status as AttendanceStatus })} />
               </div>
             ))}
-            <button className="m-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60" disabled={isSubmitting}>{isSubmitting ? "Submitting..." : "Submit Attendance"}</button>
+            <button className="erp-panel-submit m-4 disabled:cursor-not-allowed disabled:opacity-60" disabled={isSubmitting}>{isSubmitting ? "Submitting..." : "Submit Attendance"}</button>
           </div>
         ) : null}
       </form>
@@ -368,7 +357,7 @@ export function TeacherAttendancePanel() {
           <h3 className="mb-2 text-sm font-bold text-slate-700">Request Attendance Correction</h3>
           <input className={inputClass} placeholder="Attendance session ID" value={correctionSessionId} onChange={(event) => setCorrectionSessionId(event.target.value)} required />
           <textarea className={`${inputClass} mt-2 min-h-24`} placeholder='Entries JSON: [{"studentProfileId":"...","status":"PRESENT"}]' value={correctionText} onChange={(event) => setCorrectionText(event.target.value)} required />
-          <button className="mt-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white">Submit Correction</button>
+          <button className="erp-panel-submit mt-2">Submit Correction</button>
         </form>
       </div>
     </section>
@@ -421,7 +410,7 @@ export function StudentAttendancePanel() {
             <div className="border-b bg-slate-50 px-4 py-3 text-sm font-bold">Recent</div>
             {data.recent.map((item) => (
               <div key={item.id} className="grid gap-2 border-b px-4 py-3 text-sm md:grid-cols-4">
-                <span>{new Date(item.date).toLocaleDateString()}</span>
+                <span>{formatIstLocaleDate(item.date)}</span>
                 <span>{item.subject}</span>
                 <span>Sem {item.semester} / {item.section}</span>
                 <span className={item.status === "PRESENT" ? "font-bold text-green-700" : "font-bold text-red-600"}>{item.status}</span>
@@ -440,7 +429,7 @@ function SessionList({ sessions }: { sessions: AttendanceSession[] }) {
       <div className="border-b bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700">Sessions</div>
       {sessions.length ? sessions.map((session) => (
         <div key={session.id} className="grid gap-2 border-b px-4 py-3 text-sm text-slate-700 md:grid-cols-6">
-          <span>{new Date(session.date).toLocaleDateString()}</span>
+          <span>{formatIstLocaleDate(session.date)}</span>
           <span>{session.structure.campus} / {session.structure.branch}</span>
           <span>Sem {session.structure.semester} / {session.structure.section}</span>
           <span>{session.structure.subject}</span>

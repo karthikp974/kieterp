@@ -1,4 +1,5 @@
 import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { networkErrorMessage, resolveApiUrl } from "../shared/api-base";
 import { AuthContext } from "./auth-context";
 import { AuthResponse, AuthUser } from "./auth-types";
 
@@ -26,7 +27,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw new Error("No refresh token available.");
     }
 
-    const response = await fetch("/api/auth/refresh", {
+    const response = await fetch(resolveApiUrl("/api/auth/refresh"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refreshToken })
@@ -45,42 +46,70 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const authFetch = useCallback(
     async (input: RequestInfo | URL, init: RequestInit = {}) => {
+      const url = resolveApiUrl(input);
       const token = accessToken ?? localStorage.getItem(ACCESS_TOKEN_KEY);
       const headers = new Headers(init.headers);
+      if (init.body instanceof FormData) {
+        headers.delete("Content-Type");
+      }
       if (token) {
         headers.set("Authorization", `Bearer ${token}`);
       }
 
-      let response = await fetch(input, { ...init, headers });
+      let response = await fetch(url, { ...init, headers });
       if (response.status !== 401) {
         return response;
       }
 
       const nextToken = await refresh();
       headers.set("Authorization", `Bearer ${nextToken}`);
-      response = await fetch(input, { ...init, headers });
+      response = await fetch(url, { ...init, headers });
       return response;
     },
     [accessToken, refresh]
   );
 
   const login = useCallback(async (identifier: string, password: string) => {
-    const response = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ identifier, password })
-    });
-
-    if (!response.ok) {
-      throw new Error("Invalid email or password.");
+    let response: Response;
+    try {
+      response = await fetch(resolveApiUrl("/api/auth/login"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identifier, password })
+      });
+    } catch (error) {
+      throw new Error(networkErrorMessage(error, "Cannot reach the API server."));
     }
 
-    const data = (await response.json()) as AuthResponse;
+    const raw = await response.json().catch(() => null) as { message?: string | string[] } | null;
+
+    if (!response.ok) {
+      if (response.status === 502 || response.status === 503 || response.status === 504) {
+        throw new Error(
+          "API server is not running. From the repo root run `npm run dev`, or start the backend on port 4000."
+        );
+      }
+      const m = raw?.message;
+      const text = Array.isArray(m) ? m[0] : m;
+      throw new Error(typeof text === "string" && text.trim() ? text : "Invalid login credentials.");
+    }
+
+    const data = raw as AuthResponse;
     saveAuth(data);
     setAccessToken(data.accessToken);
     setUser(data.user);
     return data.user;
   }, []);
+
+  const refreshProfile = useCallback(async () => {
+    const response = await authFetch("/api/auth/me");
+    if (!response.ok) {
+      throw new Error("Unable to load profile.");
+    }
+    const currentUser = (await response.json()) as AuthUser;
+    setUser(currentUser);
+    return currentUser;
+  }, [authFetch]);
 
   const logout = useCallback(async () => {
     const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
@@ -89,7 +118,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
 
     if (refreshToken) {
-      await fetch("/api/auth/logout", {
+      await fetch(resolveApiUrl("/api/auth/logout"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ refreshToken })
@@ -135,8 +164,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [authFetch]);
 
   const value = useMemo(
-    () => ({ user, accessToken, isLoading, login, logout, authFetch }),
-    [accessToken, authFetch, isLoading, login, logout, user]
+    () => ({ user, accessToken, isLoading, login, logout, authFetch, refreshProfile }),
+    [accessToken, authFetch, isLoading, login, logout, refreshProfile, user]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

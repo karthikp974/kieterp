@@ -1,11 +1,12 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Post, Query, Res, UseGuards } from "@nestjs/common";
 import { PermissionAction } from "@prisma/client";
+import { Response } from "express";
 import { AuthUser } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { PermissionGuard } from "../permissions/permission.guard";
 import { RequiresPermission } from "../permissions/requires-permission.decorator";
-import { CreateTimetableSlotDto, TimetableQueryDto, UpdateTimetableSlotDto } from "./timetable.dto";
+import { CreateTimetableSlotDto, TimetableExportQueryDto, TimetableQueryDto, UpdateTimetableSlotDto } from "./timetable.dto";
 import { TimetableService } from "./timetable.service";
 
 @UseGuards(JwtAuthGuard, PermissionGuard)
@@ -33,8 +34,8 @@ export class TimetableController {
 
   @Get("export")
   @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL)
-  export(@CurrentUser() user: AuthUser, @Query() query: TimetableQueryDto) {
-    return this.timetable.export(user, query);
+  export(@CurrentUser() user: AuthUser, @Query() query: TimetableExportQueryDto, @Res() response: Response) {
+    return this.timetable.export(user, query, response);
   }
 
   @Post()

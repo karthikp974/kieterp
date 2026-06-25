@@ -1,58 +1,35 @@
-# Phase 1 Foundation
+# College ERP — Current Scope
 
-This phase builds only the ERP skeleton. It does not implement attendance, fees, marks, timetable, PDF parsing, promotions, or reports.
+This document describes what is implemented today. The original “Phase 1 skeleton only” plan has been superseded by full modules.
 
-## Core Structure
+## Campuses
 
-The fixed hierarchy is:
+| Code | Group |
+|------|--------|
+| KIET | Shared with KIEK |
+| KIEK | Shared with KIET |
+| KIEW | Isolated |
 
-```text
-Campus -> Program -> Branch -> Batch -> Class -> Section -> Users
-```
+## Shared programs (KIET + KIEK)
 
-Campuses:
+Diploma, B.Tech, M.Tech use `Program.structureScope = GROUP_SHARED` on the KIET tree. Students enrolled on shared sections use **`user.campusId`** as the operational label (KIET or KIEK).
 
-- KIET
-- KIEK
-- KIEW
+## Implemented modules
 
-Campus grouping:
+- Structure: campus → program → branch → batch → class → section
+- Teachers (STPO / CTPO / HTPO) and students
+- Attendance, timetable, results (incl. PDF import via background job)
+- Finance: fee structure, payments, student receipts
+- Promotions, teams, announcements, feedback, applications
+- Reports (admin + teacher; exports are synchronous HTTP downloads today)
+- Admin, teacher, and student portals with light (admin ERP) and dark themes
+- Background jobs: result PDF import via BullMQ; promotion bulk and report export job types are reserved for a later pass
 
-- KIET + KIEK share one group.
-- KIEW is isolated.
+## Build order for new work
 
-## Permissions
-
-Permissions answer:
-
-```text
-Who can do which action in which scope?
-```
-
-Admin has full control. Students can only access their own student portal foundation. Teachers can have multiple active assignments at the same time:
-
-- STPO: subject teacher scope
-- CTPO: class/section teacher scope
-- HTPO: admin-assigned head scope, not automatically the whole department
-
-## Safety Rules
-
-- Use pagination and filters for large lists.
-- Never load thousands of rows directly into the UI.
-- Disable actions while they are running.
-- Add backend duplicate prevention for important writes.
-- Check permissions in backend for every protected action.
-- Use background jobs for slow work.
-- Show toast notifications for every user action.
-- Keep KIEW separated from KIET/KIEK.
-
-## Module Build Order
-
-For every future module:
-
-1. Confirm behavior.
-2. Extend the Prisma schema.
-3. Build backend endpoints and permission checks.
-4. Add tests for risky logic.
-5. Build frontend screens.
-6. Run checks before moving to the next module.
+1. Confirm behavior (especially KIET+KIEK operational vs structure campus).
+2. Extend Prisma schema if needed.
+3. Backend endpoints + permission checks.
+4. Tests for risky logic.
+5. Frontend screens.
+6. Run `npm run check`.

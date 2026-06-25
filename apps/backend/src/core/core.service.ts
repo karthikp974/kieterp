@@ -1,7 +1,14 @@
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
-import { AnnouncementStatus, Prisma, StructureStatus, TimetableSlotStatus, UserStatus } from "@prisma/client";
+import { ConflictException, BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { formatIstDate } from "../common/ist-time.util";
+import { AnnouncementStatus, Prisma, ProgramStructureScope, StructureStatus, TimetableSlotStatus, UserStatus } from "@prisma/client";
 import { PaginationQueryDto, toPagination } from "../common/pagination.dto";
 import { AuthUser } from "../auth/auth.types";
+import { CampusScopeService } from "../permissions/campus-scope.service";
+import { SharedGroupAcademicService } from "../permissions/shared-group-academic.service";
+import {
+  CANONICAL_SHARED_STRUCTURE_CAMPUS_CODE,
+  isSharedGroupProgramCode
+} from "../permissions/shared-group-academic.constants";
 import { PrismaService } from "../prisma/prisma.service";
 import {
   CreateBatchDto,
@@ -32,7 +39,23 @@ import {
 
 @Injectable()
 export class CoreService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly campusScope: CampusScopeService,
+    private readonly sharedGroup: SharedGroupAcademicService
+  ) {}
+
+  private async activeProgramRelationFilter(campusId?: string, programId?: string): Promise<Prisma.ProgramWhereInput | undefined> {
+    if (programId) {
+      return { id: programId, status: StructureStatus.ACTIVE, isArchived: false };
+    }
+    if (!campusId) return undefined;
+    return {
+      status: StructureStatus.ACTIVE,
+      isArchived: false,
+      ...(await this.sharedGroup.programWhereForCampusFilter(campusId))
+    };
+  }
 
   async getFoundationSummary() {
     const [campuses, programs, branches, batches, classes, sections, subjects, users, roleAssignments] = await Promise.all([
@@ -198,9 +221,9 @@ export class CoreService {
       })),
       feeStructures: section.feeStructures.map((fee) => ({
         id: fee.id,
-        feeName: fee.feeName ?? fee.feeHead.name,
+        feeHeadName: fee.feeHeadName ?? fee.feeHead.name,
         amount: Number(fee.amount),
-        deadline: fee.dueDate?.toISOString().slice(0, 10) ?? null,
+        deadline: fee.dueDate ? formatIstDate(fee.dueDate) : null,
         assignedStudents: fee.assignments.length
       })),
       announcements: section.announcements.map((announcement) => ({
@@ -281,6 +304,7 @@ export class CoreService {
     await this.ensureCampus(id);
     if (dto.groupId) {
       await this.ensureCampusGroup(dto.groupId);
+      await this.campusScope.assertCampusGroupChangeAllowed(id, dto.groupId);
     }
 
     return this.safeWrite(() =>
@@ -303,11 +327,11 @@ export class CoreService {
 
   async listPrograms(query: ScopedStructureQueryDto) {
     const pagination = toPagination(query);
+    const campusProgramFilter = query.campusId ? await this.sharedGroup.programWhereForCampusFilter(query.campusId) : {};
     const where: Prisma.ProgramWhereInput = {
       status: StructureStatus.ACTIVE,
       isArchived: false,
-      campusId: query.campusId,
-      campus: { status: StructureStatus.ACTIVE },
+      ...campusProgramFilter,
       ...(query.search
         ? {
             OR: [
@@ -334,15 +358,25 @@ export class CoreService {
 
   async createProgram(dto: CreateProgramDto) {
     await this.ensureCampus(dto.campusId);
+    const campus = await this.sharedGroup.loadCampus(dto.campusId);
+    const code = normalizeCode(dto.code);
+    let structureScope: ProgramStructureScope = ProgramStructureScope.CAMPUS_OWNED;
+    if (campus && this.sharedGroup.isSharedGroupCampus(campus) && isSharedGroupProgramCode(code)) {
+      if (campus.code !== CANONICAL_SHARED_STRUCTURE_CAMPUS_CODE) {
+        throw new BadRequestException("Diploma, BTech, and MTech are managed on KIET for the shared KIET/KIEK group.");
+      }
+      structureScope = ProgramStructureScope.GROUP_SHARED;
+    }
     return this.safeWrite(() =>
       this.prisma.program.create({
         data: {
           campusId: dto.campusId,
-          code: normalizeCode(dto.code),
+          code,
           name: normalizeName(dto.name),
           durationValue: dto.durationValue,
           durationUnit: dto.durationUnit,
-          semesters: dto.semesters
+          semesters: dto.semesters,
+          structureScope
         },
         include: { campus: true }
       })
@@ -377,11 +411,12 @@ export class CoreService {
 
   async listBranches(query: ScopedStructureQueryDto) {
     const pagination = toPagination(query);
+    const programFilter = await this.activeProgramRelationFilter(query.campusId, query.programId);
     const where: Prisma.BranchWhereInput = {
       status: StructureStatus.ACTIVE,
       isArchived: false,
       programId: query.programId,
-      program: { status: StructureStatus.ACTIVE, isArchived: false, ...(query.campusId ? { campusId: query.campusId } : {}) },
+      ...(programFilter ? { program: programFilter } : {}),
       ...(query.search
         ? {
             OR: [
@@ -444,6 +479,7 @@ export class CoreService {
 
   async listBatches(query: ScopedStructureQueryDto) {
     const pagination = toPagination(query);
+    const programFilter = await this.activeProgramRelationFilter(query.campusId, query.programId);
     const where: Prisma.BatchWhereInput = {
       status: StructureStatus.ACTIVE,
       isArchived: false,
@@ -452,7 +488,7 @@ export class CoreService {
       branch: {
         status: StructureStatus.ACTIVE,
         ...(query.programId ? { programId: query.programId } : {}),
-        ...(query.campusId ? { program: { campusId: query.campusId, status: StructureStatus.ACTIVE } } : {})
+        ...(programFilter ? { program: programFilter } : {})
       }
     };
 
@@ -550,6 +586,7 @@ export class CoreService {
 
   async listClasses(query: ScopedStructureQueryDto) {
     const pagination = toPagination(query);
+    const programFilter = await this.activeProgramRelationFilter(query.campusId, query.programId);
     const where: Prisma.AcademicClassWhereInput = {
       status: StructureStatus.ACTIVE,
       isArchived: false,
@@ -562,7 +599,7 @@ export class CoreService {
               branch: {
                 status: StructureStatus.ACTIVE,
                 ...(query.programId ? { programId: query.programId } : {}),
-                ...(query.campusId ? { program: { campusId: query.campusId, status: StructureStatus.ACTIVE } } : {})
+                ...(programFilter ? { program: programFilter } : {})
               }
             }
           : {})
@@ -631,6 +668,7 @@ export class CoreService {
 
   async listSections(query: ScopedStructureQueryDto) {
     const pagination = toPagination(query);
+    const programFilter = await this.activeProgramRelationFilter(query.campusId, query.programId);
     const where: Prisma.SectionWhereInput = {
       status: StructureStatus.ACTIVE,
       isArchived: false,
@@ -649,7 +687,7 @@ export class CoreService {
                       branch: {
                         status: StructureStatus.ACTIVE,
                         ...(query.programId ? { programId: query.programId } : {}),
-                        ...(query.campusId ? { program: { campusId: query.campusId, status: StructureStatus.ACTIVE } } : {})
+                        ...(programFilter ? { program: programFilter } : {})
                       }
                     }
                   : {})

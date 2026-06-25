@@ -10,7 +10,7 @@ type DatabaseRow = Record<string, unknown>;
 type DatabaseRowsResponse = { table: DatabaseTable; items: DatabaseRow[]; total: number; page: number; pageSize: number };
 
 const pageSize = 25;
-const inputClass = "rounded-lg border px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100";
+const inputClass = "db-input";
 
 export function DatabasePortal() {
   const { showToast } = useToast();
@@ -81,7 +81,7 @@ export function DatabasePortal() {
         title="Admin-only data browser"
         description="Admin-only map of the active ERP data areas. This portal stays read-only-first so operational edits remain inside their modules."
       />
-      <PortalCard title="Active ERP tables" description="Read-only paginated browser for core, users, attendance, finance, timetable, results, applications, announcements, teams, jobs, and audit data.">
+      <PortalCard title="Active ERP tables" description="Read-only browser for structure, users, finance, announcements, feedback, promotions, and audit data. Attendance, timetable, results, teams, and applications are managed in teacher/student portals.">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {tables.map((table) => (
             <button
@@ -110,7 +110,7 @@ export function DatabasePortal() {
           </div>
           <form className="flex flex-wrap gap-2" onSubmit={(event) => void submitSearch(event).catch((error) => showToast(error instanceof Error ? error.message : "Search failed", "error"))}>
             <input className={inputClass} placeholder={`Search ${selectedTable?.searchColumns.join(", ") || "rows"}`} value={search} onChange={(event) => setSearch(event.target.value)} />
-            <button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white">Search</button>
+            <button className="erp-panel-submit">Search</button>
             <SafeActionButton run={() => loadRows(selectedTableKey, page, search).then(() => showToast("Rows refreshed"))}>Refresh</SafeActionButton>
           </form>
         </div>

@@ -3,10 +3,12 @@ import {
   AnnouncementAudience,
   AnnouncementPriority,
   AnnouncementStatus,
+  AnnouncementTeacherRoleFilter,
   AnnouncementTeacherScope,
   PermissionAction,
   Prisma,
   StructureStatus,
+  TeacherRoleKind,
   UserType
 } from "@prisma/client";
 import { createReadStream, existsSync, mkdirSync } from "fs";
@@ -15,7 +17,16 @@ import { randomUUID } from "crypto";
 import { AuthUser, ScopeRef, TeacherAssignmentContext } from "../auth/auth.types";
 import { toPagination } from "../common/pagination.dto";
 import { PermissionsService } from "../permissions/permissions.service";
+import { campusIdsForSharedMatching, studentProfileToScope, studentScopeProfileInclude } from "../permissions/operational-scope.util";
 import { PrismaService } from "../prisma/prisma.service";
+import {
+  announcementSectionScopedWhere,
+  assertTeacherCanAccessSectionScope,
+  getActiveTeacherProfile,
+  loadTeacherAssignedSections,
+  resolveTeacherEngageContext,
+  scopeForSectionId
+} from "../portals/teacher-portal-section-scope.util";
 import { AnnouncementQueryDto, CreateAnnouncementDto, UpdateAnnouncementDto } from "./announcements.dto";
 
 const UPLOAD_ROOT = join(process.cwd(), "uploads", "announcements");
@@ -59,13 +70,46 @@ export class AnnouncementsService implements OnModuleInit {
       return { items: rows.map((r) => this.toListDto(r, user.id)), total, page: pagination.page, pageSize: pagination.pageSize };
     }
 
-    const where = this.buildTeacherWhere(user, query, expiry);
-    const include = this.listInclude(true, user.id);
-    const orderBy: Prisma.AnnouncementOrderByWithRelationInput[] = [{ pinned: "desc" }, { publishedAt: "desc" }, { createdAt: "desc" }];
-    const candidates = await this.prisma.announcement.findMany({ where, include, orderBy, take: 400 });
-    const filtered = candidates.filter((r) => this.teacherSeesAnnouncement(user, r));
-    const total = filtered.length;
-    const rows = filtered.slice(pagination.skip, pagination.skip + pagination.take);
+    return this.listTeacherEngage(user, query, pagination, expiry);
+  }
+
+  private async listTeacherEngage(
+    user: AuthUser,
+    query: AnnouncementQueryDto,
+    pagination: ReturnType<typeof toPagination>,
+    expiry: Prisma.AnnouncementWhereInput
+  ) {
+    const canManage = this.permissions.can(user, { action: PermissionAction.MANAGE_ANNOUNCEMENTS }).allowed;
+    const teacher = await getActiveTeacherProfile(this.prisma, user.id);
+    const sections = await loadTeacherAssignedSections(
+      this.prisma,
+      this.permissions,
+      user,
+      teacher,
+      PermissionAction.VIEW_ANNOUNCEMENTS
+    );
+    const ctx = resolveTeacherEngageContext(user, this.permissions, teacher, sections, query.sectionId);
+    if (!ctx.sectionIds.length) {
+      return { items: [], total: 0, page: pagination.page, pageSize: pagination.pageSize };
+    }
+
+    const parts: Prisma.AnnouncementWhereInput[] = [
+      expiry,
+      announcementSectionScopedWhere(ctx.sectionIds),
+      { audience: { in: [AnnouncementAudience.STUDENTS, AnnouncementAudience.BOTH, AnnouncementAudience.ALL] } }
+    ];
+    if (query.status) parts.push({ status: query.status });
+    else if (!canManage) parts.push({ status: AnnouncementStatus.PUBLISHED });
+    if (query.audience) parts.push({ audience: query.audience });
+    if (query.priority) parts.push({ priority: query.priority });
+    if (query.search?.trim()) {
+      const s2 = query.search.trim();
+      parts.push({
+        OR: [{ title: { contains: s2, mode: "insensitive" } }, { body: { contains: s2, mode: "insensitive" } }, { id: { startsWith: s2, mode: "insensitive" } }]
+      });
+    }
+    const where = { AND: parts };
+    const [rows, total] = await this.fetchPage(where, pagination, query.includeReadStatus === true, user.id);
     return { items: rows.map((r) => this.toListDto(r, user.id)), total, page: pagination.page, pageSize: pagination.pageSize };
   }
 
@@ -81,24 +125,48 @@ export class AnnouncementsService implements OnModuleInit {
 
   async create(user: AuthUser, dto: CreateAnnouncementDto) {
     if (user.type === UserType.STUDENT) throw new ForbiddenException("Students cannot publish announcements.");
-    const structural = await this.validateScope({
-      campusId: dto.campusId,
-      programId: dto.programId,
-      branchId: dto.branchId,
-      batchId: dto.batchId,
-      classId: dto.classId,
-      sectionId: dto.sectionId
-    });
-    let structuralData = structural;
-    if (dto.audience === AnnouncementAudience.TEACHERS) {
-      structuralData = {};
+    if (user.type === UserType.TEACHER) {
+      await this.assertTeacherManageAnnouncements(user);
+      this.normalizeTeacherAnnouncementDto(dto);
     }
-    const teacher = this.normalizeTeacherFields(dto.audience, dto);
-    if (user.type === UserType.TEACHER && !Object.values(structural).some(Boolean) && dto.audience !== AnnouncementAudience.TEACHERS) {
+    const includesStudents =
+      dto.audience === AnnouncementAudience.STUDENTS || dto.audience === AnnouncementAudience.BOTH || dto.audience === AnnouncementAudience.ALL;
+    const includesTeachers =
+      dto.audience === AnnouncementAudience.TEACHERS || dto.audience === AnnouncementAudience.BOTH || dto.audience === AnnouncementAudience.ALL;
+
+    let structuralData: ScopeRef = {};
+    if (includesStudents && dto.audience !== AnnouncementAudience.TEACHERS) {
+      structuralData = await this.validateScope({
+        campusId: dto.campusId,
+        programId: dto.programId,
+        branchId: dto.branchId,
+        batchId: dto.batchId,
+        classId: dto.classId,
+        sectionId: dto.sectionId
+      });
+    }
+
+    const teacher = includesTeachers
+      ? await this.normalizeTeacherFields(dto.audience, dto)
+      : {
+          teacherScope: AnnouncementTeacherScope.NONE,
+          teacherCampusId: undefined,
+          teacherProgramId: undefined,
+          teacherBranchId: undefined,
+          teacherRoleFilter: AnnouncementTeacherRoleFilter.ALL
+        };
+
+    if (user.type === UserType.TEACHER && includesStudents && !Object.values(structuralData).some(Boolean)) {
       throw new ForbiddenException("Teachers must publish student-targeted announcements inside an assigned scope.");
     }
-    if (user.type === UserType.TEACHER && dto.audience === AnnouncementAudience.TEACHERS && teacher.teacherScope === AnnouncementTeacherScope.NONE) {
+    if (user.type === UserType.TEACHER && includesStudents && structuralData.sectionId) {
+      await this.assertTeacherSectionPayload(user, structuralData.sectionId);
+    }
+    if (user.type === UserType.TEACHER && includesTeachers && teacher.teacherScope === AnnouncementTeacherScope.NONE) {
       throw new ForbiddenException("Teachers must choose a teacher audience scope.");
+    }
+    if (user.type === UserType.TEACHER && includesTeachers) {
+      throw new ForbiddenException("Teachers can only publish student-targeted section announcements.");
     }
     this.assertAllowed(user, PermissionAction.MANAGE_ANNOUNCEMENTS, this.mergeScope(structuralData, teacher));
     const status = dto.status ?? AnnouncementStatus.PUBLISHED;
@@ -122,20 +190,33 @@ export class AnnouncementsService implements OnModuleInit {
         teacherCampusId: teacher.teacherCampusId ?? null,
         teacherProgramId: teacher.teacherProgramId ?? null,
         teacherBranchId: teacher.teacherBranchId ?? null,
+        teacherRoleFilter: teacher.teacherRoleFilter,
         createdById: user.id,
         publishedAt: status === AnnouncementStatus.PUBLISHED ? new Date() : undefined,
         expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : undefined
       },
       include: this.listInclude(false, user.id)
     });
-    await this.audit(user, "CREATE_ANNOUNCEMENT", "Announcement", announcement.id, { status, audience: dto.audience });
+    await this.audit(user, "CREATE_ANNOUNCEMENT", "Announcement", announcement.id, {
+      status,
+      audience: dto.audience,
+      teacherRoleFilter: teacher.teacherRoleFilter
+    });
     return { announcement: this.toDetailDto(announcement as never, user.id) };
   }
 
   async update(user: AuthUser, id: string, dto: UpdateAnnouncementDto) {
     const existing = await this.prisma.announcement.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException("Announcement not found.");
-    this.assertAllowed(user, PermissionAction.MANAGE_ANNOUNCEMENTS, this.announcementToScope(existing as never));
+    if (user.type === UserType.TEACHER) {
+      await this.assertTeacherManageAnnouncements(user);
+      await this.assertTeacherCanAccessAnnouncement(user, existing as never);
+      if (dto.campusId !== undefined || dto.programId !== undefined || dto.branchId !== undefined || dto.batchId !== undefined || dto.classId !== undefined) {
+        throw new BadRequestException("Teachers can only target a section.");
+      }
+    } else {
+      this.assertAllowed(user, PermissionAction.MANAGE_ANNOUNCEMENTS, this.announcementToScope(existing as never));
+    }
 
     const mergedAudience = dto.audience ?? existing.audience;
     const mergedScope: ScopeRef = {
@@ -155,7 +236,10 @@ export class AnnouncementsService implements OnModuleInit {
       dto.sectionId !== undefined
         ? await this.validateScope(mergedScope)
         : this.announcementToScope(existing as never);
-    const teacher = this.normalizeTeacherFields(mergedAudience, { ...existing, ...dto, audience: mergedAudience } as CreateAnnouncementDto);
+    if (user.type === UserType.TEACHER && dto.sectionId !== undefined && structural.sectionId) {
+      await this.assertTeacherSectionPayload(user, structural.sectionId);
+    }
+    const teacher = await this.normalizeTeacherFields(mergedAudience, { ...existing, ...dto, audience: mergedAudience } as CreateAnnouncementDto);
 
     const data: Prisma.AnnouncementUncheckedUpdateInput = {};
     if (dto.title !== undefined) data.title = dto.title.trim();
@@ -176,11 +260,12 @@ export class AnnouncementsService implements OnModuleInit {
       data.classId = structural.classId ?? null;
       data.sectionId = structural.sectionId ?? null;
     }
-    if (dto.teacherScope !== undefined || dto.audience !== undefined) {
+    if (dto.teacherScope !== undefined || dto.audience !== undefined || dto.teacherRoleFilter !== undefined) {
       data.teacherScope = teacher.teacherScope;
       data.teacherCampusId = teacher.teacherCampusId ?? null;
       data.teacherProgramId = teacher.teacherProgramId ?? null;
       data.teacherBranchId = teacher.teacherBranchId ?? null;
+      data.teacherRoleFilter = teacher.teacherRoleFilter;
     }
 
     const announcement = await this.prisma.announcement.update({ where: { id }, data, include: this.listInclude(false, user.id) });
@@ -191,10 +276,66 @@ export class AnnouncementsService implements OnModuleInit {
   async archive(user: AuthUser, id: string) {
     const announcement = await this.prisma.announcement.findUnique({ where: { id } });
     if (!announcement) throw new NotFoundException("Announcement not found.");
-    this.assertAllowed(user, PermissionAction.MANAGE_ANNOUNCEMENTS, this.announcementToScope(announcement as never));
+    if (user.type === UserType.TEACHER) {
+      await this.assertTeacherManageAnnouncements(user);
+      await this.assertTeacherCanAccessAnnouncement(user, announcement as never);
+    } else {
+      this.assertAllowed(user, PermissionAction.MANAGE_ANNOUNCEMENTS, this.announcementToScope(announcement as never));
+    }
     await this.prisma.announcement.update({ where: { id }, data: { status: AnnouncementStatus.ARCHIVED } });
     await this.audit(user, "ARCHIVE_ANNOUNCEMENT", "Announcement", id);
     return { ok: true };
+  }
+
+  async countUnreadForTeacher(user: AuthUser) {
+    const rows = await this.listTeacherInbox(user);
+    return rows.filter((row) => !row.reads?.[0]?.readAt).length;
+  }
+
+  /** Published teacher-audience announcements visible to this teacher (notification feed). */
+  async listTeacherInbox(user: AuthUser, search?: string) {
+    if (user.type !== UserType.TEACHER || !user.assignments.length) return [];
+    const now = new Date();
+    const expiry: Prisma.AnnouncementWhereInput = { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] };
+    const query = { search } as AnnouncementQueryDto;
+    const where = this.buildTeacherWhere(user, query, expiry);
+    const candidates = await this.prisma.announcement.findMany({
+      where: { AND: [where, { status: AnnouncementStatus.PUBLISHED }] },
+      include: this.listInclude(true, user.id),
+      orderBy: [{ pinned: "desc" }, { publishedAt: "desc" }, { createdAt: "desc" }],
+      take: 200
+    });
+    return candidates.filter((row) => this.teacherSeesAnnouncement(user, row));
+  }
+
+  async markAllTeacherInboxRead(user: AuthUser) {
+    if (user.type !== UserType.TEACHER) throw new ForbiddenException("Teacher only.");
+    const rows = await this.listTeacherInbox(user);
+    const unread = rows.filter((row) => !row.reads?.[0]?.readAt);
+    if (!unread.length) return { ok: true, marked: 0 };
+    const now = new Date();
+    await this.prisma.$transaction(
+      unread.map((row) =>
+        this.prisma.announcementRead.upsert({
+          where: { announcementId_userId: { announcementId: row.id, userId: user.id } },
+          create: { announcementId: row.id, userId: user.id, readAt: now },
+          update: { readAt: now }
+        })
+      )
+    );
+    return { ok: true, marked: unread.length };
+  }
+
+  async countUnreadForStudent(user: AuthUser) {
+    if (user.type !== UserType.STUDENT) return 0;
+    const student = await this.prisma.studentProfile.findUnique({ where: { userId: user.id }, include: this.studentInclude });
+    if (!student) return 0;
+    const now = new Date();
+    const expiry: Prisma.AnnouncementWhereInput = { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] };
+    const where = this.buildStudentWhere(student, {} as AnnouncementQueryDto, expiry);
+    return this.prisma.announcement.count({
+      where: { AND: [where, { reads: { none: { userId: user.id } } }] }
+    });
   }
 
   async markRead(user: AuthUser, id: string) {
@@ -297,8 +438,9 @@ export class AnnouncementsService implements OnModuleInit {
     expiry: Prisma.AnnouncementWhereInput
   ): Prisma.AnnouncementWhereInput {
     const s = this.studentToScope(student);
+    const campusIds = campusIdsForSharedMatching(student);
     const structural: Prisma.AnnouncementWhereInput[] = [
-      { OR: [{ campusId: null }, { campusId: s.campusId }] },
+      { OR: [{ campusId: null }, { campusId: { in: campusIds } }] },
       { OR: [{ programId: null }, { programId: s.programId }] },
       { OR: [{ branchId: null }, { branchId: s.branchId }] },
       { OR: s.batchId ? [{ batchId: null }, { batchId: s.batchId }] : [{ batchId: null }] },
@@ -366,7 +508,15 @@ export class AnnouncementsService implements OnModuleInit {
     return rows;
   }
 
-  private mergeScope(s: ScopeRef, t: { teacherScope: AnnouncementTeacherScope; teacherCampusId?: string; teacherProgramId?: string; teacherBranchId?: string }): ScopeRef {
+  private mergeScope(
+    s: ScopeRef,
+    t: {
+      teacherScope: AnnouncementTeacherScope;
+      teacherCampusId?: string;
+      teacherProgramId?: string;
+      teacherBranchId?: string;
+    }
+  ): ScopeRef {
     return {
       ...s,
       campusId: t.teacherCampusId ?? s.campusId,
@@ -375,31 +525,99 @@ export class AnnouncementsService implements OnModuleInit {
     };
   }
 
-  private normalizeTeacherFields(
+  private async normalizeTeacherFields(
     audience: AnnouncementAudience,
-    dto: Pick<CreateAnnouncementDto, "teacherScope" | "teacherCampusId" | "teacherProgramId" | "teacherBranchId">
+    dto: Pick<
+      CreateAnnouncementDto,
+      "teacherScope" | "teacherCampusId" | "teacherProgramId" | "teacherBranchId" | "teacherRoleFilter"
+    >
   ) {
-    let teacherScope = dto.teacherScope ?? AnnouncementTeacherScope.NONE;
-    let teacherCampusId = dto.teacherCampusId;
-    let teacherProgramId = dto.teacherProgramId;
-    let teacherBranchId = dto.teacherBranchId;
+    const teacherRoleFilter = dto.teacherRoleFilter ?? AnnouncementTeacherRoleFilter.ALL;
 
     if (audience === AnnouncementAudience.STUDENTS) {
-      return { teacherScope: AnnouncementTeacherScope.NONE, teacherCampusId: undefined, teacherProgramId: undefined, teacherBranchId: undefined };
+      return {
+        teacherScope: AnnouncementTeacherScope.NONE,
+        teacherCampusId: undefined,
+        teacherProgramId: undefined,
+        teacherBranchId: undefined,
+        teacherRoleFilter: AnnouncementTeacherRoleFilter.ALL
+      };
     }
+
+    if (audience === AnnouncementAudience.ALL) {
+      return {
+        teacherScope: AnnouncementTeacherScope.INSTITUTION,
+        teacherCampusId: undefined,
+        teacherProgramId: undefined,
+        teacherBranchId: undefined,
+        teacherRoleFilter
+      };
+    }
+
     if (audience === AnnouncementAudience.TEACHERS || audience === AnnouncementAudience.BOTH) {
-      if (teacherScope === AnnouncementTeacherScope.NONE) {
-        throw new BadRequestException("Select how teachers should be targeted.");
-      }
+      const derived = await this.deriveTeacherTargeting({
+        teacherCampusId: dto.teacherCampusId,
+        teacherProgramId: dto.teacherProgramId,
+        teacherBranchId: dto.teacherBranchId,
+        teacherScope: dto.teacherScope
+      });
+      return { ...derived, teacherRoleFilter };
     }
-    if (teacherScope === AnnouncementTeacherScope.INSTITUTION) {
+
+    return {
+      teacherScope: AnnouncementTeacherScope.NONE,
+      teacherCampusId: undefined,
+      teacherProgramId: undefined,
+      teacherBranchId: undefined,
+      teacherRoleFilter
+    };
+  }
+
+  /** Campus → department → branch depth defines teacher reach; empty chain = entire institution. */
+  private async deriveTeacherTargeting(input: {
+    teacherCampusId?: string;
+    teacherProgramId?: string;
+    teacherBranchId?: string;
+    teacherScope?: AnnouncementTeacherScope;
+  }) {
+    let teacherCampusId = input.teacherCampusId;
+    let teacherProgramId = input.teacherProgramId;
+    let teacherBranchId = input.teacherBranchId;
+    let teacherScope = input.teacherScope ?? AnnouncementTeacherScope.NONE;
+
+    if (teacherBranchId) {
+      const branch = await this.prisma.branch.findUnique({
+        where: { id: teacherBranchId },
+        include: { program: true }
+      });
+      if (!branch || branch.status !== StructureStatus.ACTIVE) throw new BadRequestException("Teacher branch target is invalid or archived.");
+      teacherScope = AnnouncementTeacherScope.BRANCH;
+      teacherBranchId = branch.id;
+      teacherProgramId = branch.programId;
+      teacherCampusId = branch.program.campusId;
+    } else if (teacherProgramId) {
+      const program = await this.prisma.program.findUnique({ where: { id: teacherProgramId } });
+      if (!program || program.status !== StructureStatus.ACTIVE) throw new BadRequestException("Teacher department target is invalid or archived.");
+      teacherScope = AnnouncementTeacherScope.DEPARTMENT;
+      teacherProgramId = program.id;
+      teacherCampusId = program.campusId;
+      teacherBranchId = undefined;
+    } else if (teacherCampusId) {
+      const campus = await this.prisma.campus.findUnique({ where: { id: teacherCampusId } });
+      if (!campus || campus.status !== StructureStatus.ACTIVE) throw new BadRequestException("Teacher campus target is invalid or archived.");
+      teacherScope = AnnouncementTeacherScope.CAMPUS;
+      teacherCampusId = campus.id;
+      teacherProgramId = undefined;
+      teacherBranchId = undefined;
+    } else if (teacherScope === AnnouncementTeacherScope.INSTITUTION || teacherScope === AnnouncementTeacherScope.NONE) {
+      teacherScope = AnnouncementTeacherScope.INSTITUTION;
       teacherCampusId = undefined;
       teacherProgramId = undefined;
       teacherBranchId = undefined;
+    } else {
+      throw new BadRequestException("Teacher targeting requires campus, department, or branch selection.");
     }
-    if (teacherScope === AnnouncementTeacherScope.CAMPUS && !teacherCampusId) throw new BadRequestException("Campus is required for this teacher scope.");
-    if (teacherScope === AnnouncementTeacherScope.DEPARTMENT && !teacherProgramId) throw new BadRequestException("Department is required for this teacher scope.");
-    if (teacherScope === AnnouncementTeacherScope.BRANCH && !teacherBranchId) throw new BadRequestException("Branch is required for this teacher scope.");
+
     return { teacherScope, teacherCampusId, teacherProgramId, teacherBranchId };
   }
 
@@ -408,8 +626,85 @@ export class AnnouncementsService implements OnModuleInit {
       this.assertAllowed(user, PermissionAction.VIEW_ANNOUNCEMENTS, this.announcementToScope(row as never));
       return;
     }
+    if (user.type === UserType.TEACHER) {
+      await this.assertTeacherCanAccessAnnouncement(user, row as never);
+      return;
+    }
     const items = await this.filterVisible(user, [row as never]);
     if (!items.length) throw new ForbiddenException("You cannot view this announcement.");
+  }
+
+  private async assertTeacherManageAnnouncements(user: AuthUser) {
+    if (!this.permissions.can(user, { action: PermissionAction.MANAGE_ANNOUNCEMENTS }).allowed) {
+      throw new ForbiddenException("You cannot manage announcements.");
+    }
+  }
+
+  private normalizeTeacherAnnouncementDto(dto: CreateAnnouncementDto) {
+    if (dto.audience !== AnnouncementAudience.STUDENTS) {
+      throw new BadRequestException("Teachers can only publish student announcements for their section.");
+    }
+    if (dto.campusId || dto.programId || dto.branchId || dto.batchId || dto.classId) {
+      throw new BadRequestException("Teachers can only target a section.");
+    }
+    if (!dto.sectionId?.trim()) {
+      throw new BadRequestException("Section is required.");
+    }
+  }
+
+  private async assertTeacherSectionPayload(user: AuthUser, sectionId: string) {
+    const teacher = await getActiveTeacherProfile(this.prisma, user.id);
+    const sections = await loadTeacherAssignedSections(
+      this.prisma,
+      this.permissions,
+      user,
+      teacher,
+      PermissionAction.MANAGE_ANNOUNCEMENTS
+    );
+    const ctx = resolveTeacherEngageContext(user, this.permissions, teacher, sections);
+    if (!ctx.sectionIds.includes(sectionId)) {
+      throw new ForbiddenException("You cannot target this section.");
+    }
+    const scope = await scopeForSectionId(this.prisma, sectionId);
+    assertTeacherCanAccessSectionScope(user, this.permissions, scope, PermissionAction.MANAGE_ANNOUNCEMENTS);
+  }
+
+  private async assertTeacherCanAccessAnnouncement(
+    user: AuthUser,
+    announcement: {
+      sectionId: string | null;
+      campusId: string | null;
+      programId: string | null;
+      branchId: string | null;
+      batchId: string | null;
+      classId: string | null;
+      audience: AnnouncementAudience;
+    }
+  ) {
+    const canManage = this.permissions.can(user, { action: PermissionAction.MANAGE_ANNOUNCEMENTS }).allowed;
+    const canView = this.permissions.can(user, { action: PermissionAction.VIEW_ANNOUNCEMENTS }).allowed;
+    if (!canManage && !canView) throw new ForbiddenException("You cannot access announcements.");
+
+    if (
+      announcement.audience !== AnnouncementAudience.STUDENTS &&
+      announcement.audience !== AnnouncementAudience.BOTH &&
+      announcement.audience !== AnnouncementAudience.ALL
+    ) {
+      throw new ForbiddenException("This announcement is outside your assigned scope.");
+    }
+    if (!announcement.sectionId) {
+      throw new ForbiddenException("This announcement is outside your assigned scope.");
+    }
+
+    const teacher = await getActiveTeacherProfile(this.prisma, user.id);
+    const permissionAction = canManage ? PermissionAction.MANAGE_ANNOUNCEMENTS : PermissionAction.VIEW_ANNOUNCEMENTS;
+    const sections = await loadTeacherAssignedSections(this.prisma, this.permissions, user, teacher, permissionAction);
+    const ctx = resolveTeacherEngageContext(user, this.permissions, teacher, sections);
+    if (!ctx.sectionIds.includes(announcement.sectionId)) {
+      throw new ForbiddenException("This announcement is outside your assigned scope.");
+    }
+    const scope = await scopeForSectionId(this.prisma, announcement.sectionId);
+    assertTeacherCanAccessSectionScope(user, this.permissions, scope, permissionAction);
   }
 
   private async filterVisible(user: AuthUser, items: any[]) {
@@ -434,6 +729,8 @@ export class AnnouncementsService implements OnModuleInit {
   }
 
   private teacherSeesAnnouncement(user: AuthUser, item: any) {
+    if (!this.teacherMatchesRoleFilter(user, item.teacherRoleFilter as AnnouncementTeacherRoleFilter)) return false;
+
     if (item.teacherScope === AnnouncementTeacherScope.INSTITUTION) return true;
     if (item.teacherScope === AnnouncementTeacherScope.CAMPUS && item.teacherCampusId) {
       return user.assignments.some((a) => a.campusId === item.teacherCampusId);
@@ -450,6 +747,12 @@ export class AnnouncementsService implements OnModuleInit {
     return false;
   }
 
+  private teacherMatchesRoleFilter(user: AuthUser, filter: AnnouncementTeacherRoleFilter) {
+    if (filter === AnnouncementTeacherRoleFilter.ALL) return true;
+    const role = filter as unknown as TeacherRoleKind;
+    return user.assignments.some((a) => a.role === role);
+  }
+
   private toListDto(row: any, userId: string) {
     const readAt = row.reads?.[0]?.readAt ?? null;
     return {
@@ -462,6 +765,7 @@ export class AnnouncementsService implements OnModuleInit {
       pinned: row.pinned,
       scope: this.announcementToScope(row as never),
       teacherScope: row.teacherScope,
+      teacherRoleFilter: row.teacherRoleFilter,
       teacherCampusId: row.teacherCampusId,
       teacherProgramId: row.teacherProgramId,
       teacherBranchId: row.teacherBranchId,
@@ -528,14 +832,7 @@ export class AnnouncementsService implements OnModuleInit {
   }
 
   private studentToScope(student: Prisma.StudentProfileGetPayload<{ include: AnnouncementsService["studentInclude"] }>): ScopeRef {
-    return {
-      campusId: student.section.class.branch.program.campusId,
-      programId: student.section.class.branch.programId,
-      branchId: student.section.class.branchId,
-      batchId: student.section.class.batchId ?? undefined,
-      classId: student.section.classId,
-      sectionId: student.sectionId
-    };
+    return studentProfileToScope(student);
   }
 
   private announcementToScope(announcement: { campusId: string | null; programId: string | null; branchId: string | null; batchId: string | null; classId: string | null; sectionId: string | null }): ScopeRef {
@@ -560,11 +857,8 @@ export class AnnouncementsService implements OnModuleInit {
   }
 
   private audit(user: AuthUser, action: string, entity: string, entityId: string, metadata?: Prisma.InputJsonObject) {
-    return this.prisma.auditLog.create({ data: { userId: user.id, action, entity, entityId, metadata } });
+    return this.prisma.auditLog.create({ data: { userId: user.auditUserId, action, entity, entityId, metadata } });
   }
 
-  private readonly studentInclude = {
-    user: true,
-    section: { include: { class: { include: { branch: { include: { program: true } }, batch: true } } } }
-  } satisfies Prisma.StudentProfileInclude;
+  private readonly studentInclude = studentScopeProfileInclude;
 }

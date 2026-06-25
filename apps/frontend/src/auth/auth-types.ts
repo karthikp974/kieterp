@@ -9,6 +9,7 @@ export type AuthUser = {
   type: UserType;
   campusId?: string | null;
   campusGroupId?: string | null;
+  avatarUrl?: string | null;
   assignments: {
     id: string;
     role: "STPO" | "CTPO" | "HTPO";

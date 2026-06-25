@@ -1,14 +1,16 @@
-import { ArrowLeft, Bell, CheckSquare, Square } from "lucide-react";
+import { ArrowLeft, CheckSquare, History, Square, Users } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { ComponentProps, MouseEvent, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/auth-context";
-import { AdminWorkflowMenuButton, OptionActionButton } from "../shared/OptionPage";
+import { AdminWorkflowMenuButton, OptionActionButton, WorkflowSection } from "../shared/OptionPage";
 import { safeRandomId } from "../shared/safe-random-id";
 import { SearchableSelect } from "../shared/SearchableSelect";
 import { semesterPairLabelForAcademicYear, academicYearIndexFromLinearSemester } from "./promotion-semester";
+import { ProfileMenuButton } from "../shared/ProfileMenu";
 import { useToast } from "../shared/toast-context";
-import type { Batch, Branch, Campus, Program } from "../structure/structure-types";
-import { PaginatedResponse } from "../structure/structure-types";
+import { programsForOperationalCampus, type CampusPicker, type ProgramPicker } from "../shared/academic-catalog";
+import { PaginatedResponse, type Batch, type Branch, type Campus, type Program } from "../structure/structure-types";
 
 type PromotionClass = {
   id: string;
@@ -75,8 +77,41 @@ function PromotionDropdown(props: Omit<SearchableSelectProps, "searchable" | "cl
   return <SearchableSelect searchable={false} clearable={false} required={required} {...rest} />;
 }
 
+function HubActionButton({ children, description, icon, onClick }: { children: ReactNode; description: string; icon: LucideIcon; onClick: () => void }) {
+  return (
+    <OptionActionButton description={description} icon={icon} onClick={onClick}>
+      {children}
+    </OptionActionButton>
+  );
+}
+
 export function PromotionHomePage() {
   const navigate = useNavigate();
+  return (
+    <PromotionShell title="Promotion" variant="main">
+      <WorkflowSection title="Promote">
+        <HubActionButton
+          description="Select campus through section, promote students, and reassign non-promoted students."
+          icon={Users}
+          onClick={() => navigate("/promotion/promote-students")}
+        >
+          Promote students
+        </HubActionButton>
+      </WorkflowSection>
+      <WorkflowSection title="Activity">
+        <HubActionButton
+          description="View recent promotion activity and audit records."
+          icon={History}
+          onClick={() => navigate("/promotion/history")}
+        >
+          Promotion history
+        </HubActionButton>
+      </WorkflowSection>
+    </PromotionShell>
+  );
+}
+
+export function PromotionRunPage() {
   const api = usePromotionWizardApi();
   const { showToast } = useToast();
 
@@ -375,7 +410,7 @@ export function PromotionHomePage() {
   }
 
   return (
-    <PromotionShell title="Promotion" variant="main">
+    <PromotionShell title="Promote students" variant="workflow" backHref="/promotion">
       <nav className="promotion-wizard-nav" aria-label="Promotion steps">
         {[1, 2, 3, 4].map((n) => (
           <button
@@ -600,11 +635,6 @@ export function PromotionHomePage() {
           </div>
         </section>
       ) : null}
-
-      <section className="db-section promotion-activity" aria-label="Promotion activity">
-        <h2>Activity</h2>
-        <OptionActionButton onClick={() => navigate("/promotion/history")}>History</OptionActionButton>
-      </section>
     </PromotionShell>
   );
 }
@@ -766,7 +796,9 @@ function usePromotionWizardApi() {
     async (cId: string) => {
       try {
         const page = await fetchJson<PaginatedResponse<Program>>(`/api/core/programs?page=1&pageSize=100&campusId=${encodeURIComponent(cId)}`);
-        setPrograms(page.items);
+        setPrograms(
+          programsForOperationalCampus(page.items as ProgramPicker[], cId, campuses as CampusPicker[]) as Program[]
+        );
       } catch (error) {
         showToast(error instanceof Error ? error.message : "Unable to load departments", "error");
       }
@@ -958,19 +990,37 @@ function usePromotionWizardApi() {
   };
 }
 
-function PromotionShell({ children, title, variant = "workflow" }: { children: ReactNode; title: string; variant?: "main" | "workflow" }) {
+function PromotionShell({
+  children,
+  title,
+  variant = "workflow",
+  backHref
+}: {
+  children: ReactNode;
+  title: string;
+  variant?: "main" | "workflow";
+  backHref?: string;
+}) {
   const navigate = useNavigate();
-  const { user } = useAuth();
   return (
     <main className="db-workflow min-h-screen promotion-workflow-layout">
       <header className="db-workflow-header">
         <div className="db-header-left">
-          {variant === "main" ? <AdminWorkflowMenuButton /> : <button type="button" className="db-icon-button" onClick={() => navigate(-1)} aria-label="Back"><ArrowLeft size={20} /></button>}
+          {variant === "main" ? (
+            <AdminWorkflowMenuButton />
+          ) : backHref ? (
+            <Link to={backHref} className="db-icon-button" aria-label="Back">
+              <ArrowLeft size={20} />
+            </Link>
+          ) : (
+            <button type="button" className="db-icon-button" onClick={() => navigate(-1)} aria-label="Back">
+              <ArrowLeft size={20} />
+            </button>
+          )}
           <h1>{title}</h1>
         </div>
         <div className="db-header-actions">
-          {variant === "main" ? <button type="button" className="db-icon-button" aria-label="Notifications"><Bell size={18} /></button> : null}
-          <div className="db-avatar">{initials(user?.fullName ?? "Admin")}</div>
+          <ProfileMenuButton />
         </div>
       </header>
       <div className="db-workflow-body promotion-body">{children}</div>

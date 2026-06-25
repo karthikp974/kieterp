@@ -1,0 +1,185 @@
+/**
+ * ERP global typography + button normalization.
+ * Maps the historical per-portal classes (admin db-*, student sp-*, teacher tp-*) onto the
+ * shared design tokens so every page/card uses ONE type scale, heading weight, text hierarchy,
+ * and button sizing. Loaded LAST in main.tsx; uses !important to override fragmented per-page rules.
+ *
+ * Hierarchy (size dominates, weight reinforces):
+ *   Page title   ~26px / 900
+ *   Section title ~17px / 800
+ *   Card title    ~15px / 800
+ *   Body          ~14px / 500   (primary = --t1)
+ *   Meta/secondary ~13px / 500   (muted = --t3)
+ *   Label (caps)  ~12px / 700   (muted = --t3)
+ */
+
+/* ---------- Base headings & body ---------- */
+.portal-root h1,
+.portal-root h2,
+.portal-root h3,
+.portal-root h4,
+.erp-shell h1,
+.erp-shell h2,
+.erp-shell h3,
+.erp-shell h4 {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.portal-root p,
+.erp-shell p {
+  font-weight: var(--erp-type-body-weight);
+}
+
+/* ---------- Page-level titles (in-page headings, not the top bar) ---------- */
+.page-header-title,
+.portal-page-header-title,
+.teacher-portal-module-title,
+.student-portal-panel-title,
+.erp-type-page-title {
+  font-family: var(--font-heading) !important;
+  font-size: var(--erp-type-page-title-size) !important;
+  font-weight: var(--erp-type-page-title-weight) !important;
+  line-height: var(--erp-type-page-title-line) !important;
+  letter-spacing: -0.03em !important;
+  color: var(--t1) !important;
+}
+
+/* ---------- Section titles ---------- */
+.app-section-title,
+.sp-dash-section-title,
+.sp-att-section-title,
+.sp-marks-section-title,
+.sp-syl-section-title,
+.sp-fb-section-title,
+.sp-app-section-title,
+.sp-rcpt-section-title,
+.sp-fee-modal-section-title,
+.sp-tt-section-title,
+.erp-reports-section-title,
+.erp-type-section-title {
+  font-family: var(--font-heading) !important;
+  font-size: var(--erp-type-section-title-size) !important;
+  font-weight: var(--erp-type-section-title-weight) !important;
+  letter-spacing: -0.02em !important;
+  color: var(--t1) !important;
+}
+
+/* ---------- Card titles ---------- */
+.admin-panel-title,
+.app-list-card-title,
+.tp-card-title,
+.sp-dash-top-card-title,
+.sp-subj-card-title,
+.sp-fee-panel-title,
+.sp-ann-card-title,
+.sp-fb-card-title,
+.sp-profile-card-title,
+.sp-app-card-title,
+.sp-fb-form-card-title,
+.erp-reports-dash-card-title,
+.db-section-title,
+.erp-type-card-title {
+  font-family: var(--font-heading) !important;
+  font-size: var(--erp-type-card-title-size) !important;
+  font-weight: var(--erp-type-card-title-weight) !important;
+  letter-spacing: -0.01em !important;
+  color: var(--t1) !important;
+}
+
+/* ---------- Primary body text ---------- */
+.student-portal-panel-body,
+.sp-subj-card-body,
+.sp-app-request-message,
+.sp-ann-card-body {
+  font-weight: var(--erp-type-body-weight) !important;
+  color: var(--t1) !important;
+}
+
+/* ---------- Secondary / meta text (muted, not bold) ---------- */
+.sp-app-page-sub,
+.student-portal-panel-lead,
+.sp-dash-top-card-sub,
+.sp-dash-welcome-meta,
+.sp-dash-welcome-label,
+.sp-dash-announce-meta,
+.sp-ann-card-meta,
+.sp-app-request-meta,
+.sp-subj-card-meta,
+.sp-fb-card-meta,
+.sp-profile-card-sub,
+.tp-kpi-sub,
+.teacher-portal-module-subtitle,
+.admin-branch-empty-hint,
+.erp-reports-dash-card-sub {
+  font-weight: var(--erp-type-meta-weight) !important;
+  color: var(--t3) !important;
+}
+
+/* ---------- Uppercase labels (muted) ---------- */
+.sp-app-field span,
+.sp-dash-stat-label,
+.tp-kpi-label,
+.sp-fee-summary-label,
+.sp-profile-field-label {
+  font-size: var(--erp-type-label-size) !important;
+  font-weight: var(--erp-type-label-weight) !important;
+  letter-spacing: 0.04em !important;
+  text-transform: uppercase !important;
+  color: var(--t3) !important;
+}
+
+/* ---------- Stat / KPI cards: consistent label → value → sub across all portals ---------- */
+/* Label (the small heading, e.g. "STUDENTS") */
+.admin-stat-title,
+.tp-kpi-label,
+.sp-dash-stat-label {
+  margin: 0 !important;
+  font-size: 0.6875rem !important; /* 11px */
+  font-weight: 700 !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase !important;
+  color: var(--t3) !important;
+}
+
+/* Value (the answer, e.g. "5") */
+.admin-stat-value,
+.tp-kpi-value,
+.sp-dash-stat-value,
+.sp-dash-top-card-metric,
+.sp-dash-fee-total-value {
+  font-size: 1.625rem !important; /* 26px */
+  font-weight: 800 !important;
+  line-height: 1.05 !important;
+  letter-spacing: -0.03em !important;
+  color: var(--t1) !important;
+}
+
+/* Sub / caption (supporting detail, e.g. "Enrolled") */
+.admin-stat-caption,
+.tp-kpi-sub,
+.sp-dash-stat-meta,
+.sp-dash-top-card-sub {
+  font-size: 0.75rem !important; /* 12px */
+  font-weight: 500 !important;
+  color: var(--t3) !important;
+}
+
+/* ---------- Inline action buttons: one height + weight ---------- */
+.db-wf-btn,
+.db-submit,
+.sp-fee-pay-btn,
+.sp-fee-download-btn,
+.sp-fee-receipt-btn,
+.sp-rcpt-download-btn,
+.sp-marks-pdf-btn,
+.sp-att-export-btn,
+.sp-fb-btn--primary,
+.sp-app-submit,
+.sp-ann-search-btn,
+.finance-export-button {
+  min-height: var(--erp-btn-md-height) !important;
+  font-size: var(--erp-btn-md-font-size) !important;
+  font-weight: var(--erp-btn-md-font-weight) !important;
+}
