@@ -9,7 +9,6 @@ import { join, extname } from "path";
 import { PrismaService } from "../prisma/prisma.service";
 import { isDevelopmentNodeEnv } from "../common/node-env.util";
 import { isPathWithinRoot } from "../common/safe-path.util";
-import { EmailService } from "../email/email.service";
 import { DEMO_HTPO_EMPLOYEE_CODE } from "../demo/htpo-demo-teacher";
 import { ensureDemoTimetableSlots } from "../demo/demo-timetable-slots";
 import { ensureTeacherDemoAccounts } from "../demo/teacher-demo";
@@ -51,7 +50,6 @@ export class AuthService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
-    private readonly email: EmailService,
     private readonly config: ConfigService,
     private readonly auditIdentity: AuditIdentityService,
     private readonly spectator: SpectatorActivityService
@@ -415,19 +413,6 @@ export class AuthService implements OnModuleInit {
     });
 
     const resetUrl = this.buildPasswordResetUrl(resetToken);
-    if (user.email) {
-      const sent = await this.email.sendPasswordReset({
-        email: user.email,
-        fullName: user.fullName,
-        resetUrl,
-        expiresMinutes: PASSWORD_RESET_TTL_MINUTES
-      });
-      if (!sent && !isDevelopmentNodeEnv()) {
-        this.logger.error(`Password reset email could not be sent for user ${user.id}. Check SMTP configuration.`);
-      }
-    } else if (!isDevelopmentNodeEnv()) {
-      this.logger.warn(`Password reset requested for user ${user.id} but no email address is on file.`);
-    }
 
     const response: { ok: true; message: string; devResetToken?: string } = {
       ok: true,

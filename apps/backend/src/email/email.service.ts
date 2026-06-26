@@ -24,6 +24,10 @@ export class EmailService {
   constructor(private readonly config: ConfigService) {}
 
   async sendPasswordReset(input: PasswordResetEmail) {
+    if (!this.isEmailEnabled()) {
+      this.logger.warn("Email sending is disabled (set EMAIL_ENABLED=true to enable). Password reset email not sent.");
+      return false;
+    }
     const transporter = this.createTransporter();
     if (!transporter) {
       this.logger.error("SMTP is not configured. Password reset email was not sent.");
@@ -65,6 +69,10 @@ export class EmailService {
   }
 
   async sendTeacherWelcome(input: TeacherWelcomeEmail) {
+    if (!this.isEmailEnabled()) {
+      this.logger.warn("Email sending is disabled (set EMAIL_ENABLED=true to enable). Skipping teacher welcome email.");
+      return;
+    }
     const transporter = this.createTransporter();
     if (!transporter) {
       this.logger.warn("SMTP is not configured. Skipping teacher welcome email.");
@@ -105,6 +113,12 @@ export class EmailService {
     const fromAddress = this.config.get<string>("EMAIL_FROM_ADDRESS") ?? this.config.get<string>("SMTP_USER");
     if (!fromAddress) return null;
     return `"${fromName}" <${fromAddress}>`;
+  }
+
+  /** Email is off unless EMAIL_ENABLED is explicitly "true". Keeps nodemailer's
+   *  send paths dormant while the dependency stays installed. */
+  private isEmailEnabled() {
+    return (this.config.get<string>("EMAIL_ENABLED") ?? "false").trim().toLowerCase() === "true";
   }
 
   private createTransporter() {
