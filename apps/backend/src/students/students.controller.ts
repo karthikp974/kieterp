@@ -45,8 +45,8 @@ export class StudentsController {
 
   @Get("imports/:jobId")
   @RequiresPermission(PermissionAction.MANAGE_USERS)
-  importJob(@Param("jobId") jobId: string) {
-    return this.students.getImportJob(jobId);
+  importJob(@Param("jobId") jobId: string, @CurrentUser() user: AuthUser) {
+    return this.students.getImportJob(jobId, user);
   }
 
   @Patch(":id")

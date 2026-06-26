@@ -4,7 +4,7 @@ import { AuthSessionStatus, Prisma, StructureStatus, UserStatus, UserType } from
 import bcrypt from "bcrypt";
 import { AuthUser } from "../auth/auth.types";
 import { toPagination } from "../common/pagination.dto";
-import { CampusScopeService } from "../permissions/campus-scope.service";
+import { CampusScopeService, isInstitutionWideAdmin } from "../permissions/campus-scope.service";
 import { SharedGroupAcademicService } from "../permissions/shared-group-academic.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { QueueService } from "../queues/queues.module";
@@ -269,11 +269,17 @@ export class StudentsService {
     return { job: this.toImportJobObject(job) };
   }
 
-  async getImportJob(jobId: string) {
+  async getImportJob(jobId: string, user: AuthUser) {
     const job = await this.prisma.backgroundJobRecord.findFirst({
       where: { id: jobId, jobName: STUDENT_BULK_IMPORT_JOB }
     });
     if (!job) throw new NotFoundException("Import job not found.");
+    // BackgroundJobRecord has no campus column; a scoped admin may only read a job
+    // they themselves queued (its results contain student roll numbers).
+    if (!isInstitutionWideAdmin(user)) {
+      const requestedById = (job.payload as { requestedById?: string } | null)?.requestedById;
+      if (requestedById !== user.id) throw new NotFoundException("Import job not found.");
+    }
     return { job: this.toImportJobObject(job) };
   }
 
