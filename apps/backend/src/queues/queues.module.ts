@@ -1,19 +1,32 @@
 import { BullModule, InjectQueue } from "@nestjs/bullmq";
-import { Injectable, Module, forwardRef } from "@nestjs/common";
+import { Injectable, Module, OnModuleInit, forwardRef } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { Queue } from "bullmq";
 import { PrismaService } from "../prisma/prisma.service";
 import { StudentsModule } from "../students/students.module";
-import { SYSTEM_QUEUE } from "./queue.constants";
+import { SESSION_CLEANUP_EVERY_MS, SESSION_CLEANUP_JOB, SYSTEM_QUEUE } from "./queue.constants";
 import { SystemProcessor } from "./system.processor";
 
 @Injectable()
-export class QueueService {
+export class QueueService implements OnModuleInit {
   constructor(
     @InjectQueue(SYSTEM_QUEUE)
     private readonly systemQueue: Queue,
     private readonly prisma: PrismaService
   ) {}
+
+  /** Register the daily expired-session cleanup as a repeatable job (deduped by repeat key). */
+  async onModuleInit() {
+    await this.systemQueue.add(
+      SESSION_CLEANUP_JOB,
+      {},
+      {
+        repeat: { every: SESSION_CLEANUP_EVERY_MS },
+        removeOnComplete: true,
+        removeOnFail: 50
+      }
+    );
+  }
 
   async cancelBackgroundJob(recordId: string, reason: string) {
     const record = await this.prisma.backgroundJobRecord.findUnique({ where: { id: recordId } });

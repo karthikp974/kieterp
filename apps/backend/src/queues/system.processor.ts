@@ -12,7 +12,7 @@ import { ParsedResultRow, parseResultRows } from "../results/result-pdf-parser";
 import { resolveResultSubjectByCode } from "../results/results-subject.util";
 import { StudentsService } from "../students/students.service";
 import type { CreateStudentDto } from "../students/students.dto";
-import { RESULT_PDF_IMPORT_JOB, STUDENT_BULK_IMPORT_JOB, SYSTEM_QUEUE } from "./queue.constants";
+import { RESULT_PDF_IMPORT_JOB, SESSION_CLEANUP_JOB, STUDENT_BULK_IMPORT_JOB, SYSTEM_QUEUE } from "./queue.constants";
 import { RESULTS_IMPORT_INTERRUPTED_MESSAGE } from "../results/results-import.constants";
 
 type StudentBulkImportPayload = {
@@ -56,6 +56,11 @@ export class SystemProcessor extends WorkerHost {
   }
 
   async process(job: Job) {
+    // Repeatable housekeeping job has no BackgroundJobRecord — handle before the
+    // import-record machinery below.
+    if (job.name === SESSION_CLEANUP_JOB) {
+      return this.cleanupExpiredSessions();
+    }
     await this.assertImportActive(String(job.id));
     await this.prisma.backgroundJobRecord.updateMany({
       where: { externalId: job.id },
@@ -110,6 +115,14 @@ export class SystemProcessor extends WorkerHost {
       });
       throw error;
     }
+  }
+
+  /** Delete AuthSession rows past expiry (cascades to linked rows by schema design). */
+  private async cleanupExpiredSessions() {
+    const { count } = await this.prisma.authSession.deleteMany({
+      where: { expiresAt: { lt: new Date() } }
+    });
+    return { ok: true, deletedSessions: count };
   }
 
   private async assertImportActive(importJobId: string) {
