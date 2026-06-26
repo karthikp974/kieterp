@@ -17,6 +17,7 @@ import { randomUUID } from "crypto";
 import { AuthUser, ScopeRef, TeacherAssignmentContext } from "../auth/auth.types";
 import { toPagination } from "../common/pagination.dto";
 import { bufferMatchesMime } from "../common/file-signature.util";
+import { isPathWithinRoot } from "../common/safe-path.util";
 import { PermissionsService } from "../permissions/permissions.service";
 import { campusIdsForSharedMatching, studentProfileToScope, studentScopeProfileInclude } from "../permissions/operational-scope.util";
 import { PrismaService } from "../prisma/prisma.service";
@@ -385,6 +386,7 @@ export class AnnouncementsService implements OnModuleInit {
     if (!att) throw new NotFoundException("Attachment not found.");
     await this.assertCanView(user, att.announcement as never);
     const full = join(UPLOAD_ROOT, att.storageKey);
+    if (!isPathWithinRoot(UPLOAD_ROOT, full)) throw new NotFoundException("Attachment not found.");
     if (!existsSync(full)) throw new NotFoundException("File missing on disk.");
     const stream = createReadStream(full);
     return new StreamableFile(stream, { type: att.mimeType, disposition: `attachment; filename="${encodeURIComponent(att.originalName)}"` });

@@ -8,6 +8,7 @@ import { createReadStream, existsSync, mkdirSync, unlinkSync, writeFileSync } fr
 import { join, extname } from "path";
 import { PrismaService } from "../prisma/prisma.service";
 import { isDevelopmentNodeEnv } from "../common/node-env.util";
+import { isPathWithinRoot } from "../common/safe-path.util";
 import { EmailService } from "../email/email.service";
 import { DEMO_HTPO_EMPLOYEE_CODE } from "../demo/htpo-demo-teacher";
 import { ensureDemoTimetableSlots } from "../demo/demo-timetable-slots";
@@ -346,7 +347,9 @@ export class AuthService implements OnModuleInit {
 
   async streamAvatar(user: AuthUser) {
     const row = await this.prisma.user.findUnique({ where: { id: user.id }, select: { avatarPath: true } });
-    if (!row?.avatarPath || !existsSync(row.avatarPath)) throw new NotFoundException("No profile photo.");
+    if (!row?.avatarPath || !isPathWithinRoot(AVATAR_ROOT, row.avatarPath) || !existsSync(row.avatarPath)) {
+      throw new NotFoundException("No profile photo.");
+    }
     const ext = extname(row.avatarPath).toLowerCase();
     const type =
       ext === ".png" ? "image/png" : ext === ".webp" ? "image/webp" : ext === ".gif" ? "image/gif" : "image/jpeg";
