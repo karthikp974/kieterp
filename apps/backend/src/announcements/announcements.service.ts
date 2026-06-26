@@ -16,6 +16,7 @@ import { join } from "path";
 import { randomUUID } from "crypto";
 import { AuthUser, ScopeRef, TeacherAssignmentContext } from "../auth/auth.types";
 import { toPagination } from "../common/pagination.dto";
+import { bufferMatchesMime } from "../common/file-signature.util";
 import { PermissionsService } from "../permissions/permissions.service";
 import { campusIdsForSharedMatching, studentProfileToScope, studentScopeProfileInclude } from "../permissions/operational-scope.util";
 import { PrismaService } from "../prisma/prisma.service";
@@ -354,6 +355,7 @@ export class AnnouncementsService implements OnModuleInit {
     if (!file?.buffer?.length) throw new BadRequestException("Missing file.");
     if (file.size > MAX_ATTACHMENT_BYTES) throw new BadRequestException("Attachment too large (max 10MB).");
     if (!ALLOWED_MIME.has(file.mimetype)) throw new BadRequestException("Unsupported file type.");
+    if (!bufferMatchesMime(file.buffer, file.mimetype)) throw new BadRequestException("File contents do not match the declared file type.");
     const announcement = await this.prisma.announcement.findUnique({ where: { id: announcementId } });
     if (!announcement) throw new NotFoundException("Announcement not found.");
     this.assertAllowed(user, PermissionAction.MANAGE_ANNOUNCEMENTS, this.announcementToScope(announcement as never));
