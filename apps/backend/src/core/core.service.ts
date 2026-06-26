@@ -84,7 +84,8 @@ export class CoreService {
     };
   }
 
-  async getSectionEcosystem(id: string) {
+  async getSectionEcosystem(id: string, user: AuthUser) {
+    await this.campusScope.assertSectionInScope(user, id);
     const section = await this.prisma.section.findFirst({
       where: { id, status: StructureStatus.ACTIVE, isArchived: false },
       include: {
@@ -300,8 +301,9 @@ export class CoreService {
     );
   }
 
-  async updateCampus(id: string, dto: UpdateCampusDto) {
+  async updateCampus(id: string, dto: UpdateCampusDto, user: AuthUser) {
     await this.ensureCampus(id);
+    await this.campusScope.assertCampusAllowed(user, id);
     if (dto.groupId) {
       await this.ensureCampusGroup(dto.groupId);
       await this.campusScope.assertCampusGroupChangeAllowed(id, dto.groupId);
@@ -320,8 +322,9 @@ export class CoreService {
     );
   }
 
-  async archiveCampus(id: string) {
+  async archiveCampus(id: string, user: AuthUser) {
     await this.ensureCampus(id);
+    await this.campusScope.assertCampusAllowed(user, id);
     return this.prisma.campus.update({ where: { id }, data: { status: StructureStatus.ARCHIVED, isActive: false } });
   }
 
@@ -383,8 +386,9 @@ export class CoreService {
     );
   }
 
-  async updateProgram(id: string, dto: UpdateProgramDto) {
+  async updateProgram(id: string, dto: UpdateProgramDto, user: AuthUser) {
     await this.ensureProgram(id);
+    await this.campusScope.assertProgramInScope(user, id);
     return this.safeWrite(() =>
       this.prisma.program.update({
         where: { id },
@@ -400,8 +404,9 @@ export class CoreService {
     );
   }
 
-  async archiveProgram(id: string) {
+  async archiveProgram(id: string, user: AuthUser) {
     await this.ensureProgram(id);
+    await this.campusScope.assertProgramInScope(user, id);
     const archivedAt = new Date();
     return this.prisma.$transaction(async (tx) => {
       await tx.branch.updateMany({ where: { programId: id }, data: { status: StructureStatus.ARCHIVED, isArchived: true, archivedAt } });
@@ -457,8 +462,9 @@ export class CoreService {
     );
   }
 
-  async updateBranch(id: string, dto: UpdateBranchDto) {
+  async updateBranch(id: string, dto: UpdateBranchDto, user: AuthUser) {
     await this.ensureBranch(id);
+    await this.campusScope.assertBranchInScope(user, id);
     return this.safeWrite(() =>
       this.prisma.branch.update({
         where: { id },
@@ -472,8 +478,9 @@ export class CoreService {
     );
   }
 
-  async archiveBranch(id: string) {
+  async archiveBranch(id: string, user: AuthUser) {
     await this.ensureBranch(id);
+    await this.campusScope.assertBranchInScope(user, id);
     return this.prisma.branch.update({ where: { id }, data: { status: StructureStatus.ARCHIVED, isArchived: true, archivedAt: new Date() } });
   }
 
@@ -517,8 +524,9 @@ export class CoreService {
     );
   }
 
-  async updateBatch(id: string, dto: UpdateBatchDto) {
+  async updateBatch(id: string, dto: UpdateBatchDto, user: AuthUser) {
     const batch = await this.ensureBatch(id);
+    await this.campusScope.assertBatchInScope(user, id);
     const startYear = dto.startYear ?? batch.startYear;
     const endYear = dto.endYear ?? batch.endYear;
     assertValidBatchYears(startYear, endYear);
@@ -532,12 +540,14 @@ export class CoreService {
     );
   }
 
-  async archiveBatch(id: string) {
+  async archiveBatch(id: string, user: AuthUser) {
     await this.ensureBatch(id);
+    await this.campusScope.assertBatchInScope(user, id);
     return this.prisma.batch.update({ where: { id }, data: { status: StructureStatus.ARCHIVED, isArchived: true, archivedAt: new Date() } });
   }
 
-  async generateBatchClasses(id: string, dto: GenerateBatchClassesDto) {
+  async generateBatchClasses(id: string, dto: GenerateBatchClassesDto, user: AuthUser) {
+    await this.campusScope.assertBatchInScope(user, id);
     const batch = await this.ensureBatchWithProgram(id);
     const sectionNames = (dto.sectionNames?.length ? dto.sectionNames : ["A"]).map(normalizeCode);
     const programSemesters = batch.branch.program.semesters;
@@ -638,7 +648,8 @@ export class CoreService {
     );
   }
 
-  async updateClass(id: string, dto: UpdateClassDto) {
+  async updateClass(id: string, dto: UpdateClassDto, user: AuthUser) {
+    await this.campusScope.assertAcademicClassInScope(user, id);
     const academicClass = await this.ensureClassWithProgram(id);
     const yearNumber = dto.yearNumber ?? academicClass.yearNumber;
     const semesterNumber = dto.semesterNumber ?? academicClass.semesterNumber;
@@ -657,7 +668,8 @@ export class CoreService {
     );
   }
 
-  async archiveClass(id: string) {
+  async archiveClass(id: string, user: AuthUser) {
+    await this.campusScope.assertAcademicClassInScope(user, id);
     await this.ensureClass(id);
     const archivedAt = new Date();
     return this.prisma.$transaction(async (tx) => {
@@ -762,8 +774,9 @@ export class CoreService {
     );
   }
 
-  async updateSubject(id: string, dto: UpdateSubjectDto) {
+  async updateSubject(id: string, dto: UpdateSubjectDto, user: AuthUser) {
     const subject = await this.ensureSubjectWithProgram(id);
+    await this.campusScope.assertBranchInScope(user, subject.branchId);
     const semesterNumber = dto.semesterNumber ?? subject.semesterNumber;
     assertValidSubjectSemester(semesterNumber, subject.branch.program.semesters);
 
@@ -780,8 +793,9 @@ export class CoreService {
     );
   }
 
-  async archiveSubject(id: string) {
-    await this.ensureSubjectWithProgram(id);
+  async archiveSubject(id: string, user: AuthUser) {
+    const subject = await this.ensureSubjectWithProgram(id);
+    await this.campusScope.assertBranchInScope(user, subject.branchId);
     return this.prisma.subject.update({ where: { id }, data: { status: StructureStatus.ARCHIVED, isArchived: true, archivedAt: new Date() } });
   }
 
@@ -802,8 +816,9 @@ export class CoreService {
     );
   }
 
-  async updateSection(id: string, dto: UpdateSectionDto) {
+  async updateSection(id: string, dto: UpdateSectionDto, user: AuthUser) {
     await this.ensureSection(id);
+    await this.campusScope.assertSectionInScope(user, id);
     return this.safeWrite(() =>
       this.prisma.section.update({
         where: { id },
@@ -818,8 +833,9 @@ export class CoreService {
     );
   }
 
-  async archiveSection(id: string) {
+  async archiveSection(id: string, user: AuthUser) {
     await this.ensureSection(id);
+    await this.campusScope.assertSectionInScope(user, id);
     return this.prisma.section.update({ where: { id }, data: { status: StructureStatus.ARCHIVED, isArchived: true, archivedAt: new Date() } });
   }
 

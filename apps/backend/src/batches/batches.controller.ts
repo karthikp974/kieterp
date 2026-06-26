@@ -2,6 +2,8 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Res, UseGuard
 import { PermissionAction } from "@prisma/client";
 import { Response } from "express";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
+import { AuthUser } from "../auth/auth.types";
+import { CurrentUser } from "../auth/current-user.decorator";
 import { PermissionGuard } from "../permissions/permission.guard";
 import { RequiresPermission } from "../permissions/requires-permission.decorator";
 import { BatchExportQueryDto, BatchSearchQueryDto, CreateBatchModuleDto, UpdateBatchModuleDto } from "./batches.dto";
@@ -26,14 +28,14 @@ export class BatchesController {
 
   @Get(":id")
   @RequiresPermission(PermissionAction.MANAGE_STRUCTURE)
-  details(@Param("id") id: string) {
-    return this.service.details(id);
+  details(@Param("id") id: string, @CurrentUser() user: AuthUser) {
+    return this.service.details(id, user);
   }
 
   @Get(":id/export")
   @RequiresPermission(PermissionAction.MANAGE_STRUCTURE)
-  export(@Param("id") id: string, @Query() query: BatchExportQueryDto, @Res() response: Response) {
-    return this.service.export(id, query, response);
+  export(@Param("id") id: string, @Query() query: BatchExportQueryDto, @Res() response: Response, @CurrentUser() user: AuthUser) {
+    return this.service.export(id, query, response, user);
   }
 
   @Post()
@@ -44,13 +46,13 @@ export class BatchesController {
 
   @Patch(":id")
   @RequiresPermission(PermissionAction.MANAGE_STRUCTURE)
-  update(@Param("id") id: string, @Body() dto: UpdateBatchModuleDto) {
-    return this.service.update(id, dto);
+  update(@Param("id") id: string, @Body() dto: UpdateBatchModuleDto, @CurrentUser() user: AuthUser) {
+    return this.service.update(id, dto, user);
   }
 
   @Delete(":id")
   @RequiresPermission(PermissionAction.MANAGE_STRUCTURE)
-  archive(@Param("id") id: string) {
-    return this.service.archive(id);
+  archive(@Param("id") id: string, @CurrentUser() user: AuthUser) {
+    return this.service.archive(id, user);
   }
 }

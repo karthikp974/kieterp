@@ -2,6 +2,8 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Prisma, ProgramDurationUnit, StructureStatus } from "@prisma/client";
 import { PaginationQueryDto, toPagination } from "../common/pagination.dto";
 import { normalizeCode, normalizeName } from "../core/structure.util";
+import { AuthUser } from "../auth/auth.types";
+import { CampusScopeService } from "../permissions/campus-scope.service";
 import { SharedGroupAcademicService } from "../permissions/shared-group-academic.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { BranchQueryDto, CreateBranchesDto, CreateDepartmentDto, DepartmentBranchRowDto, DepartmentQueryDto, UpdateBranchDto, UpdateDepartmentDto } from "./department-branch.dto";
@@ -10,6 +12,7 @@ import { BranchQueryDto, CreateBranchesDto, CreateDepartmentDto, DepartmentBranc
 export class DepartmentBranchService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly campusScope: CampusScopeService,
     private readonly sharedGroup: SharedGroupAcademicService
   ) {}
 
@@ -143,8 +146,9 @@ export class DepartmentBranchService {
     return this.departmentResponse(created);
   }
 
-  async updateDepartment(id: string, dto: UpdateDepartmentDto) {
+  async updateDepartment(id: string, dto: UpdateDepartmentDto, user: AuthUser) {
     await this.ensureDepartment(id);
+    await this.campusScope.assertProgramInScope(user, id);
     const departmentCode = dto.code ? normalizeCode(dto.code) : undefined;
     const branches = dto.branches ? this.normalizeBranchRows(dto.branches) : undefined;
     if (departmentCode) {
@@ -198,8 +202,9 @@ export class DepartmentBranchService {
     return this.departmentResponse(updated);
   }
 
-  async archiveDepartment(id: string) {
+  async archiveDepartment(id: string, user: AuthUser) {
     await this.ensureDepartment(id);
+    await this.campusScope.assertProgramInScope(user, id);
     const archivedAt = new Date();
     const archived = await this.prisma.$transaction(async (tx) => {
       await tx.branch.updateMany({
@@ -242,8 +247,9 @@ export class DepartmentBranchService {
     return this.listBranches({ departmentId: dto.departmentId, page: 1, pageSize: 100 });
   }
 
-  async updateBranch(id: string, dto: UpdateBranchDto) {
+  async updateBranch(id: string, dto: UpdateBranchDto, user: AuthUser) {
     const branch = await this.ensureBranch(id);
+    await this.campusScope.assertBranchInScope(user, id);
     const code = dto.code ? normalizeCode(dto.code) : undefined;
     if (code) {
       await this.ensureBranchCodesAvailable(branch.programId, [code], [id]);
@@ -264,8 +270,9 @@ export class DepartmentBranchService {
     return this.branchResponse(updated);
   }
 
-  async archiveBranch(id: string) {
+  async archiveBranch(id: string, user: AuthUser) {
     await this.ensureBranch(id);
+    await this.campusScope.assertBranchInScope(user, id);
     const archived = await this.prisma.branch.update({
       where: { id },
       data: { status: StructureStatus.ARCHIVED, isArchived: true, archivedAt: new Date() },

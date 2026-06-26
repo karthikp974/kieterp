@@ -136,6 +136,15 @@ export class CampusScopeService {
     if (!section) throw new ForbiddenException("Section is outside your allowed scope.");
   }
 
+  async assertProgramInScope(user: AuthUser, programId: string) {
+    if (isInstitutionWideAdmin(user)) return;
+    const program = await this.prisma.program.findFirst({
+      where: { id: programId, ...(await this.programWhere(user)) },
+      select: { id: true }
+    });
+    if (!program) throw new ForbiddenException("Department is outside your allowed scope.");
+  }
+
   async assertBranchInScope(user: AuthUser, branchId: string) {
     if (isInstitutionWideAdmin(user)) return;
     const branch = await this.prisma.branch.findFirst({

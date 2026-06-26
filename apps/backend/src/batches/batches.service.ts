@@ -3,6 +3,8 @@ import { FeePaymentStatus, Prisma, StructureStatus, TeacherRoleKind } from "@pri
 import { Response } from "express";
 import { toPagination } from "../common/pagination.dto";
 import { normalizeCode } from "../core/structure.util";
+import { AuthUser } from "../auth/auth.types";
+import { CampusScopeService } from "../permissions/campus-scope.service";
 import { SharedGroupAcademicService } from "../permissions/shared-group-academic.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { BatchExportQueryDto, BatchSearchQueryDto, CreateBatchModuleDto, UpdateBatchModuleDto } from "./batches.dto";
@@ -11,6 +13,7 @@ import { BatchExportQueryDto, BatchSearchQueryDto, CreateBatchModuleDto, UpdateB
 export class BatchesService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly campusScope: CampusScopeService,
     private readonly sharedGroup: SharedGroupAcademicService
   ) {}
 
@@ -30,7 +33,8 @@ export class BatchesService {
     return { items: items.map((item) => this.batchResponse(item)), total, page: pagination.page, pageSize: pagination.pageSize };
   }
 
-  async details(id: string) {
+  async details(id: string, user: AuthUser) {
+    await this.campusScope.assertBatchInScope(user, id);
     const batch = await this.prisma.batch.findFirst({ where: { id, status: StructureStatus.ACTIVE, isArchived: false }, include: this.batchInclude() });
     if (!batch) throw new NotFoundException("Batch not found.");
     const students = await this.studentsForBatch(id);
@@ -65,8 +69,9 @@ export class BatchesService {
     return this.batchResponse(created);
   }
 
-  async update(id: string, dto: UpdateBatchModuleDto) {
+  async update(id: string, dto: UpdateBatchModuleDto, user: AuthUser) {
     await this.ensureBatch(id);
+    await this.campusScope.assertBatchInScope(user, id);
     const batchCode = normalizeCode(dto.batchCode);
     await this.ensureBatchCodeAvailable(batchCode, id);
     const updated = await this.safeWrite(() =>
@@ -76,8 +81,9 @@ export class BatchesService {
     return this.batchResponse(updated);
   }
 
-  async archive(id: string) {
+  async archive(id: string, user: AuthUser) {
     await this.ensureBatch(id);
+    await this.campusScope.assertBatchInScope(user, id);
     const archived = await this.prisma.batch.update({
       where: { id },
       data: { status: StructureStatus.ARCHIVED, isArchived: true, archivedAt: new Date() },
@@ -87,8 +93,8 @@ export class BatchesService {
     return this.batchResponse(archived);
   }
 
-  async export(id: string, query: BatchExportQueryDto, response: Response) {
-    const details = await this.details(id);
+  async export(id: string, query: BatchExportQueryDto, response: Response, user: AuthUser) {
+    const details = await this.details(id, user);
     const summaryRows = [
       ["Class Name", details.classes.map((item) => item.name).join("; ")],
       ["Class ID", details.classes.map((item) => item.code).join("; ")],
