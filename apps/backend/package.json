@@ -28,6 +28,7 @@
     "@nestjs/mapped-types": "^2.1.1",
     "@nestjs/passport": "latest",
     "@nestjs/platform-express": "latest",
+    "@nestjs/throttler": "^6.5.0",
     "@prisma/adapter-pg": "latest",
     "@prisma/client": "latest",
     "bcrypt": "^6.0.0",
