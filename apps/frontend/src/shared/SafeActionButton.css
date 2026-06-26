@@ -1,0 +1,8 @@
+/* Keep action buttons looking active (not greyed-out) while busy/locked. */
+.db-wf-btn[aria-busy="true"] {
+  opacity: 1 !important;
+  cursor: progress;
+}
+.db-wf-btn[aria-busy="true"] svg.animate-spin {
+  vertical-align: middle;
+}
