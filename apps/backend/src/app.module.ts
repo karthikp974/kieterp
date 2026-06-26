@@ -5,6 +5,7 @@ import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 import { AnnouncementsModule } from "./announcements/announcements.module";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { AuditContextInterceptor } from "./common/audit-context.interceptor";
+import { CacheModule } from "./cache/cache.module";
 import { AuditLogPatchService } from "./common/audit-log-patch.service";
 import { ApplicationsModule } from "./applications/applications.module";
 import { AuditModule } from "./audit/audit.module";
@@ -51,6 +52,7 @@ import { HealthController, ApiRootController } from "./health.controller";
       })
     }),
     PrismaModule,
+    CacheModule,
     PermissionsModule,
     AnnouncementsModule,
     ApplicationsModule,

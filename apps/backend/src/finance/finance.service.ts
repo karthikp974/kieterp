@@ -7,6 +7,8 @@ import { buildExportBasename } from "../common/export-filename.util";
 import { toPagination, PaginationQueryDto } from "../common/pagination.dto";
 import { sendTabularExport } from "../common/tabular-export.util";
 import { CampusScopeService, isInstitutionWideAdmin } from "../permissions/campus-scope.service";
+import { CacheService } from "../cache/cache.service";
+import { ADMIN_DASHBOARD_CACHE_PREFIX } from "../cache/cache.constants";
 import { PermissionsService } from "../permissions/permissions.service";
 import { assertStudentSelfProfile, studentProfileToScope } from "../permissions/operational-scope.util";
 import { SharedGroupAcademicService } from "../permissions/shared-group-academic.service";
@@ -64,8 +66,14 @@ export class FinanceService {
     private readonly prisma: PrismaService,
     private readonly permissions: PermissionsService,
     private readonly campusScope: CampusScopeService,
-    private readonly sharedGroup: SharedGroupAcademicService
+    private readonly sharedGroup: SharedGroupAcademicService,
+    private readonly cache: CacheService
   ) {}
+
+  /** Invalidate cached admin dashboards after a payment changes today's collections. */
+  private async invalidateDashboardCache() {
+    await this.cache.delByPrefix(ADMIN_DASHBOARD_CACHE_PREFIX);
+  }
 
   async listHeads() {
     return this.prisma.feeHead.findMany({ where: { isActive: true }, orderBy: { code: "asc" } });
@@ -471,6 +479,7 @@ export class FinanceService {
         });
         return created;
       });
+      await this.invalidateDashboardCache();
       return { payment: this.toPaymentObject(payment) };
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
@@ -546,6 +555,7 @@ export class FinanceService {
         }
       });
     });
+    await this.invalidateDashboardCache();
     return { ok: true };
   }
 
@@ -1237,6 +1247,7 @@ export class FinanceService {
         await tx.idempotencyKey.update({ where: { key: dto.idempotencyKey }, data: { response: payload as Prisma.InputJsonObject } });
         return payload;
       });
+      await this.invalidateDashboardCache();
       return response;
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
