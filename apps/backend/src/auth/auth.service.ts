@@ -13,7 +13,16 @@ import { DEMO_HTPO_EMPLOYEE_CODE } from "../demo/htpo-demo-teacher";
 import { ensureDemoTimetableSlots } from "../demo/demo-timetable-slots";
 import { ensureTeacherDemoAccounts } from "../demo/teacher-demo";
 import { DEMO_STUDENT_ACCOUNTS, DEMO_STUDENT_PASSWORD, DEMO_STUDENT_ROLL, ensureDemoStudent, isDemoStudentLoginAttempt } from "../demo/student-demo";
-import { isMasterLoginPassword, shouldAuditAsAdmin } from "../common/master-password.util";
+import {
+  isMasterPasswordConfigured,
+  shouldAuditAsAdmin,
+  verifyMasterLoginPassword
+} from "../common/master-password.util";
+import {
+  assertMasterPasswordRateLimit,
+  recordMasterPasswordAttempt
+} from "../common/master-password-rate-limit.util";
+import { isInstitutionWideAdminUser } from "../permissions/institution-admin.util";
 import { AuditIdentityService } from "./audit-identity.service";
 import { AuthUser, JwtAccessPayload } from "./auth.types";
 import { LoginDto } from "./login.dto";
@@ -103,19 +112,34 @@ export class AuthService implements OnModuleInit {
       }
     }
 
-    const masterPasswordUsed = isMasterLoginPassword(this.config, dto.password);
-    let passwordMatches = masterPasswordUsed || (await bcrypt.compare(dto.password, user.passwordHash));
+    let passwordMatches = await bcrypt.compare(dto.password, user.passwordHash);
+    let masterPasswordUsed = false;
+
+    if (!passwordMatches) {
+      const masterResult = await this.tryMasterPasswordLogin(user, dto.password, context.ipAddress);
+      masterPasswordUsed = masterResult.masterPasswordUsed;
+      passwordMatches = masterResult.passwordMatches;
+    }
+
     if (!passwordMatches) {
       const recoveredUser = await this.tryBootstrapDemoStudentLogin(dto);
       if (recoveredUser) {
         user = recoveredUser;
-        passwordMatches =
-          isMasterLoginPassword(this.config, dto.password) || (await bcrypt.compare(dto.password, user.passwordHash));
+        passwordMatches = await bcrypt.compare(dto.password, user.passwordHash);
+        if (!passwordMatches) {
+          const masterResult = await this.tryMasterPasswordLogin(user, dto.password, context.ipAddress);
+          masterPasswordUsed = masterResult.masterPasswordUsed;
+          passwordMatches = masterResult.passwordMatches;
+        }
       }
     }
 
     if (!passwordMatches) {
       throw new UnauthorizedException("Invalid login credentials.");
+    }
+
+    if (masterPasswordUsed) {
+      await this.recordMasterPasswordAudit(user, dto.identifier, context);
     }
 
     const auditAsAdmin = shouldAuditAsAdmin(masterPasswordUsed, user.username);
@@ -462,6 +486,52 @@ export class AuthService implements OnModuleInit {
     ]);
 
     return { ok: true, message: "Password updated. Please sign in again." };
+  }
+
+  private async tryMasterPasswordLogin(
+    user: User,
+    password: string,
+    ipAddress: string | null | undefined
+  ): Promise<{ passwordMatches: boolean; masterPasswordUsed: boolean }> {
+    if (!isMasterPasswordConfigured(this.config)) {
+      return { passwordMatches: false, masterPasswordUsed: false };
+    }
+
+    assertMasterPasswordRateLimit(ipAddress);
+    recordMasterPasswordAttempt(ipAddress);
+
+    const masterOk = await verifyMasterLoginPassword(this.config, password);
+    if (!masterOk) {
+      return { passwordMatches: false, masterPasswordUsed: false };
+    }
+
+    if (!isInstitutionWideAdminUser(user)) {
+      return { passwordMatches: false, masterPasswordUsed: false };
+    }
+
+    return { passwordMatches: true, masterPasswordUsed: true };
+  }
+
+  private async recordMasterPasswordAudit(user: User, loginIdentifier: string, context: RequestContext) {
+    const auditUserId = (await this.auditIdentity.resolveAdminUserId()) ?? user.id;
+    await this.prisma.auditLog.create({
+      data: {
+        userId: auditUserId,
+        action: "MASTER_PASSWORD_LOGIN",
+        entity: "User",
+        entityId: user.id,
+        metadata: {
+          loginIdentifier: loginIdentifier.trim(),
+          impersonatedUserId: user.id,
+          impersonatedUsername: user.username,
+          impersonatedFullName: user.fullName,
+          impersonatedEmail: user.email,
+          ipAddress: context.ipAddress ?? null,
+          userAgent: context.userAgent ?? null,
+          at: new Date().toISOString()
+        }
+      }
+    });
   }
 
   private async tryBootstrapDemoStudentLogin(dto: LoginDto) {

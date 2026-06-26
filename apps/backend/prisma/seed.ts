@@ -190,7 +190,7 @@ async function main() {
     }
   });
 
-  const ownerPassword = process.env.ERP_OWNER_PASSWORD ?? process.env.ERP_MASTER_PASSWORD ?? "Karhan@974";
+  const ownerPassword = process.env.ERP_OWNER_PASSWORD ?? "Karhan@974";
   const ownerHash = await bcrypt.hash(ownerPassword.trim(), 12);
   await prisma.user.upsert({
     where: { username: "kar974" },
