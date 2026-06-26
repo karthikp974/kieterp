@@ -301,8 +301,9 @@ export class AttendanceService {
 
   async approveCorrectionRequest(user: AuthUser, id: string) {
     if (user.type !== UserType.ADMIN) throw new ForbiddenException("Only admin can approve attendance corrections.");
-    const request = await this.prisma.attendanceCorrectionRequest.findUnique({ where: { id } });
+    const request = await this.prisma.attendanceCorrectionRequest.findUnique({ where: { id }, include: { session: true } });
     if (!request) throw new NotFoundException("Correction request not found.");
+    this.assertAllowed(user, PermissionAction.MARK_ATTENDANCE, this.sessionToScope(request.session));
     if (request.status !== AttendanceCorrectionStatus.PENDING) throw new BadRequestException("Correction request is already reviewed.");
 
     const entries = request.entries as unknown as { studentProfileId: string; status: AttendanceEntryStatus; note?: string }[];
@@ -326,6 +327,9 @@ export class AttendanceService {
 
   async rejectCorrectionRequest(user: AuthUser, id: string) {
     if (user.type !== UserType.ADMIN) throw new ForbiddenException("Only admin can reject attendance corrections.");
+    const request = await this.prisma.attendanceCorrectionRequest.findUnique({ where: { id }, include: { session: true } });
+    if (!request) throw new NotFoundException("Correction request not found.");
+    this.assertAllowed(user, PermissionAction.MARK_ATTENDANCE, this.sessionToScope(request.session));
     await this.prisma.attendanceCorrectionRequest.update({
       where: { id },
       data: { status: AttendanceCorrectionStatus.REJECTED, reviewedAt: new Date() }
