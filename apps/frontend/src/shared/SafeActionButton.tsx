@@ -10,6 +10,12 @@ type SafeActionButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   successLabel?: string;
   /** Optional error handler (e.g. show a toast). The button always resets so the user can retry. */
   onError?: (error: unknown) => void;
+  /**
+   * Visual variant — preserves the button's existing styling during the rollout.
+   * "primary" (default) | "secondary" | "danger" keep the db-wf-btn classes;
+   * "plain" applies no db-wf-btn classes so an already-styled/icon button keeps its look.
+   */
+  variant?: "primary" | "secondary" | "danger" | "plain";
 };
 
 /** Inline spinner that inherits the button's text colour. */
@@ -42,11 +48,13 @@ export function SafeActionButton({
   busyLabel = "Working...",
   successLabel = "Done",
   onError,
+  variant = "primary",
   className = "",
   disabled,
   ...props
 }: SafeActionButtonProps) {
   const action = useActionButton(() => run(), { onError });
+  const variantClass = variant === "plain" ? "" : `db-wf-btn db-wf-btn--${variant}`;
 
   const content =
     action.status === "loading" ? (
@@ -70,7 +78,7 @@ export function SafeActionButton({
       disabled={action.isLocked || disabled}
       aria-busy={action.isBusy}
       onClick={() => action.run()}
-      className={`db-wf-btn db-wf-btn--primary ${className}`.trim()}
+      className={`${variantClass} ${className}`.trim()}
     >
       {content}
     </button>
