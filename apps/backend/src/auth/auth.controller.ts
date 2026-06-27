@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Patch, Post, Req, UploadedFile, UseGuards, UseInterceptors } from "@nestjs/common";
-import { Throttle } from "@nestjs/throttler";
+import { SkipThrottle, Throttle } from "@nestjs/throttler";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { memoryStorage } from "multer";
 import { Request } from "express";
@@ -17,7 +17,10 @@ import { getRequestContext } from "./request-context";
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
-  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  // No rate limit on sign-in: many users share one campus/NAT IP, so an IP-based
+  // cap would lock out legitimate users. (Master-password attempts remain limited
+  // separately in AuthService.)
+  @SkipThrottle()
   @Post("login")
   login(@Body() dto: LoginDto, @Req() request: Request) {
     return this.auth.login(dto, getRequestContext(request));
