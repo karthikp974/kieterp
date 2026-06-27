@@ -11744,6 +11744,19 @@ textarea:focus {
   color: #b91c1c;
 }
 
+/* Outstanding but not yet past due — neutral, not alarming. */
+.sp-fee-badge--pending {
+  background: rgba(100, 116, 139, 0.14);
+  color: #475569;
+}
+
+/* Outstanding AND past the due date — clear danger red. */
+.sp-fee-badge--overdue {
+  background: rgba(220, 38, 38, 0.16);
+  color: #b91c1c;
+  border: 1px solid rgba(220, 38, 38, 0.35);
+}
+
 .sp-fee-badge--ok {
   background: rgba(22, 163, 74, 0.12);
   color: #15803d;

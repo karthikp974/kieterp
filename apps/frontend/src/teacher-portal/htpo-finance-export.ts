@@ -30,5 +30,6 @@ export function financeStatusLabel(status: string) {
   if (status === "paid") return "Paid";
   if (status === "partial") return "Partial";
   if (status === "pending") return "Pending";
+  if (status === "overdue") return "Overdue";
   return "All statuses";
 }

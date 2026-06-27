@@ -5445,9 +5445,30 @@ body.htpo-results-import-body-locked {
   color: #eab308 !important;
 }
 
+/* Pending = outstanding but not yet due → neutral (not alarming). */
 .portal-root .teacher-portal-panel-wrap .htpo-finance-status--pending {
-  background: rgb(239 68 68 / 18%) !important;
-  color: #ef4444 !important;
+  background: rgb(100 116 139 / 16%) !important;
+  color: #475569 !important;
+}
+
+/* Overdue = outstanding AND past due date → clear danger red. */
+.portal-root .teacher-portal-panel-wrap .htpo-finance-status--overdue {
+  background: rgb(220 38 38 / 16%) !important;
+  color: #dc2626 !important;
+  border: 1px solid rgb(220 38 38 / 35%);
+}
+
+.portal-root .htpo-finance-row--overdue {
+  background: rgb(220 38 38 / 6%);
+}
+
+.portal-root .htpo-finance-search {
+  min-width: 200px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid rgb(148 163 184 / 45%);
+  font-size: 13px;
+  color: inherit;
 }
 
 .portal-root .htpo-finance-remind-btn {

@@ -22,7 +22,8 @@ export type HtpoFinanceSummary = {
 };
 
 export type FeeUiStatus = "paid" | "partial" | "pending";
-export type FeeUiStatusFilter = "all" | FeeUiStatus;
+export type FeeOverdueStatus = "paid" | "pending" | "overdue";
+export type FeeUiStatusFilter = "all" | FeeUiStatus | "overdue";
 
 export type HtpoFinanceStudentRow = {
   studentProfileId: string;
@@ -36,6 +37,8 @@ export type HtpoFinanceStudentRow = {
   paidDisplay: string;
   balanceDisplay: string;
   status: FeeUiStatus;
+  feeStatus?: FeeOverdueStatus;
+  daysOverdue?: number;
   canRemind: boolean;
 };
 
