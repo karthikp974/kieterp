@@ -5,30 +5,53 @@ import { AuthSessionStatus, UserStatus } from "@prisma/client";
 import { ExtractJwt, Strategy } from "passport-jwt";
 import { getJwtAccessSecret } from "../common/jwt-secret.util";
 import { PrismaService } from "../prisma/prisma.service";
+import { CacheService } from "../cache/cache.service";
 import { AuditIdentityService } from "./audit-identity.service";
 import { AuthUser, JwtAccessPayload } from "./auth.types";
+
+type TokenSourcedRequest = {
+  query?: { accessToken?: string | string[] };
+  __erpTokenFromQuery?: boolean;
+};
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
     config: ConfigService,
     private readonly prisma: PrismaService,
-    private readonly auditIdentity: AuditIdentityService
+    private readonly auditIdentity: AuditIdentityService,
+    private readonly cache: CacheService
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromExtractors([
         ExtractJwt.fromAuthHeaderAsBearerToken(),
-        (request) => {
-          const token = (request as { query?: { accessToken?: string | string[] } }).query?.accessToken;
-          return typeof token === "string" && token.trim() ? token.trim() : null;
+        // Query token path: only single-use 60s download tokens are accepted here
+        // (enforced in validate). A long-lived access token in a URL no longer works.
+        (request: TokenSourcedRequest) => {
+          const token = request.query?.accessToken;
+          if (typeof token === "string" && token.trim()) {
+            request.__erpTokenFromQuery = true;
+            return token.trim();
+          }
+          return null;
         }
       ]),
       ignoreExpiration: false,
-      secretOrKey: getJwtAccessSecret(config)
+      secretOrKey: getJwtAccessSecret(config),
+      passReqToCallback: true
     });
   }
 
-  async validate(payload: JwtAccessPayload): Promise<AuthUser> {
+  async validate(request: TokenSourcedRequest, payload: JwtAccessPayload): Promise<AuthUser> {
+    if (request.__erpTokenFromQuery && !payload.dl) {
+      throw new UnauthorizedException("Access token must be sent in the Authorization header.");
+    }
+    if (payload.dl) {
+      // Download tokens are single-use: consume the jti, reject if already used/expired.
+      if (!payload.jti || !(await this.cache.take(`dl:${payload.jti}`))) {
+        throw new UnauthorizedException("Download token is invalid, already used, or expired.");
+      }
+    }
     if (!payload.sid) {
       throw new UnauthorizedException("Session id is missing.");
     }

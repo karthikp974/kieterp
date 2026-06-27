@@ -58,6 +58,14 @@ export class AuthController {
     return this.auth.getProfile(user);
   }
 
+  /** Mint a 60s single-use token for export/PDF downloads that can't send a Bearer header. */
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @UseGuards(JwtAuthGuard)
+  @Post("download-token")
+  downloadToken(@CurrentUser() user: AuthUser) {
+    return this.auth.createDownloadToken(user);
+  }
+
   @UseGuards(JwtAuthGuard)
   @Get("me/avatar")
   avatar(@CurrentUser() user: AuthUser) {

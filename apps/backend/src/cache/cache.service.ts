@@ -37,6 +37,26 @@ export class CacheService implements OnModuleDestroy {
     return value;
   }
 
+  /** Set a key with a TTL (seconds). */
+  async setEx(key: string, value: string, ttlSeconds: number): Promise<void> {
+    try {
+      await this.client.set(key, value, "EX", ttlSeconds);
+    } catch (err) {
+      this.logger.warn(`cache setEx failed for ${key}: ${(err as Error).message}`);
+    }
+  }
+
+  /** Atomically read-and-delete a key. Returns true if it existed (single-use consume). */
+  async take(key: string): Promise<boolean> {
+    try {
+      const value = await this.client.getdel(key);
+      return value !== null;
+    } catch (err) {
+      this.logger.warn(`cache take failed for ${key}: ${(err as Error).message}`);
+      return false;
+    }
+  }
+
   /** Invalidate all keys under a namespace prefix. Bounded to the cache namespace. */
   async delByPrefix(prefix: string): Promise<void> {
     try {

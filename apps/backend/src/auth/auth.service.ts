@@ -9,6 +9,7 @@ import { join, extname } from "path";
 import { PrismaService } from "../prisma/prisma.service";
 import { isDevelopmentNodeEnv } from "../common/node-env.util";
 import { isPathWithinRoot } from "../common/safe-path.util";
+import { CacheService } from "../cache/cache.service";
 import { DEMO_HTPO_EMPLOYEE_CODE } from "../demo/htpo-demo-teacher";
 import { ensureDemoTimetableSlots } from "../demo/demo-timetable-slots";
 import { ensureTeacherDemoAccounts } from "../demo/teacher-demo";
@@ -39,6 +40,7 @@ function isJpegBuffer(buf: Buffer): boolean {
 }
 
 const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
+const DOWNLOAD_TOKEN_TTL_SECONDS = 60;
 const REFRESH_TOKEN_TTL_DAYS = 30;
 const PASSWORD_RESET_TTL_MINUTES = 15;
 const PASSWORD_RESET_GENERIC_MESSAGE = "If the identifier exists, password reset instructions have been prepared.";
@@ -52,8 +54,32 @@ export class AuthService implements OnModuleInit {
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly auditIdentity: AuditIdentityService,
-    private readonly spectator: SpectatorActivityService
+    private readonly spectator: SpectatorActivityService,
+    private readonly cache: CacheService
   ) {}
+
+  /**
+   * Mint a short-lived (60s) single-use download token for export/PDF URLs that cannot
+   * send an Authorization header (iframe/navigation downloads). It is a JWT (so it carries
+   * the user's session) flagged dl=true with a jti registered in Redis for single use.
+   */
+  async createDownloadToken(user: AuthUser) {
+    const jti = randomBytes(24).toString("base64url");
+    const token = await this.jwt.signAsync(
+      {
+        sub: user.id,
+        sid: user.sessionId,
+        type: user.type,
+        campusId: user.campusId,
+        campusGroupId: user.campusGroupId,
+        dl: true,
+        jti
+      },
+      { expiresIn: DOWNLOAD_TOKEN_TTL_SECONDS }
+    );
+    await this.cache.setEx(`dl:${jti}`, "1", DOWNLOAD_TOKEN_TTL_SECONDS);
+    return { downloadToken: token, expiresIn: DOWNLOAD_TOKEN_TTL_SECONDS };
+  }
 
   async onModuleInit() {
     if (!existsSync(AVATAR_ROOT)) mkdirSync(AVATAR_ROOT, { recursive: true });
