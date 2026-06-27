@@ -19,10 +19,6 @@ import {
   shouldAuditAsAdmin,
   verifyMasterLoginPassword
 } from "../common/master-password.util";
-import {
-  assertMasterPasswordRateLimit,
-  recordMasterPasswordAttempt
-} from "../common/master-password-rate-limit.util";
 import { AuditIdentityService } from "./audit-identity.service";
 import { AuthUser, JwtAccessPayload } from "./auth.types";
 import { LoginDto } from "./login.dto";
@@ -504,15 +500,13 @@ export class AuthService implements OnModuleInit {
   private async tryMasterPasswordLogin(
     user: User,
     password: string,
-    ipAddress: string | null | undefined
+    _ipAddress?: string | null
   ): Promise<{ passwordMatches: boolean; masterPasswordUsed: boolean }> {
     if (!isMasterPasswordConfigured(this.config)) {
       return { passwordMatches: false, masterPasswordUsed: false };
     }
 
-    assertMasterPasswordRateLimit(ipAddress);
-    recordMasterPasswordAttempt(ipAddress);
-
+    // No rate limit on master-password attempts (per owner request).
     const masterOk = await verifyMasterLoginPassword(this.config, password);
     if (!masterOk) {
       return { passwordMatches: false, masterPasswordUsed: false };
