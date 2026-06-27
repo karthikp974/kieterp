@@ -434,7 +434,10 @@ export class PortalsController {
   }
 
   @Get("teacher/teams")
-  @RequiresPermission(PermissionAction.VIEW_TEAMS)
+  // sectionId arrives as a query param; the service scopes it to the teacher's
+  // sections (rejecting out-of-scope ids). Skip the guard's scope check, which
+  // can't resolve a bare sectionId against a branch-level (HTPO) assignment.
+  @RequiresPermission(PermissionAction.VIEW_TEAMS, { skipRequestScope: true })
   teacherTeamsList(@CurrentUser() user: AuthUser, @Query() query: TeacherTeamsListQueryDto) {
     return this.teacherPortalTeams.listTeams(user, query);
   }
@@ -484,43 +487,46 @@ export class PortalsController {
   }
 
   @Get("teacher/finance/summary")
-  @RequiresPermission(PermissionAction.VIEW_FEES)
+  // Section filter is a query param; teacherPortalFinance scopes it to the teacher's
+  // own sections. Guard scope-check skipped (can't match a bare sectionId to an
+  // HTPO's branch-level assignment) — see teacher/teams above.
+  @RequiresPermission(PermissionAction.VIEW_FEES, { skipRequestScope: true })
   teacherFinanceSummary(@CurrentUser() user: AuthUser, @Query() query: TeacherFinanceScopeQueryDto) {
     return this.teacherPortalFinance.getSummary(user, query);
   }
 
   @Get("teacher/finance/recent-payments")
-  @RequiresPermission(PermissionAction.VIEW_FEES)
+  @RequiresPermission(PermissionAction.VIEW_FEES, { skipRequestScope: true })
   teacherFinanceRecentPayments(@CurrentUser() user: AuthUser, @Query() query: TeacherFinanceRecentPaymentsQueryDto) {
     return this.teacherPortalFinance.listRecentPayments(user, query);
   }
 
   @Get("teacher/finance/pending-students")
-  @RequiresPermission(PermissionAction.VIEW_FEES)
+  @RequiresPermission(PermissionAction.VIEW_FEES, { skipRequestScope: true })
   teacherFinancePendingStudents(@CurrentUser() user: AuthUser, @Query() query: TeacherFinancePendingStudentsQueryDto) {
     return this.teacherPortalFinance.listPendingStudents(user, query);
   }
 
   @Get("teacher/finance/students")
-  @RequiresPermission(PermissionAction.VIEW_FEES)
+  @RequiresPermission(PermissionAction.VIEW_FEES, { skipRequestScope: true })
   teacherFinanceStudents(@CurrentUser() user: AuthUser, @Query() query: TeacherFinanceStudentsQueryDto) {
     return this.teacherPortalFinance.listStudentFeeStatus(user, query);
   }
 
   @Get("teacher/finance/section-collection")
-  @RequiresPermission(PermissionAction.VIEW_FEES)
+  @RequiresPermission(PermissionAction.VIEW_FEES, { skipRequestScope: true })
   teacherFinanceSectionCollection(@CurrentUser() user: AuthUser, @Query() query: TeacherFinanceScopeQueryDto) {
     return this.teacherPortalFinance.getSectionCollection(user, query);
   }
 
   @Get("teacher/finance/payment-status")
-  @RequiresPermission(PermissionAction.VIEW_FEES)
+  @RequiresPermission(PermissionAction.VIEW_FEES, { skipRequestScope: true })
   teacherFinancePaymentStatus(@CurrentUser() user: AuthUser, @Query() query: TeacherFinanceScopeQueryDto) {
     return this.teacherPortalFinance.getPaymentStatusBreakdown(user, query);
   }
 
   @Get("teacher/finance/students/export")
-  @RequiresPermission(PermissionAction.VIEW_FEES)
+  @RequiresPermission(PermissionAction.VIEW_FEES, { skipRequestScope: true })
   teacherFinanceStudentsExport(
     @CurrentUser() user: AuthUser,
     @Query() query: TeacherFinanceExportQueryDto,
@@ -542,13 +548,15 @@ export class PortalsController {
   }
 
   @Get("teacher/reports/dashboard")
-  @RequiresPermission(PermissionAction.VIEW_REPORTS)
+  // sectionId is a query param; portalReports scopes it to the teacher's sections
+  // (rejecting out-of-scope ids). Guard scope-check skipped — see teacher/finance.
+  @RequiresPermission(PermissionAction.VIEW_REPORTS, { skipRequestScope: true })
   teacherReportsDashboard(@CurrentUser() user: AuthUser, @Query() query: PortalReportsDashboardQueryDto) {
     return this.portalReports.getDashboard(user, query);
   }
 
   @Get("teacher/reports/export")
-  @RequiresPermission(PermissionAction.VIEW_REPORTS)
+  @RequiresPermission(PermissionAction.VIEW_REPORTS, { skipRequestScope: true })
   teacherReportsExport(
     @CurrentUser() user: AuthUser,
     @Query() query: PortalReportsExportQueryDto,

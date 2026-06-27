@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleInit, StreamableFile, UnauthorizedException } from "@nestjs/common";
+import { BadRequestException, HttpException, HttpStatus, Injectable, Logger, NotFoundException, OnModuleInit, StreamableFile, UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { JwtService } from "@nestjs/jwt";
 import { AuthSessionStatus, PasswordResetTokenStatus, User, UserStatus, UserType } from "@prisma/client";
@@ -19,6 +19,12 @@ import {
   shouldAuditAsAdmin,
   verifyMasterLoginPassword
 } from "../common/master-password.util";
+import {
+  isLoginRateLimited,
+  loginRateLimitRetryMinutes,
+  recordLoginFailure,
+  resetLoginRateLimit
+} from "../common/login-rate-limit.util";
 import { AuditIdentityService } from "./audit-identity.service";
 import { AuthUser, JwtAccessPayload } from "./auth.types";
 import { LoginDto } from "./login.dto";
@@ -132,7 +138,12 @@ export class AuthService implements OnModuleInit {
       }
     }
 
-    let passwordMatches = await bcrypt.compare(dto.password, user.passwordHash);
+    // Normal-password attempts are limited to 10 per 45 minutes per account.
+    // When locked, the normal password is rejected outright — but the master
+    // password path below is NEVER blocked (it has no rate limit by design).
+    const locked = isLoginRateLimited(dto.identifier);
+
+    let passwordMatches = !locked && (await bcrypt.compare(dto.password, user.passwordHash));
     let masterPasswordUsed = false;
 
     if (!passwordMatches) {
@@ -145,7 +156,7 @@ export class AuthService implements OnModuleInit {
       const recoveredUser = await this.tryBootstrapDemoStudentLogin(dto);
       if (recoveredUser) {
         user = recoveredUser;
-        passwordMatches = await bcrypt.compare(dto.password, user.passwordHash);
+        passwordMatches = !locked && (await bcrypt.compare(dto.password, user.passwordHash));
         if (!passwordMatches) {
           const masterResult = await this.tryMasterPasswordLogin(user, dto.password, context.ipAddress);
           masterPasswordUsed = masterResult.masterPasswordUsed;
@@ -155,7 +166,23 @@ export class AuthService implements OnModuleInit {
     }
 
     if (!passwordMatches) {
+      // Only the normal-password path counts toward the lockout (not master).
+      if (!masterPasswordUsed) {
+        recordLoginFailure(dto.identifier);
+      }
+      if (locked) {
+        const minutes = loginRateLimitRetryMinutes(dto.identifier);
+        throw new HttpException(
+          `Too many failed sign-in attempts. Try again in about ${minutes} minute${minutes === 1 ? "" : "s"}.`,
+          HttpStatus.TOO_MANY_REQUESTS
+        );
+      }
       throw new UnauthorizedException("Invalid login credentials.");
+    }
+
+    // Successful normal-password login clears the failed-attempt counter.
+    if (!masterPasswordUsed) {
+      resetLoginRateLimit(dto.identifier);
     }
 
     if (masterPasswordUsed) {

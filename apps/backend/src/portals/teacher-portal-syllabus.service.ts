@@ -94,8 +94,33 @@ export class TeacherPortalSyllabusService {
       return { subjects: inSection };
     }
 
-    const curriculum = await this.loadCurriculumSubjectsForSection(sectionId, semesterNumber);
-    return { subjects: curriculum };
+    // Fall back to the subjects actually assigned to THIS section for the chosen
+    // semester — the same source the completion gate (assertSubjectInSection) checks.
+    // Semesters with no section assignments return an empty list, so the dropdown
+    // never offers a subject that would 403 when opened.
+    const sectionSubjects = await this.loadSectionAssignedSubjects(sectionId, semesterNumber);
+    return { subjects: sectionSubjects };
+  }
+
+  /** Subjects assigned to a section for a specific semester (matches the completion gate). */
+  private async loadSectionAssignedSubjects(sectionId: string, semesterNumber: number): Promise<SubjectOption[]> {
+    const rows = await this.prisma.sectionSubjectAssignment.findMany({
+      where: {
+        sectionId,
+        isActive: true,
+        subject: { status: StructureStatus.ACTIVE, isArchived: false, semesterNumber }
+      },
+      include: { subject: true },
+      orderBy: { subject: { code: "asc" } }
+    });
+    return rows.map((row) => ({
+      id: row.subject.id,
+      code: row.subject.code,
+      name: row.subject.name,
+      label: `${row.subject.code} — ${row.subject.name}`,
+      sectionId,
+      semesterNumber: row.subject.semesterNumber
+    }));
   }
 
   async getSubjectSyllabus(user: AuthUser, subjectId: string) {
@@ -610,9 +635,17 @@ export class TeacherPortalSyllabusService {
       return;
     }
 
+    // Validate against the subject's OWN semester (not just the section's current
+    // semester) so coordinators can open any curriculum subject the dropdown lists,
+    // including past semesters — keeping access consistent with listSectionSubjects.
+    const subjectRow = await this.prisma.subject.findUnique({
+      where: { id: subjectId },
+      select: { semesterNumber: true }
+    });
+
     const sections = await this.eligibleSections(user, teacher);
     for (const section of sections) {
-      const curriculum = await this.loadCurriculumSubjectsForSection(section.id);
+      const curriculum = await this.loadCurriculumSubjectsForSection(section.id, subjectRow?.semesterNumber);
       if (curriculum.some((subject) => subject.id === subjectId)) {
         return;
       }
