@@ -12,16 +12,39 @@ function parseContentDispositionFilename(header: string | null, fallback: string
   return basic?.[1] ?? fallback;
 }
 
+/** Exchange the (header-only) access token for a 60s single-use download token. */
+async function fetchDownloadToken(accessToken: string): Promise<string | null> {
+  try {
+    const res = await fetch("/api/auth/download-token", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { downloadToken?: string };
+    return data.downloadToken ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Download via same-origin navigation (iframe). Avoids Chrome "Insecure download blocked"
  * that happens with blob: URLs when MIME/extension do not match sniffed content.
+ *
+ * The long-lived access token is never placed in the URL: we first exchange it (via the
+ * Authorization header) for a 60s single-use download token, and that goes in the query.
  */
-export function downloadAuthenticatedExport(accessToken: string, apiPath: string, params: Record<string, string | undefined>) {
+export async function downloadAuthenticatedExport(accessToken: string, apiPath: string, params: Record<string, string | undefined>) {
+  const downloadToken = await fetchDownloadToken(accessToken);
+  if (!downloadToken) {
+    console.error("Could not obtain a download token; export aborted.");
+    return;
+  }
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value) search.set(key, value);
   }
-  search.set("accessToken", accessToken);
+  search.set("accessToken", downloadToken);
 
   const url = `${apiPath}?${search.toString()}`;
   const iframe = document.createElement("iframe");

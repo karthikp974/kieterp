@@ -17,7 +17,7 @@ export function downloadPortalReportExport(
 ) {
   const path =
     apiBase === "teacher" ? "/api/portals/teacher/reports/export" : "/api/reports/portal/export";
-  downloadAuthenticatedExport(accessToken, path, {
+  return downloadAuthenticatedExport(accessToken, path, {
     kind: params.kind,
     format: params.format,
     sectionId: params.sectionId,
