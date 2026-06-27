@@ -1,15 +1,17 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { Trash2 } from "lucide-react";
 import { useAuth } from "../../auth/auth-context";
+import { Field } from "../../shared/Field";
+import { FormSelect } from "../../shared/FormSelect";
 import { SafeActionButton } from "../../shared/SafeActionButton";
-import { SearchableSelect } from "../../shared/SearchableSelect";
 import { useConfirm } from "../../shared/ConfirmDialog";
 import { useToast } from "../../shared/toast-context";
+import { Trash2 } from "lucide-react";
 import { RequireTeacherModule } from "../RequireTeacherModule";
+import { TEACHER_MODULE_SUBTITLES } from "../teacher-portal-module-copy";
 import { TeacherPortalModuleShell, TeacherPortalPanelWrap } from "../TeacherPortalModuleShell";
+import { TpBadge, TpCard, TpCardHead } from "../teacher-portal-ui";
 
 const PAGE_SIZE = 25;
-const inputClass = "db-input";
 
 type StudentStatus = "ACTIVE" | "INACTIVE" | "SUSPENDED";
 type SetupSection = { id: string; label: string; campusId: string };
@@ -90,6 +92,7 @@ function TeacherPortalStudentsInner() {
   }, [page, statusFilter, sectionFilter]);
 
   const sectionOptions = useMemo(() => sections.map((s) => [s.id, s.label] as [string, string]), [sections]);
+  const maxPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   function resetForm() {
     setEditingId(null);
@@ -103,34 +106,38 @@ function TeacherPortalStudentsInner() {
       return;
     }
     const campusId = sections.find((s) => s.id === form.sectionId)?.campusId;
-    if (editingId) {
-      await sendJson(`/api/portals/teacher/students/manage/${editingId}`, "PATCH", {
-        fullName: form.fullName,
-        fatherName: form.fatherName.trim() || undefined,
-        email: form.email || undefined,
-        phone: form.phone || undefined,
-        sectionId: form.sectionId
-      });
-      showToast("Student updated");
-    } else {
-      if (!form.fatherName.trim()) {
-        showToast("Father name is required.", "error");
-        return;
+    try {
+      if (editingId) {
+        await sendJson(`/api/portals/teacher/students/manage/${editingId}`, "PATCH", {
+          fullName: form.fullName,
+          fatherName: form.fatherName.trim() || undefined,
+          email: form.email || undefined,
+          phone: form.phone || undefined,
+          sectionId: form.sectionId
+        });
+        showToast("Student updated");
+      } else {
+        if (!form.fatherName.trim()) {
+          showToast("Father name is required.", "error");
+          return;
+        }
+        await sendJson("/api/portals/teacher/students/manage", "POST", {
+          rollNumber: form.rollNumber,
+          fullName: form.fullName,
+          fatherName: form.fatherName.trim(),
+          email: form.email || undefined,
+          phone: form.phone || undefined,
+          password: form.password.trim() || normalizeRoll(form.rollNumber),
+          sectionId: form.sectionId,
+          campusId
+        });
+        showToast("Student created");
       }
-      await sendJson("/api/portals/teacher/students/manage", "POST", {
-        rollNumber: form.rollNumber,
-        fullName: form.fullName,
-        fatherName: form.fatherName.trim(),
-        email: form.email || undefined,
-        phone: form.phone || undefined,
-        password: form.password.trim() || normalizeRoll(form.rollNumber),
-        sectionId: form.sectionId,
-        campusId
-      });
-      showToast("Student created");
+      resetForm();
+      await loadStudents();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Could not save student.", "error");
     }
-    resetForm();
-    await loadStudents();
   }
 
   function editStudent(student: TeacherStudent) {
@@ -169,8 +176,12 @@ function TeacherPortalStudentsInner() {
   async function resetPassword(id: string) {
     const password = window.prompt("Enter new temporary password (min 8 characters)");
     if (!password) return;
-    await sendJson(`/api/portals/teacher/students/manage/${id}/reset-password`, "POST", { password });
-    showToast("Password reset");
+    try {
+      await sendJson(`/api/portals/teacher/students/manage/${id}/reset-password`, "POST", { password });
+      showToast("Password reset");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Could not reset password.", "error");
+    }
   }
 
   async function bulkImport() {
@@ -195,63 +206,105 @@ function TeacherPortalStudentsInner() {
     throw new Error("Import is taking longer than expected — check back shortly.");
   }
 
-  const maxPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
-
   return (
-    <TeacherPortalModuleShell title="Students" subtitle="Manage students in your sections — create, edit, deactivate, reset passwords, and bulk import.">
+    <TeacherPortalModuleShell title="Students" subtitle={TEACHER_MODULE_SUBTITLES.students}>
       <TeacherPortalPanelWrap>
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <input className={inputClass} placeholder="Search roll or name" value={search} onChange={(e) => setSearch(e.target.value)} />
-          <button type="button" className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-bold text-white" onClick={() => { setPage(1); void loadStudents(); }}>Search</button>
-          <SearchableSelect value={statusFilter} options={[["ACTIVE", "Active"], ["INACTIVE", "Inactive"], ["SUSPENDED", "Suspended"]]} onChange={(v) => { setPage(1); setStatusFilter(v as StudentStatus); }} />
-          <SearchableSelect value={sectionFilter} options={[["", "All my sections"], ...sectionOptions]} onChange={(v) => { setPage(1); setSectionFilter(v); }} />
-        </div>
-
-        <form className="grid gap-3 rounded-xl border bg-slate-50 p-4 md:grid-cols-4" onSubmit={(e) => void saveStudent(e)}>
-          <input className={inputClass} placeholder="Roll number" value={form.rollNumber} required disabled={Boolean(editingId)}
-            onChange={(e) => setForm({ ...form, rollNumber: e.target.value, password: normalizeRoll(e.target.value) })} />
-          <input className={inputClass} placeholder="Full name" value={form.fullName} required onChange={(e) => setForm({ ...form, fullName: e.target.value })} />
-          <input className={inputClass} placeholder="Father name" value={form.fatherName} required={!editingId} onChange={(e) => setForm({ ...form, fatherName: e.target.value })} />
-          <input className={inputClass} placeholder="Email (optional)" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-          <input className={inputClass} placeholder="Phone (optional)" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-          {!editingId ? <input className={inputClass} placeholder="Initial password (same as roll)" value={form.password} readOnly /> : null}
-          <SearchableSelect value={form.sectionId} options={sectionOptions} onChange={(sectionId) => setForm({ ...form, sectionId })} required />
-          <button className="erp-panel-submit">{editingId ? "Update Student" : "Add Student"}</button>
-          {editingId ? <button type="button" className="rounded-lg bg-slate-200 px-4 py-2 text-sm font-bold text-slate-700" onClick={resetForm}>Cancel</button> : null}
-        </form>
-
-        <div className="mt-4 rounded-xl border bg-slate-50 p-4">
-          <h3 className="mb-2 text-sm font-bold text-slate-700">Bulk import</h3>
-          <textarea className={`${inputClass} min-h-24`} placeholder='[{"rollNumber":"24CS001","fullName":"Ravi","fatherName":"Ravi Sr","sectionId":"..."}]' value={bulkText} onChange={(e) => setBulkText(e.target.value)} />
-          <SafeActionButton run={bulkImport} busyLabel="Importing...">Import students</SafeActionButton>
-        </div>
-
-        <div className="mt-4 overflow-hidden rounded-xl border">
-          <div className="border-b bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700">Students ({total})</div>
-          {students.length ? students.map((student) => (
-            <div key={student.id} className="grid gap-2 border-b px-4 py-3 text-sm text-slate-700 md:grid-cols-7">
-              <span className="font-semibold">{student.identity.rollNumber}</span>
-              <span>{student.identity.fullName}</span>
-              <span>{student.structure.branch.code} · Sem {student.structure.class.semesterNumber} · {student.structure.section.name}</span>
-              <span className={student.identity.status === "ACTIVE" ? "text-green-700" : "text-slate-400"}>{student.identity.status}</span>
-              <button type="button" className="text-left font-semibold text-blue-700" onClick={() => editStudent(student)}>Edit</button>
-              <button type="button" className="text-left font-semibold text-violet-700" onClick={() => void resetPassword(student.id)}>Password</button>
-              {student.identity.status === "ACTIVE" ? (
-                <button type="button" className="text-left font-semibold text-red-600" onClick={() => void deactivateStudent(student)}>Deactivate</button>
-              ) : (
-                <button type="button" className="text-left font-semibold text-green-700" onClick={() => void reactivateStudent(student.id)}>Reactivate</button>
-              )}
+        <TpCard>
+          <TpCardHead title={editingId ? "Edit student" : "Add student"} />
+          <form className="tp-student-form" onSubmit={(e) => void saveStudent(e)}>
+            <div className="tp-student-form-grid">
+              <Field label="Roll number">
+                <input className="db-input" placeholder="e.g. 24CS001" value={form.rollNumber} required disabled={Boolean(editingId)}
+                  onChange={(e) => setForm({ ...form, rollNumber: e.target.value, password: normalizeRoll(e.target.value) })} />
+              </Field>
+              <Field label="Full name">
+                <input className="db-input" placeholder="Student name" value={form.fullName} required onChange={(e) => setForm({ ...form, fullName: e.target.value })} />
+              </Field>
+              <Field label="Father name">
+                <input className="db-input" placeholder="Father name" value={form.fatherName} required={!editingId} onChange={(e) => setForm({ ...form, fatherName: e.target.value })} />
+              </Field>
+              <Field label="Section">
+                <FormSelect value={form.sectionId} options={sectionOptions} onChange={(sectionId) => setForm({ ...form, sectionId })} required aria-label="Section" />
+              </Field>
+              <Field label="Email (optional)">
+                <input className="db-input" type="email" placeholder="name@example.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+              </Field>
+              <Field label="Phone (optional)">
+                <input className="db-input" placeholder="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+              </Field>
+              {!editingId ? (
+                <Field label="Initial password" hint="Defaults to the roll number.">
+                  <input className="db-input db-input-readonly" value={form.password} readOnly />
+                </Field>
+              ) : null}
             </div>
-          )) : <p className="px-4 py-6 text-sm text-slate-500">No students found.</p>}
-        </div>
+            <div className="db-form-actions">
+              <button type="submit" className="erp-btn erp-btn--primary erp-btn--md">{editingId ? "Update student" : "Add student"}</button>
+              {editingId ? <button type="button" className="erp-btn erp-btn--secondary erp-btn--md" onClick={resetForm}>Cancel</button> : null}
+            </div>
+          </form>
+        </TpCard>
 
-        <div className="mt-4 flex items-center justify-between rounded-xl border bg-white px-4 py-3 text-sm">
-          <span>Page {page} of {maxPage} · {total} records</span>
-          <div className="flex gap-2">
-            <button className="rounded-lg bg-slate-100 px-3 py-2 font-semibold disabled:opacity-50" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</button>
-            <button className="rounded-lg bg-slate-100 px-3 py-2 font-semibold disabled:opacity-50" disabled={page >= maxPage} onClick={() => setPage(page + 1)}>Next</button>
+        <TpCard>
+          <TpCardHead title="Bulk import" />
+          <textarea className="db-input tp-student-bulk" placeholder='[{"rollNumber":"24CS001","fullName":"Ravi","fatherName":"Ravi Sr","sectionId":"..."}]' value={bulkText} onChange={(e) => setBulkText(e.target.value)} />
+          <div className="db-form-actions">
+            <SafeActionButton run={bulkImport} busyLabel="Importing…">Import students</SafeActionButton>
           </div>
-        </div>
+        </TpCard>
+
+        <TpCard>
+          <TpCardHead
+            title="Students"
+            actions={<TpBadge variant="outline">{total} total</TpBadge>}
+          />
+          <div className="tp-student-toolbar">
+            <input className="db-input" placeholder="Search roll or name" value={search} onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { setPage(1); void loadStudents(); } }} />
+            <button type="button" className="erp-btn erp-btn--secondary erp-btn--sm" onClick={() => { setPage(1); void loadStudents(); }}>Search</button>
+            <FormSelect value={statusFilter} options={[["ACTIVE", "Active"], ["INACTIVE", "Inactive"], ["SUSPENDED", "Suspended"]]} onChange={(v) => { setPage(1); setStatusFilter(v as StudentStatus); }} aria-label="Status filter" />
+            <FormSelect value={sectionFilter} options={[["", "All my sections"], ...sectionOptions]} onChange={(v) => { setPage(1); setSectionFilter(v); }} aria-label="Section filter" />
+          </div>
+
+          <div className="db-table-wrap">
+            <table className="db-table">
+              <thead>
+                <tr><th>Roll</th><th>Name</th><th>Section</th><th>Status</th><th>Actions</th></tr>
+              </thead>
+              <tbody>
+                {students.length ? students.map((student) => (
+                  <tr key={student.id}>
+                    <td>{student.identity.rollNumber}</td>
+                    <td>{student.identity.fullName}</td>
+                    <td>{student.structure.branch.code} · Sem {student.structure.class.semesterNumber} · {student.structure.section.name}</td>
+                    <td><TpBadge variant={student.identity.status === "ACTIVE" ? "solid" : "muted"}>{student.identity.status}</TpBadge></td>
+                    <td>
+                      <div className="db-inline-actions">
+                        <button type="button" className="erp-btn erp-btn--secondary erp-btn--sm" onClick={() => editStudent(student)}>Edit</button>
+                        <button type="button" className="erp-btn erp-btn--secondary erp-btn--sm" onClick={() => void resetPassword(student.id)}>Password</button>
+                        {student.identity.status === "ACTIVE" ? (
+                          <button type="button" className="erp-btn erp-btn--danger erp-btn--sm" onClick={() => void deactivateStudent(student)}>Deactivate</button>
+                        ) : (
+                          <button type="button" className="erp-btn erp-btn--secondary erp-btn--sm" onClick={() => void reactivateStudent(student.id)}>Reactivate</button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )) : (
+                  <tr><td colSpan={5} className="tp-student-empty">No students found.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {total > PAGE_SIZE ? (
+            <div className="tp-student-pager">
+              <button type="button" className="erp-btn erp-btn--secondary erp-btn--sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</button>
+              <span>Page {page} of {maxPage}</span>
+              <button type="button" className="erp-btn erp-btn--secondary erp-btn--sm" disabled={page >= maxPage} onClick={() => setPage(page + 1)}>Next</button>
+            </div>
+          ) : null}
+        </TpCard>
         {dialog}
       </TeacherPortalPanelWrap>
     </TeacherPortalModuleShell>
