@@ -7,6 +7,7 @@ export const TEACHER_PORTAL_MODULE_KEYS = [
   "timetable",
   "results",
   "teams",
+  "students",
   "subjects",
   "syllabus",
   "syllabus_progress",
@@ -25,6 +26,7 @@ const MODULE_ORDER: Record<TeacherPortalModuleKey, number> = {
   timetable: 30,
   results: 40,
   teams: 50,
+  students: 52,
   subjects: 55,
   syllabus: 60,
   syllabus_progress: 62,
@@ -37,13 +39,14 @@ const MODULE_ORDER: Record<TeacherPortalModuleKey, number> = {
 
 /** Modules visible per role (merged with Set union for multi-role teachers). */
 export const TEACHER_ROLE_MODULES: Record<TeacherRoleKind, readonly TeacherPortalModuleKey[]> = {
-  HTPO: ["dashboard", "attendance", "timetable", "results", "teams", "finance", "announcements", "feedback", "reports", "applications"],
+  HTPO: ["dashboard", "attendance", "timetable", "results", "teams", "students", "finance", "announcements", "feedback", "reports", "applications"],
   CTPO: [
     "dashboard",
     "attendance",
     "timetable",
     "results",
     "teams",
+    "students",
     "subjects",
     "syllabus",
     "syllabus_progress",

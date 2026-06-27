@@ -24,6 +24,8 @@ import { TeacherPortalMenuService } from "./teacher-portal-menu.service";
 import { QueuesModule } from "../queues/queues.module";
 import { ResultsModule } from "../results/results.module";
 import { ReportsModule } from "../reports/reports.module";
+import { StudentsModule } from "../students/students.module";
+import { TeacherPortalStudentsService } from "./teacher-portal-students.service";
 import { TeacherPortalResultsService } from "./teacher-portal-results.service";
 import { TeacherPortalTeamsService } from "./teacher-portal-teams.service";
 import { TeacherPortalFinanceService } from "./teacher-portal-finance.service";
@@ -33,7 +35,7 @@ import { TeacherPortalSubjectsService } from "./teacher-portal-subjects.service"
 import { TeacherPortalTimetableService } from "./teacher-portal-timetable.service";
 
 @Module({
-  imports: [AnnouncementsModule, FeedbackModule, TimetableModule, QueuesModule, ResultsModule, ReportsModule],
+  imports: [AnnouncementsModule, FeedbackModule, TimetableModule, QueuesModule, ResultsModule, ReportsModule, StudentsModule],
   controllers: [PortalsController],
   providers: [
     StudentPortalAnnouncementsService,
@@ -56,6 +58,7 @@ import { TeacherPortalTimetableService } from "./teacher-portal-timetable.servic
     TeacherPortalDashboardService,
     TeacherPortalHtpoAttendanceService,
     TeacherPortalTimetableService,
+    TeacherPortalStudentsService,
     TeacherPortalResultsService,
     TeacherPortalTeamsService,
     TeacherPortalFinanceService,

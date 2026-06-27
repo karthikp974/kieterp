@@ -15,6 +15,7 @@ const TILE_DESCRIPTIONS: Record<TeacherPortalModuleKey, string> = {
   timetable: "Teaching schedule.",
   results: "Result entry and review.",
   teams: "Section teams.",
+  students: "Manage students in your scope.",
   subjects: "Add and manage subjects.",
   syllabus: "Add and edit syllabus units/topics.",
   syllabus_progress: "Mark syllabus topics covered.",

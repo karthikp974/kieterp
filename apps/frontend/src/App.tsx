@@ -117,6 +117,7 @@ export function App() {
             <Route path="results/students/:studentProfileId" element={<Pages.TeacherPortalResultsStudentPage />} />
             <Route path="teams" element={<Pages.TeacherPortalTeamsPage />} />
             <Route path="teams/create" element={<Pages.TeacherPortalTeamsCreatePage />} />
+            <Route path="students" element={<Pages.TeacherPortalStudentsPage />} />
             <Route path="teams/:teamId/edit" element={<Pages.TeacherPortalTeamsEditPage />} />
             <Route path="subjects" element={<Pages.TeacherPortalSubjectsPage />} />
             <Route path="syllabus" element={<Pages.TeacherPortalSyllabusPage />} />

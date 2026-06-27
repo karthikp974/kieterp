@@ -112,6 +112,8 @@ import {
   PortalReportsExportQueryDto
 } from "../reports/portal-reports.dto";
 import { TeacherPortalEngageService } from "./teacher-portal-engage.service";
+import { TeacherPortalStudentsService } from "./teacher-portal-students.service";
+import { BulkCreateStudentsDto, CreateStudentDto, ResetStudentPasswordDto, StudentListQueryDto, UpdateStudentDto } from "../students/students.dto";
 
 @UseGuards(JwtAuthGuard, PermissionGuard)
 @Controller("portals")
@@ -142,7 +144,8 @@ export class PortalsController {
     private readonly teacherPortalTeams: TeacherPortalTeamsService,
     private readonly teacherPortalFinance: TeacherPortalFinanceService,
     private readonly portalReports: PortalReportsService,
-    private readonly teacherPortalEngage: TeacherPortalEngageService
+    private readonly teacherPortalEngage: TeacherPortalEngageService,
+    private readonly teacherPortalStudents: TeacherPortalStudentsService
   ) {}
 
   @Get("admin")
@@ -695,6 +698,69 @@ export class PortalsController {
       page: pagination.page,
       pageSize: pagination.pageSize
     };
+  }
+
+  // --- Student management (HTPO/CTPO only; STPO rejected in service). Scoped to the
+  // teacher's own sections. Guard only checks portal access; the service enforces role
+  // + section scope and delegates writes to the admin StudentsService.
+  @Get("teacher/students/setup")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherStudentsSetup(@CurrentUser() user: AuthUser) {
+    return this.teacherPortalStudents.setup(user);
+  }
+
+  @Get("teacher/students/manage")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherStudentsManageList(@CurrentUser() user: AuthUser, @Query() query: StudentListQueryDto) {
+    return this.teacherPortalStudents.list(user, query);
+  }
+
+  @Post("teacher/students/manage")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherStudentsCreate(@CurrentUser() user: AuthUser, @Body() dto: CreateStudentDto) {
+    return this.teacherPortalStudents.create(user, dto);
+  }
+
+  @Post("teacher/students/manage/bulk")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherStudentsBulk(@CurrentUser() user: AuthUser, @Body() dto: BulkCreateStudentsDto) {
+    return this.teacherPortalStudents.bulk(user, dto);
+  }
+
+  @Get("teacher/students/manage/imports/:jobId")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherStudentsImportJob(@CurrentUser() user: AuthUser, @Param("jobId") jobId: string) {
+    return this.teacherPortalStudents.getImportJob(user, jobId);
+  }
+
+  @Patch("teacher/students/manage/:id")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherStudentsUpdate(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: UpdateStudentDto) {
+    return this.teacherPortalStudents.update(user, id, dto);
+  }
+
+  @Post("teacher/students/manage/:id/deactivate")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherStudentsDeactivate(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.teacherPortalStudents.deactivate(user, id);
+  }
+
+  @Post("teacher/students/manage/:id/reactivate")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherStudentsReactivate(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.teacherPortalStudents.reactivate(user, id);
+  }
+
+  @Post("teacher/students/manage/:id/reset-password")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherStudentsResetPassword(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: ResetStudentPasswordDto) {
+    return this.teacherPortalStudents.resetPassword(user, id, dto);
+  }
+
+  @Delete("teacher/students/manage/:id")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherStudentsArchive(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.teacherPortalStudents.archive(user, id);
   }
 
   @Get("student")

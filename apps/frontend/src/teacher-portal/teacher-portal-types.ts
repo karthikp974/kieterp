@@ -4,6 +4,7 @@ export type TeacherPortalModuleKey =
   | "timetable"
   | "results"
   | "teams"
+  | "students"
   | "subjects"
   | "syllabus"
   | "syllabus_progress"

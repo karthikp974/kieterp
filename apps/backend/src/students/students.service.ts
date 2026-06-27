@@ -24,12 +24,12 @@ export class StudentsService {
     private readonly queues: QueueService
   ) {}
 
-  async list(query: StudentListQueryDto, user: AuthUser) {
+  async list(query: StudentListQueryDto, user: AuthUser, scopeWhere: Prisma.StudentProfileWhereInput = {}) {
     const pagination = toPagination(query);
     if (query.campusId) {
       await this.campusScope.assertCampusAllowed(user, query.campusId);
     }
-    const where: Prisma.StudentProfileWhereInput = {
+    const baseWhere: Prisma.StudentProfileWhereInput = {
       isArchived: false,
       currentStatus: query.status ?? UserStatus.ACTIVE,
       sectionId: query.sectionId,
@@ -47,6 +47,10 @@ export class StudentsService {
           }
         : {})
     };
+    // Extra scope (e.g. teacher section restriction) is ANDed so it never collides with the search OR.
+    const where: Prisma.StudentProfileWhereInput = Object.keys(scopeWhere).length
+      ? { AND: [baseWhere, scopeWhere] }
+      : baseWhere;
 
     const [items, total] = await Promise.all([
       this.prisma.studentProfile.findMany({

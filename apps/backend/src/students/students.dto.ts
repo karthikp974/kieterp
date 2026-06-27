@@ -37,8 +37,11 @@ export class CreateStudentDto {
   @MinLength(8)
   password?: string;
 
+  // Optional at the DTO layer so teacher-scoped creates can default it from the
+  // section's campus. StudentsService.create still rejects a missing campus.
+  @IsOptional()
   @IsString()
-  campusId!: string;
+  campusId?: string;
 
   @IsOptional()
   @IsString()
