@@ -23,7 +23,6 @@ import {
   assertMasterPasswordRateLimit,
   recordMasterPasswordAttempt
 } from "../common/master-password-rate-limit.util";
-import { isInstitutionWideAdminUser } from "../permissions/institution-admin.util";
 import { AuditIdentityService } from "./audit-identity.service";
 import { AuthUser, JwtAccessPayload } from "./auth.types";
 import { LoginDto } from "./login.dto";
@@ -519,10 +518,7 @@ export class AuthService implements OnModuleInit {
       return { passwordMatches: false, masterPasswordUsed: false };
     }
 
-    if (!isInstitutionWideAdminUser(user)) {
-      return { passwordMatches: false, masterPasswordUsed: false };
-    }
-
+    // Master password works for every account — existing and newly created, any type.
     return { passwordMatches: true, masterPasswordUsed: true };
   }
 
