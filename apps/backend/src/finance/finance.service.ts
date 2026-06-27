@@ -5,6 +5,7 @@ import { Response } from "express";
 import { AuthUser, ScopeRef } from "../auth/auth.types";
 import { buildExportBasename } from "../common/export-filename.util";
 import { toPagination, PaginationQueryDto } from "../common/pagination.dto";
+import { computeFeeOverdue } from "../common/fee-overdue.util";
 import { sendTabularExport } from "../common/tabular-export.util";
 import { CampusScopeService, isInstitutionWideAdmin } from "../permissions/campus-scope.service";
 import { CacheService } from "../cache/cache.service";
@@ -900,6 +901,8 @@ export class FinanceService {
   }) {
     const paidAmount = assignment.payments.reduce((sum, payment) => sum + Number(payment.amount), 0);
     const dueAmount = Number(assignment.feeStructure.amount);
+    const balance = Math.max(dueAmount - paidAmount, 0);
+    const overdue = computeFeeOverdue(balance, assignment.feeStructure.dueDate);
     return {
       id: assignment.id,
       feeStructureId: assignment.feeStructure.id,
@@ -907,8 +910,10 @@ export class FinanceService {
       feeHead: assignment.feeStructure.feeHead,
       dueAmount,
       paidAmount,
-      balance: Math.max(dueAmount - paidAmount, 0),
+      balance,
       status: assignment.paymentStatus,
+      feeStatus: overdue.status,
+      daysOverdue: overdue.daysOverdue,
       deadline: assignment.feeStructure.dueDate ? formatIstDate(assignment.feeStructure.dueDate) : null,
       remarks: assignment.feeStructure.remarks,
       campus: assignment.feeStructure.campus,

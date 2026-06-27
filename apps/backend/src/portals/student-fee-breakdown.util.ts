@@ -1,5 +1,6 @@
 import { StudentFeePaymentStatus } from "@prisma/client";
 import { formatAcademicYearLabel, yearNumberFromSemester } from "../common/semester-label.util";
+import type { FeeOverdueStatus } from "../common/fee-overdue.util";
 
 export type FeeAssignmentUiStatus = "PAID" | "PARTIAL" | "UNPAID";
 
@@ -13,6 +14,9 @@ export type StudentFeeAssignmentItem = {
   paidRupees: number;
   balanceRupees: number;
   status: FeeAssignmentUiStatus;
+  /** Computed on read: "paid" | "pending" | "overdue". */
+  feeStatus: FeeOverdueStatus;
+  daysOverdue: number;
   dueDate: string | null;
   latestPaymentId: string | null;
   canPay: boolean;

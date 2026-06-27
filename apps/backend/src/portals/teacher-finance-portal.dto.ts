@@ -3,7 +3,7 @@ import { IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Max, Min } from "class-v
 import { TABULAR_EXPORT_FORMATS, type TabularExportFormat } from "../common/tabular-export.util";
 import { PortalImplicitScopeQueryDto } from "./portal-scope-query.dto";
 
-export const FEE_UI_STATUSES = ["all", "paid", "partial", "pending"] as const;
+export const FEE_UI_STATUSES = ["all", "paid", "partial", "pending", "overdue"] as const;
 export type FeeUiStatusFilter = (typeof FEE_UI_STATUSES)[number];
 
 const FINANCE_EXPORT_FORMATS = [...TABULAR_EXPORT_FORMATS, "txt"] as const;
@@ -20,11 +20,16 @@ export class TeacherFinanceStudentsQueryDto extends TeacherFinanceScopeQueryDto 
   @IsIn(FEE_UI_STATUSES)
   status: FeeUiStatusFilter = "all";
 
+  /** Search by roll number or name — applied within the teacher's scoped students only. */
+  @IsOptional()
+  @IsString()
+  search?: string;
+
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(50)
+  @Max(100)
   pageSize = 8;
 
   @IsOptional()
