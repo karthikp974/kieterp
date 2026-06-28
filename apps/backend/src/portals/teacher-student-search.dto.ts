@@ -19,6 +19,12 @@ export class TeacherStudentProfileEditDto {
   @IsOptional() @IsString() @MaxLength(120) fatherName?: string;
   @IsOptional() @IsString() @MaxLength(120) guardianName?: string;
   @IsOptional() @IsString() @MaxLength(250) address?: string;
+  @IsOptional() @IsString() @MaxLength(120) village?: string;
+  @IsOptional() @IsString() @MaxLength(120) mandal?: string;
+  @IsOptional() @IsString() @MaxLength(120) district?: string;
+  @IsOptional() @IsString() @MaxLength(120) state?: string;
+  @IsOptional() @IsString() @MaxLength(20) pincode?: string;
+  @IsOptional() @IsString() @MaxLength(250) homeAddress?: string;
   @IsOptional() @IsString() @MinLength(2) @MaxLength(50) rollNumber?: string;
   @IsOptional() @IsEnum(UserStatus) status?: UserStatus;
 }

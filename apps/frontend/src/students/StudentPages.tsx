@@ -45,6 +45,12 @@ type StudentForm = {
   email: string;
   dateOfBirth: string;
   rollNumber: string;
+  village: string;
+  mandal: string;
+  district: string;
+  state: string;
+  pincode: string;
+  homeAddress: string;
   password: string;
   campusId: string;
   programId: string;
@@ -62,6 +68,12 @@ const emptyForm = (): StudentForm => ({
   email: "",
   dateOfBirth: "",
   rollNumber: "",
+  village: "",
+  mandal: "",
+  district: "",
+  state: "",
+  pincode: "",
+  homeAddress: "",
   password: "",
   campusId: "",
   programId: "",
@@ -345,6 +357,12 @@ function StudentIdentityStep({ form, includePassword = false, setForm }: { form:
             required
           />
         </Field>
+        <Field label="Village"><Input value={form.village} onChange={(village) => setForm({ ...form, village })} /></Field>
+        <Field label="Mandal"><Input value={form.mandal} onChange={(mandal) => setForm({ ...form, mandal })} /></Field>
+        <Field label="District"><Input value={form.district} onChange={(district) => setForm({ ...form, district })} /></Field>
+        <Field label="State"><Input value={form.state} onChange={(state) => setForm({ ...form, state })} /></Field>
+        <Field label="Pincode"><Input value={form.pincode} onChange={(pincode) => setForm({ ...form, pincode })} /></Field>
+        <Field label="Home Address"><Input value={form.homeAddress} onChange={(homeAddress) => setForm({ ...form, homeAddress })} /></Field>
         {includePassword ? (
           <Field label="Initial Password">
             <Input value={form.password} onChange={() => undefined} readOnly required />
@@ -642,6 +660,12 @@ function studentPayload(form: StudentForm, update = false) {
     email: form.email || undefined,
     dateOfBirth: form.dateOfBirth || undefined,
     rollNumber: form.rollNumber,
+    village: form.village.trim() || undefined,
+    mandal: form.mandal.trim() || undefined,
+    district: form.district.trim() || undefined,
+    state: form.state.trim() || undefined,
+    pincode: form.pincode.trim() || undefined,
+    homeAddress: form.homeAddress.trim() || undefined,
     campusId: form.campusId,
     programId: form.programId,
     branchId: form.branchId,

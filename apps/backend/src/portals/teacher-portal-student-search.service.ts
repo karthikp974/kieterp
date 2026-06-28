@@ -182,6 +182,12 @@ export class TeacherPortalStudentSearchService {
       const v = nullable(dto.address);
       if (v !== student.address) { profileData.address = v; changes.address = { old: student.address, new: v }; }
     }
+    for (const key of ["village", "mandal", "district", "state", "pincode", "homeAddress"] as const) {
+      if (dto[key] !== undefined) {
+        const v = nullable(dto[key]);
+        if (v !== student[key]) { profileData[key] = v; changes[key] = { old: student[key], new: v }; }
+      }
+    }
 
     if (!Object.keys(changes).length) {
       return this.profile(user, studentProfileId);
@@ -310,6 +316,12 @@ export class TeacherPortalStudentSearchService {
         fatherName: student.fatherName,
         guardianName: student.guardianName,
         address: student.address,
+        village: student.village,
+        mandal: student.mandal,
+        district: student.district,
+        state: student.state,
+        pincode: student.pincode,
+        homeAddress: student.homeAddress,
         status: student.currentStatus
       },
       academic: {
