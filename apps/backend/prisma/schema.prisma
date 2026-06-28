@@ -572,6 +572,12 @@ model StudentProfile {
   guardianName String?
   fatherName   String?
   address      String?
+  village      String?
+  mandal       String?
+  district     String?
+  state        String?
+  pincode      String?
+  homeAddress  String?
   currentStatus UserStatus @default(ACTIVE)
   isArchived   Boolean  @default(false)
   archivedAt   DateTime? @db.Timestamptz(3)
@@ -753,6 +759,7 @@ model FeeStructure {
   class       AcademicClass? @relation(fields: [classId], references: [id], onDelete: Restrict)
   sectionId   String?
   section     Section?     @relation(fields: [sectionId], references: [id], onDelete: Restrict)
+  yearNumber  Int?
   feeHeadName     String?
   amount      Decimal      @db.Decimal(12, 2)
   remarks     String?
