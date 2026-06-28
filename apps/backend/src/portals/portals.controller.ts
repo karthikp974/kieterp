@@ -10,6 +10,7 @@ import {
   Post,
   Put,
   Query,
+  Req,
   Res,
   UploadedFile,
   UseGuards,
@@ -18,7 +19,7 @@ import {
 import { FileInterceptor } from "@nestjs/platform-express";
 import { formatIstDate, istDayOfWeek } from "../common/ist-time.util";
 import { memoryStorage } from "multer";
-import { Response } from "express";
+import { Request, Response } from "express";
 import { StudentAttendanceExportQueryDto, StudentAttendancePageQueryDto } from "./student-attendance-portal.dto";
 import { StudentAttendanceHistoryQueryDto } from "./student-dashboard.dto";
 import { StudentMarksPdfQueryDto } from "./student-marks-portal.dto";
@@ -114,7 +115,8 @@ import {
 import { TeacherPortalEngageService } from "./teacher-portal-engage.service";
 import { TeacherPortalStudentsService } from "./teacher-portal-students.service";
 import { TeacherPortalStudentSearchService } from "./teacher-portal-student-search.service";
-import { StudentSearchQueryDto } from "./teacher-student-search.dto";
+import { StudentSearchQueryDto, TeacherStudentProfileEditDto } from "./teacher-student-search.dto";
+import { getRequestContext } from "../auth/request-context";
 import { BulkCreateStudentsDto, CreateStudentDto, ResetStudentPasswordDto, StudentListQueryDto, UpdateStudentDto } from "../students/students.dto";
 
 @UseGuards(JwtAuthGuard, PermissionGuard)
@@ -718,6 +720,18 @@ export class PortalsController {
   @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
   teacherStudentSearchProfile(@CurrentUser() user: AuthUser, @Param("studentProfileId") studentProfileId: string) {
     return this.teacherPortalStudentSearch.profile(user, studentProfileId);
+  }
+
+  // Edit personal/login fields (section/campus excluded). Audited old→new + IP.
+  @Patch("teacher/student-search/:studentProfileId")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherStudentSearchUpdate(
+    @CurrentUser() user: AuthUser,
+    @Param("studentProfileId") studentProfileId: string,
+    @Body() dto: TeacherStudentProfileEditDto,
+    @Req() request: Request
+  ) {
+    return this.teacherPortalStudentSearch.updateProfile(user, studentProfileId, dto, getRequestContext(request));
   }
 
   @Get("teacher/students/setup")

@@ -1,11 +1,14 @@
-import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
-import { Prisma, StructureStatus, TeacherRoleKind, UserStatus } from "@prisma/client";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { AuthSessionStatus, Prisma, StructureStatus, TeacherRoleKind, UserStatus } from "@prisma/client";
 import { AuthUser } from "../auth/auth.types";
 import { computeFeeOverdue } from "../common/fee-overdue.util";
 import { formatIstDate } from "../common/ist-time.util";
 import { toPagination } from "../common/pagination.dto";
+import { RequestContext } from "../auth/request-context";
 import { PrismaService } from "../prisma/prisma.service";
-import { StudentSearchQueryDto } from "./teacher-student-search.dto";
+import { StudentSearchQueryDto, TeacherStudentProfileEditDto } from "./teacher-student-search.dto";
+
+type FieldChange = { old: unknown; new: unknown };
 
 const profileInclude = {
   user: { select: { id: true, fullName: true, email: true, username: true, phone: true, status: true } },
@@ -90,6 +93,135 @@ export class TeacherPortalStudentSearchService {
     });
     if (!student) throw new NotFoundException("Student not found.");
     return this.toProfile(student);
+  }
+
+  /**
+   * Edit a student's personal/login fields (section/campus are NOT editable here).
+   * Scoped + IDOR-safe. Writes a single audit row capturing every changed field
+   * old→new plus IP/userAgent. Reuses the same uniqueness handling as admin edits.
+   */
+  async updateProfile(user: AuthUser, studentProfileId: string, dto: TeacherStudentProfileEditDto, ctx: RequestContext = {}) {
+    const sectionIds = await this.accessibleSectionIds(user);
+    const student = await this.prisma.studentProfile.findFirst({
+      where: { id: studentProfileId, sectionId: { in: sectionIds.length ? sectionIds : ["__none__"] } },
+      include: { user: { select: { id: true, fullName: true, email: true, username: true, phone: true, status: true } } }
+    });
+    if (!student) throw new NotFoundException("Student not found.");
+
+    const changes: Record<string, FieldChange> = {};
+    const userData: Prisma.UserUpdateInput = {};
+    const profileData: Prisma.StudentProfileUpdateInput = {};
+
+    const norm = (v: string | undefined) => (v === undefined ? undefined : v.trim());
+    const nullable = (v: string | undefined) => (v === undefined ? undefined : v.trim() || null);
+
+    // --- User fields ---
+    const fullName = norm(dto.fullName);
+    if (fullName !== undefined && fullName !== student.user.fullName) {
+      userData.fullName = fullName;
+      changes.fullName = { old: student.user.fullName, new: fullName };
+    }
+    if (dto.email !== undefined) {
+      const email = dto.email.trim().toLowerCase();
+      const currentEmail = student.user.email.endsWith("@students.local") ? null : student.user.email;
+      if (email !== currentEmail) {
+        userData.email = email;
+        changes.email = { old: currentEmail, new: email };
+      }
+    }
+    if (dto.username !== undefined) {
+      const username = dto.username.trim();
+      if (username !== (student.user.username ?? null)) {
+        userData.username = username;
+        changes.username = { old: student.user.username, new: username };
+      }
+    }
+    if (dto.phone !== undefined) {
+      const phone = nullable(dto.phone);
+      if (phone !== student.user.phone) {
+        userData.phone = phone;
+        changes.phone = { old: student.user.phone, new: phone };
+      }
+    }
+    if (dto.status !== undefined && dto.status !== student.user.status) {
+      userData.status = dto.status;
+      profileData.currentStatus = dto.status;
+      changes.status = { old: student.user.status, new: dto.status };
+    }
+
+    // --- StudentProfile fields ---
+    if (dto.rollNumber !== undefined) {
+      const rollNumber = dto.rollNumber.trim().toUpperCase().replace(/\s+/g, "");
+      if (rollNumber && rollNumber !== student.rollNumber) {
+        profileData.rollNumber = rollNumber;
+        changes.rollNumber = { old: student.rollNumber, new: rollNumber };
+      }
+    }
+    if (dto.dateOfBirth !== undefined) {
+      const dob = dto.dateOfBirth.trim() ? new Date(dto.dateOfBirth) : null;
+      if (dob && Number.isNaN(dob.getTime())) throw new BadRequestException("Invalid date of birth.");
+      const oldIso = student.dateOfBirth ? student.dateOfBirth.toISOString() : null;
+      const newIso = dob ? dob.toISOString() : null;
+      if (newIso !== oldIso) {
+        profileData.dateOfBirth = dob;
+        changes.dateOfBirth = { old: oldIso, new: newIso };
+      }
+    }
+    if (dto.fatherName !== undefined) {
+      const v = nullable(dto.fatherName);
+      if (v !== student.fatherName) { profileData.fatherName = v; changes.fatherName = { old: student.fatherName, new: v }; }
+    }
+    if (dto.guardianName !== undefined) {
+      const v = nullable(dto.guardianName);
+      if (v !== student.guardianName) { profileData.guardianName = v; changes.guardianName = { old: student.guardianName, new: v }; }
+    }
+    if (dto.address !== undefined) {
+      const v = nullable(dto.address);
+      if (v !== student.address) { profileData.address = v; changes.address = { old: student.address, new: v }; }
+    }
+
+    if (!Object.keys(changes).length) {
+      return this.profile(user, studentProfileId);
+    }
+
+    const deactivating = dto.status !== undefined && dto.status !== UserStatus.ACTIVE && changes.status;
+
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        if (Object.keys(userData).length) {
+          await tx.user.update({ where: { id: student.user.id }, data: userData });
+        }
+        if (Object.keys(profileData).length) {
+          await tx.studentProfile.update({ where: { id: studentProfileId }, data: profileData });
+        }
+        if (deactivating) {
+          await tx.authSession.updateMany({
+            where: { userId: student.user.id, status: AuthSessionStatus.ACTIVE },
+            data: { status: AuthSessionStatus.REVOKED, revokedAt: new Date() }
+          });
+        }
+        await tx.auditLog.create({
+          data: {
+            userId: user.auditUserId ?? user.id,
+            action: "TEACHER_UPDATE_STUDENT_PROFILE",
+            entity: "StudentProfile",
+            entityId: studentProfileId,
+            metadata: {
+              changes,
+              ipAddress: ctx.ipAddress ?? null,
+              userAgent: ctx.userAgent ?? null
+            } as Prisma.InputJsonObject
+          }
+        });
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        throw new ConflictException("Email, username, or roll number already exists.");
+      }
+      throw error;
+    }
+
+    return this.profile(user, studentProfileId);
   }
 
   private toProfile(student: ProfileRow) {
