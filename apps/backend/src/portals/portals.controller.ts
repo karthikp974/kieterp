@@ -115,7 +115,9 @@ import {
 import { TeacherPortalEngageService } from "./teacher-portal-engage.service";
 import { TeacherPortalStudentsService } from "./teacher-portal-students.service";
 import { TeacherPortalStudentSearchService } from "./teacher-portal-student-search.service";
+import { TeacherPortalSectionOverviewService } from "./teacher-portal-section-overview.service";
 import { StudentSearchQueryDto, TeacherStudentProfileEditDto } from "./teacher-student-search.dto";
+import { SectionOverviewExportQueryDto, SectionOverviewQueryDto } from "./teacher-section-overview.dto";
 import { TabularExportFormatQueryDto } from "../common/export-query.dto";
 import { getRequestContext } from "../auth/request-context";
 import { BulkCreateStudentsDto, CreateStudentDto, ResetStudentPasswordDto, StudentListQueryDto, UpdateStudentDto } from "../students/students.dto";
@@ -151,7 +153,8 @@ export class PortalsController {
     private readonly portalReports: PortalReportsService,
     private readonly teacherPortalEngage: TeacherPortalEngageService,
     private readonly teacherPortalStudents: TeacherPortalStudentsService,
-    private readonly teacherPortalStudentSearch: TeacherPortalStudentSearchService
+    private readonly teacherPortalStudentSearch: TeacherPortalStudentSearchService,
+    private readonly teacherPortalSectionOverview: TeacherPortalSectionOverviewService
   ) {}
 
   @Get("admin")
@@ -744,6 +747,25 @@ export class PortalsController {
     @Req() request: Request
   ) {
     return this.teacherPortalStudentSearch.updateProfile(user, studentProfileId, dto, getRequestContext(request));
+  }
+
+  // --- Section Overview (Page 2): team-wise grouping, overdue-first. Scoped + IDOR.
+  @Get("teacher/section-overview/setup")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherSectionOverviewSetup(@CurrentUser() user: AuthUser) {
+    return this.teacherPortalSectionOverview.setup(user);
+  }
+
+  @Get("teacher/section-overview")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherSectionOverview(@CurrentUser() user: AuthUser, @Query() query: SectionOverviewQueryDto) {
+    return this.teacherPortalSectionOverview.overview(user, query);
+  }
+
+  @Get("teacher/section-overview/export")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherSectionOverviewExport(@CurrentUser() user: AuthUser, @Query() query: SectionOverviewExportQueryDto, @Res() response: Response) {
+    return this.teacherPortalSectionOverview.exportOverview(user, query, query.format, response);
   }
 
   @Get("teacher/students/setup")
