@@ -138,8 +138,8 @@ export const TeacherPortalResultsStudentPage = lazy(() =>
 export const TeacherPortalTeamsPage = lazy(() =>
   import("./teacher-portal/pages/TeacherPortalTeamsPage").then((m) => ({ default: m.TeacherPortalTeamsPage }))
 );
-export const TeacherPortalStudentsPage = lazy(() =>
-  import("./teacher-portal/pages/TeacherPortalStudentsPage").then((m) => ({ default: m.TeacherPortalStudentsPage }))
+export const TeacherStudentsLayout = lazy(() =>
+  import("./teacher-portal/TeacherStudentsLayout").then((m) => ({ default: m.TeacherStudentsLayout }))
 );
 export const TeacherPortalTeamsCreatePage = lazy(() =>
   import("./teacher-portal/pages/TeacherPortalTeamsCreatePage").then((m) => ({ default: m.TeacherPortalTeamsCreatePage }))

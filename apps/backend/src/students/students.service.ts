@@ -57,6 +57,7 @@ export class StudentsService {
         where,
         include: {
           user: { include: { campus: true } },
+          createdBy: { select: { id: true, fullName: true, username: true, type: true } },
           section: { include: { class: { include: { batch: { include: { branch: { include: { program: { include: { campus: true } } } } } } } } } }
         },
         orderBy: { createdAt: "desc" },
@@ -75,10 +76,15 @@ export class StudentsService {
 
   async get(id: string, user: AuthUser) {
     await this.campusScope.assertStudentInScope(user, id);
+    return this.getById(id);
+  }
+
+  async getById(id: string) {
     const student = await this.prisma.studentProfile.findUnique({
       where: { id },
       include: {
         user: true,
+        createdBy: { select: { id: true, fullName: true, username: true, type: true } },
         section: { include: { class: { include: { batch: { include: { branch: { include: { program: { include: { campus: true } } } } } } } } } }
       }
     });
@@ -86,7 +92,7 @@ export class StudentsService {
     return { student: this.toStudentObject(student) };
   }
 
-  async create(dto: CreateStudentDto) {
+  async create(dto: CreateStudentDto, actor?: AuthUser) {
     const section = await this.getSectionWithCampus(dto.sectionId);
     await this.validateRequestedStructure(section, dto);
     const operationalCampusId = dto.campusId?.trim();
@@ -118,16 +124,21 @@ export class StudentsService {
             rollNumber,
             dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : undefined,
             fatherName: dto.fatherName.trim(),
-            currentStatus: UserStatus.ACTIVE
+            currentStatus: UserStatus.ACTIVE,
+            createdById: actor?.id
           },
           include: {
             user: true,
+            createdBy: { select: { id: true, fullName: true, username: true, type: true } },
             section: { include: { class: { include: { batch: { include: { branch: { include: { program: { include: { campus: true } } } } } } } } } }
           }
         });
       });
 
-      await this.logAudit("CREATE_STUDENT", "StudentProfile", student.id, { rollNumber });
+      await this.logAudit("CREATE_STUDENT", "StudentProfile", student.id, {
+        rollNumber,
+        ...(actor ? { createdById: actor.id } : {})
+      });
       return { student: this.toStudentObject(student) };
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
@@ -288,17 +299,18 @@ export class StudentsService {
   }
 
   /** Worker-side executor (called by SystemProcessor). Creates students one-by-one with live progress. */
-  async executeBulkImport(jobId: string, students: CreateStudentDto[]) {
+  async executeBulkImport(jobId: string, students: CreateStudentDto[], requestedById?: string) {
     const total = students.length;
     const created: string[] = [];
     const errors: { rollNumber: string; message: string }[] = [];
+    const actor = requestedById ? ({ id: requestedById } as AuthUser) : undefined;
 
     await this.writeBulkImportProgress(jobId, { phase: "importing", processed: 0, total, percent: total ? 8 : 100 });
 
     let processed = 0;
     for (const student of students) {
       try {
-        const result = await this.create(student);
+        const result = await this.create(student, actor);
         created.push(result.student.id);
       } catch (error) {
         errors.push({
@@ -403,6 +415,7 @@ export class StudentsService {
     dateOfBirth: Date | null;
     fatherName: string | null;
     currentStatus: UserStatus;
+    createdBy?: { id: string; fullName: string; username: string | null; type: UserType } | null;
     user: {
       id: string;
       fullName: string;
@@ -435,6 +448,14 @@ export class StudentsService {
         rollNumber: student.rollNumber,
         status: student.currentStatus
       },
+      createdBy: student.createdBy
+        ? {
+            id: student.createdBy.id,
+            fullName: student.createdBy.fullName,
+            username: student.createdBy.username,
+            type: student.createdBy.type
+          }
+        : null,
       structure: {
         currentSectionId: student.section.id,
         campus: student.user.campus ?? student.section.class.batch.branch.program.campus,

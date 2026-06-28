@@ -62,6 +62,12 @@ const TITLE_MAP: Record<string, string> = {
   "/teacher/results/upload": "Upload results",
   "/teacher/results/add": "Add result",
   "/teacher/teams": "Teams",
+  "/teacher/students": "Add Student",
+  "/teacher/students/add-student": "Add Student",
+  "/teacher/students/modify-student": "Modify Student",
+  "/teacher/students/delete-student": "Delete Student",
+  "/teacher/students/existing-records": "Existing records",
+  "/teacher/students/history": "History",
   "/teacher/subjects": "Subjects",
   "/teacher/syllabus": "Syllabus",
   "/teacher/syllabus/manage": "Manage syllabus",
@@ -157,6 +163,9 @@ export function teacherPortalSubPageBackHref(
     pathname.startsWith("/teacher/results/students/")
   ) {
     return "/teacher/results";
+  }
+  if (pathname.startsWith("/teacher/students/") && pathname !== "/teacher/students") {
+    return "/teacher/students";
   }
   const studentMatch = /^\/teacher\/sections\/([^/]+)\/students\/[^/]+$/.exec(pathname);
   if (studentMatch) {

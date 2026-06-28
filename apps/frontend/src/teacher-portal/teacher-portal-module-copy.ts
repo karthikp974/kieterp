@@ -7,7 +7,7 @@ export const TEACHER_MODULE_SUBTITLES: Record<TeacherPortalModuleKey, string> = 
   timetable: "HTPO: section grids and STPO assignments. Everyone: your personal teaching slots below.",
   results: "Upload PDFs or enter marks for students in your assigned subjects and sections.",
   teams: "Create class teams and assign students within your scope.",
-  students: "Create, edit, and manage students in your branch or section scope.",
+  students: "Add students in your branch or section scope. Each record stores who enrolled them.",
   subjects: "Add, edit, or remove subjects for your assigned section.",
   syllabus: "Add, edit, or delete syllabus units and topics for your subjects.",
   syllabus_progress: "Mark how many syllabus topics are covered for your sections.",

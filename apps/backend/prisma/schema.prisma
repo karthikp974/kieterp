@@ -456,6 +456,7 @@ model User {
   createdFeedbackForms FeedbackForm[]         @relation("FeedbackFormCreatedBy")
   promotedStudents StudentPromotionHistory[]   @relation("PromotionPerformedBy")
   createdStudentTeams StudentTeam[]            @relation("StudentTeamCreatedBy")
+  createdStudentProfiles StudentProfile[]     @relation("StudentProfileCreatedBy")
   studentPortalNotifications StudentPortalNotification[]
   syllabusTopicCompletionUpdates SectionSyllabusTopicCompletion[] @relation("SyllabusTopicCompletionUpdatedBy")
   syllabusUnitResourcesUploaded SyllabusUnitResource[] @relation("SyllabusUnitResourceUploadedBy")
@@ -582,11 +583,14 @@ model StudentProfile {
   promotionHistory StudentPromotionHistory[]
   teamMemberships StudentTeamMember[]
   feedbackSubmissions FeedbackSubmission[]
+  createdById  String?
+  createdBy    User?    @relation("StudentProfileCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   createdAt    DateTime @default(now()) @db.Timestamptz(3)
   updatedAt    DateTime @updatedAt @db.Timestamptz(3)
 
   @@index([sectionId, rollNumber])
   @@index([isArchived])
+  @@index([createdById])
 }
 
 model Subject {

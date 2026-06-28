@@ -301,7 +301,7 @@ export class SystemProcessor extends WorkerHost {
   private async processStudentBulkImport(importJobId: string, payload: StudentBulkImportPayload) {
     const recordId = await this.resolveImportRecordId(importJobId);
     await this.assertImportActive(recordId);
-    return this.students.executeBulkImport(recordId, payload.students);
+    return this.students.executeBulkImport(recordId, payload.students, payload.requestedById);
   }
 
   private async resolveImportRecordId(importJobId: string) {

@@ -44,6 +44,57 @@ export class TeacherPortalStudentsService {
     };
   }
 
+  /** Structure catalogs limited to sections the teacher may enroll students in. */
+  async catalog(user: AuthUser) {
+    const sections = await this.accessibleSections(user);
+    const sectionIds = sections.map((s) => s.id);
+    if (!sectionIds.length) {
+      return { campuses: [], programs: [], branches: [], batches: [], classes: [], sections: [] };
+    }
+
+    const rows = await this.prisma.section.findMany({
+      where: { id: { in: sectionIds }, status: StructureStatus.ACTIVE, isArchived: false },
+      include: sectionInclude,
+      orderBy: [{ class: { semesterNumber: "desc" } }, { name: "asc" }]
+    });
+
+    const campusMap = new Map<string, { id: string; code: string; name: string }>();
+    const programMap = new Map<string, { id: string; code: string; name: string; campusId: string }>();
+    const branchMap = new Map<string, { id: string; code: string; name: string; programId: string }>();
+    const batchMap = new Map<string, { id: string; startYear: number; endYear: number; branchId: string }>();
+    const classMap = new Map<string, { id: string; label: string; semesterNumber: number; batchId: string }>();
+    const sectionMap = new Map<string, { id: string; name: string; classId: string }>();
+
+    for (const section of rows) {
+      const campus = section.campus;
+      const program = section.class.batch.branch.program;
+      const branch = section.class.batch.branch;
+      const batch = section.class.batch;
+      const cls = section.class;
+
+      campusMap.set(campus.id, { id: campus.id, code: campus.code, name: campus.name });
+      programMap.set(program.id, { id: program.id, code: program.code, name: program.name, campusId: program.campusId });
+      branchMap.set(branch.id, { id: branch.id, code: branch.code, name: branch.name, programId: branch.programId });
+      batchMap.set(batch.id, { id: batch.id, startYear: batch.startYear, endYear: batch.endYear, branchId: batch.branchId });
+      classMap.set(cls.id, { id: cls.id, label: cls.label, semesterNumber: cls.semesterNumber, batchId: cls.batchId });
+      sectionMap.set(section.id, { id: section.id, name: section.name, classId: section.classId });
+    }
+
+    return {
+      campuses: [...campusMap.values()],
+      programs: [...programMap.values()],
+      branches: [...branchMap.values()],
+      batches: [...batchMap.values()],
+      classes: [...classMap.values()],
+      sections: [...sectionMap.values()]
+    };
+  }
+
+  async get(user: AuthUser, id: string) {
+    await this.assertStudentInScope(user, id);
+    return this.students.getById(id);
+  }
+
   async list(user: AuthUser, query: StudentListQueryDto) {
     const sections = await this.accessibleSections(user);
     const accessibleIds = sections.map((s) => s.id);
@@ -60,7 +111,7 @@ export class TeacherPortalStudentsService {
     const section = await this.assertSectionInScope(user, dto.sectionId);
     // Default the operational campus to the section's campus when the client omits it.
     const payload: CreateStudentDto = { ...dto, campusId: dto.campusId?.trim() || section.campusId };
-    return this.students.create(payload);
+    return this.students.create(payload, user);
   }
 
   async update(user: AuthUser, id: string, dto: UpdateStudentDto) {

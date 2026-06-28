@@ -33,8 +33,8 @@ export class StudentsController {
 
   @Post()
   @RequiresPermission(PermissionAction.MANAGE_USERS)
-  create(@Body() dto: CreateStudentDto) {
-    return this.students.create(dto);
+  create(@Body() dto: CreateStudentDto, @CurrentUser() user: AuthUser) {
+    return this.students.create(dto, user);
   }
 
   @Post("bulk")

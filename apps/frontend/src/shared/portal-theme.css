@@ -1133,51 +1133,6 @@ html[data-portal-theme] body {
   margin-bottom: 14px;
 }
 
-/* Teacher portal — Students module */
-.portal-root .tp-student-form-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 12px;
-  margin-bottom: 14px;
-}
-
-.portal-root .tp-student-bulk {
-  min-height: 96px;
-  resize: vertical;
-  margin-bottom: 12px;
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 12px;
-}
-
-.portal-root .tp-student-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 14px;
-}
-
-.portal-root .tp-student-toolbar .db-input {
-  flex: 1 1 200px;
-  max-width: 280px;
-}
-
-.portal-root .tp-student-empty {
-  text-align: center;
-  color: var(--t3);
-  padding: 22px 0;
-}
-
-.portal-root .tp-student-pager {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
-  margin-top: 12px;
-  font-size: 12px;
-  color: var(--t2);
-}
-
 .portal-root .tp-kpi {
   padding: 16px;
   border-radius: 10px;

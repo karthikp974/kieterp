@@ -113,6 +113,8 @@ import {
 } from "../reports/portal-reports.dto";
 import { TeacherPortalEngageService } from "./teacher-portal-engage.service";
 import { TeacherPortalStudentsService } from "./teacher-portal-students.service";
+import { TeacherPortalStudentSearchService } from "./teacher-portal-student-search.service";
+import { StudentSearchQueryDto } from "./teacher-student-search.dto";
 import { BulkCreateStudentsDto, CreateStudentDto, ResetStudentPasswordDto, StudentListQueryDto, UpdateStudentDto } from "../students/students.dto";
 
 @UseGuards(JwtAuthGuard, PermissionGuard)
@@ -145,7 +147,8 @@ export class PortalsController {
     private readonly teacherPortalFinance: TeacherPortalFinanceService,
     private readonly portalReports: PortalReportsService,
     private readonly teacherPortalEngage: TeacherPortalEngageService,
-    private readonly teacherPortalStudents: TeacherPortalStudentsService
+    private readonly teacherPortalStudents: TeacherPortalStudentsService,
+    private readonly teacherPortalStudentSearch: TeacherPortalStudentSearchService
   ) {}
 
   @Get("admin")
@@ -703,10 +706,30 @@ export class PortalsController {
   // --- Student management (HTPO/CTPO only; STPO rejected in service). Scoped to the
   // teacher's own sections. Guard only checks portal access; the service enforces role
   // + section scope and delegates writes to the admin StudentsService.
+  // --- Search Student (Page 1): scoped read. Service enforces HTPO/CTPO + section scope
+  // and treats out-of-scope ids as not-found (IDOR-safe).
+  @Get("teacher/student-search")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherStudentSearch(@CurrentUser() user: AuthUser, @Query() query: StudentSearchQueryDto) {
+    return this.teacherPortalStudentSearch.search(user, query);
+  }
+
+  @Get("teacher/student-search/:studentProfileId")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherStudentSearchProfile(@CurrentUser() user: AuthUser, @Param("studentProfileId") studentProfileId: string) {
+    return this.teacherPortalStudentSearch.profile(user, studentProfileId);
+  }
+
   @Get("teacher/students/setup")
   @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
   teacherStudentsSetup(@CurrentUser() user: AuthUser) {
     return this.teacherPortalStudents.setup(user);
+  }
+
+  @Get("teacher/students/catalog")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherStudentsCatalog(@CurrentUser() user: AuthUser) {
+    return this.teacherPortalStudents.catalog(user);
   }
 
   @Get("teacher/students/manage")
@@ -731,6 +754,12 @@ export class PortalsController {
   @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
   teacherStudentsImportJob(@CurrentUser() user: AuthUser, @Param("jobId") jobId: string) {
     return this.teacherPortalStudents.getImportJob(user, jobId);
+  }
+
+  @Get("teacher/students/manage/:id")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherStudentsManageGet(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.teacherPortalStudents.get(user, id);
   }
 
   @Patch("teacher/students/manage/:id")

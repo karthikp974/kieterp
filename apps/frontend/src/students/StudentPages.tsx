@@ -1,6 +1,5 @@
 import { ArrowLeft, Search, Trash2 } from "lucide-react";
 import { FormEvent, InputHTMLAttributes, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/auth-context";
 import { AdminWorkflowMenuButton, OptionActionButton, WorkflowSection } from "../shared/OptionPage";
 import { ExistingRecordsPanel, ExistingRecordsPageIntro, WorkflowExistingRecordsPageShell } from "../shared/WorkflowExistingRecords";
@@ -11,8 +10,11 @@ import { useConfirm } from "../shared/ConfirmDialog";
 import { useToast } from "../shared/toast-context";
 import { AcademicClass, Batch, Branch, Campus, PaginatedResponse, Program, Section } from "../structure/structure-types";
 import { programsForOperationalCampus } from "../shared/academic-catalog";
+import { useStudentNavigate, useStudentPaths, useStudentPortal } from "./student-portal-context";
+import { WfBtn } from "../shared/WfBtn";
 
 type StudentStatus = "ACTIVE" | "INACTIVE" | "SUSPENDED";
+type StudentCreator = { id: string; fullName: string; username?: string | null; type: string };
 type StudentListItem = {
   id: string;
   identity: {
@@ -24,6 +26,7 @@ type StudentListItem = {
     rollNumber: string;
     status: StudentStatus;
   };
+  createdBy?: StudentCreator | null;
   structure: {
     campus: Campus;
     operationalCampus?: Campus | null;
@@ -70,27 +73,30 @@ const emptyForm = (): StudentForm => ({
 });
 
 export function StudentsHomePage() {
-  const navigate = useNavigate();
+  const navigate = useStudentNavigate();
+  const paths = useStudentPaths();
+  const { homeTitle } = useStudentPortal();
 
   return (
-    <StudentShell title="Students" variant="main">
+    <StudentShell title={homeTitle} variant="main">
       <WorkflowSection title="Create Records">
-        <OptionActionButton onClick={() => navigate("/students/add-student")}>Add Student</OptionActionButton>
+        <OptionActionButton onClick={() => navigate(paths.add)}>Add Student</OptionActionButton>
       </WorkflowSection>
       <WorkflowSection title="Student Records">
-        <OptionActionButton onClick={() => navigate("/students/modify-student")}>Modify Student</OptionActionButton>
-        <OptionActionButton tone="danger" onClick={() => navigate("/students/delete-student")}>Delete Student</OptionActionButton>
+        <OptionActionButton onClick={() => navigate(paths.modify)}>Modify Student</OptionActionButton>
+        <OptionActionButton tone="danger" onClick={() => navigate(paths.delete)}>Delete Student</OptionActionButton>
       </WorkflowSection>
       <WorkflowSection title="Activity">
-        <OptionActionButton onClick={() => navigate("/students/existing-records")}>Existing records</OptionActionButton>
-        <OptionActionButton onClick={() => navigate("/students/history")}>History</OptionActionButton>
+        <OptionActionButton onClick={() => navigate(paths.existingRecords)}>Existing records</OptionActionButton>
+        <OptionActionButton onClick={() => navigate(paths.history)}>History</OptionActionButton>
       </WorkflowSection>
     </StudentShell>
   );
 }
 
 export function StudentsExistingRecordsPage() {
-  const data = useStudentData();
+  const { variant } = useStudentPortal();
+  const data = useStudentData({ loadCatalogs: variant === "admin" });
   const [campusId, setCampusId] = useState("");
   const [search, setSearch] = useState("");
 
@@ -101,8 +107,8 @@ export function StudentsExistingRecordsPage() {
     return () => window.clearTimeout(timer);
   }, [campusId, data.searchStudents, search]);
 
-  return (
-    <WorkflowExistingRecordsPageShell title="Existing records">
+  const panel = (
+    <>
       <ExistingRecordsPageIntro title="Students catalog" description="Browse students already saved in KIET ERP." />
       <ExistingRecordsPanel
         title="Students"
@@ -118,7 +124,8 @@ export function StudentsExistingRecordsPage() {
           { header: "Name" },
           { header: "Campus" },
           { header: "Department" },
-          { header: "Section" }
+          { header: "Section" },
+          { header: "Added by" }
         ]}
         rows={data.students.map((student) => ({
           id: student.id,
@@ -127,17 +134,26 @@ export function StudentsExistingRecordsPage() {
             student.identity.fullName,
             student.structure.operationalCampus?.code ?? student.structure.campus.code,
             student.structure.program.code,
-            student.structure.section.name
+            student.structure.section.name,
+            student.createdBy?.fullName ?? "-"
           ]
         }))}
       />
-    </WorkflowExistingRecordsPageShell>
+    </>
   );
+
+  if (variant === "teacher") {
+    return <StudentShell title="Existing records" variant="workflow">{panel}</StudentShell>;
+  }
+
+  return <WorkflowExistingRecordsPageShell title="Existing records">{panel}</WorkflowExistingRecordsPageShell>;
 }
 
 export function AddStudentPage() {
-  const data = useStudentData();
-  const navigate = useNavigate();
+  const data = useStudentData({ loadCatalogs: true });
+  const navigate = useStudentNavigate();
+  const paths = useStudentPaths();
+  const { api } = useStudentPortal();
   const { showToast } = useToast();
   const [step, setStep] = useState(1);
   const [form, setForm] = useState(emptyForm);
@@ -154,9 +170,9 @@ export function AddStudentPage() {
     }
     setIsSaving(true);
     try {
-      await data.sendJson("/api/students", studentPayload(form));
+      await data.sendJson(api.createPath, studentPayload(form));
       showToast("Student created successfully");
-      void navigate("/students");
+      void navigate(paths.home);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Unable to create student", "error");
     } finally {
@@ -170,12 +186,12 @@ export function AddStudentPage() {
         <StudentStepper step={step} setStep={setStep} />
         {step === 1 ? <StudentIdentityStep form={form} setForm={setForm} includePassword /> : null}
         {step === 2 ? <StudentStructureStep data={data} form={form} options={options} setForm={setForm} /> : null}
-        <div className="teacher-flow-actions">
-          <button type="button" className="teacher-secondary" disabled={step === 1} onClick={() => setStep(1)}>Back</button>
+        <div className="teacher-flow-actions db-form-actions">
+          <WfBtn type="button" disabled={step === 1} onClick={() => setStep(1)}>Back</WfBtn>
           {step === 1 ? (
-            <button
+            <WfBtn
               type="button"
-              className="db-submit"
+              variant="primary"
               onClick={() => {
                 const error = validateStudentIdentityForm(form, false, true);
                 if (error) {
@@ -186,9 +202,9 @@ export function AddStudentPage() {
               }}
             >
               Next
-            </button>
+            </WfBtn>
           ) : (
-            <button className="db-submit" disabled={isSaving}>{isSaving ? "Saving..." : "Submit Student"}</button>
+            <WfBtn type="submit" variant="primary" disabled={isSaving}>{isSaving ? "Saving..." : "Submit Student"}</WfBtn>
           )}
         </div>
       </form>
@@ -206,7 +222,9 @@ export function DeleteStudentPage() {
 
 function StudentLookupPage({ mode }: { mode: "modify" | "delete" }) {
   const data = useStudentData();
-  const navigate = useNavigate();
+  const navigate = useStudentNavigate();
+  const paths = useStudentPaths();
+  const { api } = useStudentPortal();
   const { showToast } = useToast();
   const { confirm, dialog } = useConfirm();
   const [campusId, setCampusId] = useState("");
@@ -239,7 +257,7 @@ function StudentLookupPage({ mode }: { mode: "modify" | "delete" }) {
     }
     setIsSaving(true);
     try {
-      const result = await data.sendJson<StudentResponse>(`/api/students/${selected.id}`, studentPayload(form, true), "PATCH");
+      const result = await data.sendJson<StudentResponse>(api.updatePath(selected.id), studentPayload(form, true), "PATCH");
       setSelected(result.student);
       setForm(formFromStudent(result.student));
       showToast("Student updated successfully");
@@ -262,9 +280,9 @@ function StudentLookupPage({ mode }: { mode: "modify" | "delete" }) {
     if (!ok) return;
     setIsSaving(true);
     try {
-      await data.sendJson(`/api/students/${selected.id}`, {}, "DELETE");
+      await data.sendJson(api.archivePath(selected.id), {}, "DELETE");
       showToast("Student archived successfully", "warning");
-      void navigate("/students");
+      void navigate(paths.home);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Unable to archive student", "error");
     } finally {
@@ -285,7 +303,9 @@ function StudentLookupPage({ mode }: { mode: "modify" | "delete" }) {
           <StudentProfileHeader student={selected} />
           <StudentIdentityStep form={form} setForm={setForm} />
           <StudentStructureStep data={data} form={form} options={options} setForm={setForm} />
-          <button className="db-submit" disabled={isSaving}>{isSaving ? "Saving..." : "Submit Changes"}</button>
+          <div className="db-form-actions">
+            <WfBtn type="submit" variant="primary" disabled={isSaving}>{isSaving ? "Saving..." : "Submit Changes"}</WfBtn>
+          </div>
         </form>
       ) : null}
 
@@ -293,7 +313,9 @@ function StudentLookupPage({ mode }: { mode: "modify" | "delete" }) {
         <section className="db-card db-form">
           <div className="db-result-head">
             <StudentProfileHeader student={selected} />
-            <button type="button" className="teacher-delete-button" disabled={isSaving} onClick={() => void archiveStudent()}><Trash2 size={18} /> {isSaving ? "Archiving..." : "Delete"}</button>
+            <WfBtn type="button" variant="danger" disabled={isSaving} onClick={() => void archiveStudent()}>
+              <Trash2 size={18} /> {isSaving ? "Archiving..." : "Delete"}
+            </WfBtn>
           </div>
           <StudentDetails student={selected} />
         </section>
@@ -345,7 +367,6 @@ function StudentStructureStep({ data, form, options, setForm }: { data: StudentD
         <Field label="Department"><SearchableSelect value={form.programId} options={options.programs.map((item) => [item.id, `${item.code} - ${item.name}`])} onChange={(programId) => setForm({ ...form, programId, branchId: "", batchId: "", semester: "", classId: "", sectionId: "" })} searchable={false} /></Field>
         <Field label="Branch"><SearchableSelect value={form.branchId} options={options.branches.map((item) => [item.id, `${item.code} - ${item.name}`])} onChange={(branchId) => setForm({ ...form, branchId, batchId: "", semester: "", classId: "", sectionId: "" })} searchable={false} /></Field>
         <Field label="Batch"><SearchableSelect value={form.batchId} options={options.batches.map((item) => [item.id, `${item.startYear}-${item.endYear}`])} onChange={(batchId) => setForm({ ...form, batchId, semester: "", classId: "", sectionId: "" })} searchable={false} /></Field>
-        <Field label="Semester"><SearchableSelect value={form.semester} options={options.semesters.map((item) => [String(item), `Semester ${item}`])} onChange={(semester) => setForm({ ...form, semester, classId: "", sectionId: "" })} searchable={false} /></Field>
         <Field label="Class"><SearchableSelect value={form.classId} options={options.classes.map((item) => [item.id, item.label || `Semester ${item.semesterNumber}`])} onChange={(classId) => setForm({ ...form, classId, sectionId: "" })} searchable={false} /></Field>
         <Field label="Section"><SearchableSelect value={form.sectionId} options={options.sections.map((item) => [item.id, item.name])} onChange={(sectionId) => setForm({ ...form, sectionId })} searchable={false} /></Field>
       </div>
@@ -369,6 +390,7 @@ function StudentDetails({ student }: { student: StudentListItem }) {
       <Info label="Semester" value={String(student.structure.class.semesterNumber)} />
       <Info label="Class" value={student.structure.class.label || `Semester ${student.structure.class.semesterNumber}`} />
       <Info label="Section" value={student.structure.section.name} />
+      <Info label="Added by" value={student.createdBy?.fullName ?? "-"} />
     </div>
   );
 }
@@ -394,9 +416,11 @@ function StudentProfileHeader({ student }: { student: StudentListItem }) {
 type StudentData = ReturnType<typeof useStudentData>;
 type StudentOptions = ReturnType<typeof useStudentOptions>;
 
-function useStudentData() {
+function useStudentData(options: { loadCatalogs?: boolean } = {}) {
+  const loadCatalogsOnMount = options.loadCatalogs ?? true;
   const { authFetch } = useAuth();
   const { showToast } = useToast();
+  const { api, variant } = useStudentPortal();
   const [students, setStudents] = useState<StudentListItem[]>([]);
   const [total, setTotal] = useState(0);
   const [campuses, setCampuses] = useState<Campus[]>([]);
@@ -419,6 +443,24 @@ function useStudentData() {
   }, [authFetch]);
 
   const loadCatalogs = useCallback(async () => {
+    if (variant === "teacher" && api.catalogPath) {
+      const catalog = await fetchJson<{
+        campuses: Campus[];
+        programs: Program[];
+        branches: Branch[];
+        batches: Batch[];
+        classes: AcademicClass[];
+        sections: Section[];
+      }>(api.catalogPath);
+      setCampuses(catalog.campuses);
+      setPrograms(catalog.programs);
+      setBranches(catalog.branches);
+      setBatches(catalog.batches);
+      setClasses(catalog.classes);
+      setSections(catalog.sections);
+      return;
+    }
+
     const [campusPage, programPage, branchPage, batchPage, classPage, sectionPage] = await Promise.all([
       fetchJson<PaginatedResponse<Campus>>("/api/campuses?pageSize=100"),
       fetchJson<PaginatedResponse<Program>>("/api/core/programs?pageSize=100"),
@@ -433,25 +475,26 @@ function useStudentData() {
     setBatches(batchPage.items);
     setClasses(classPage.items);
     setSections(sectionPage.items);
-  }, [fetchJson]);
+  }, [api.catalogPath, fetchJson, variant]);
 
   const searchStudents = useCallback(async (query: string, campusId?: string, page = 1, pageSize = 10) => {
     const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize), search: query, status: "ACTIVE" });
     if (campusId) params.set("campusId", campusId);
-    const result = await fetchJson<PaginatedResponse<StudentListItem>>(`/api/students/search?${params.toString()}`);
+    const result = await fetchJson<PaginatedResponse<StudentListItem>>(`${api.searchPath}?${params.toString()}`);
     setStudents(result.items);
     setTotal(result.total);
-  }, [fetchJson]);
+  }, [api.searchPath, fetchJson]);
 
   const studentDetails = useCallback(async (id: string) => {
-    const response = await fetchJson<StudentResponse>(`/api/students/${id}`);
+    const response = await fetchJson<StudentResponse>(api.detailPath(id));
     return response.student;
-  }, [fetchJson]);
+  }, [api.detailPath, fetchJson]);
 
   useEffect(() => {
+    if (!loadCatalogsOnMount) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadCatalogs().catch((error) => showToast(error instanceof Error ? error.message : "Unable to load student options", "error"));
-  }, [loadCatalogs, showToast]);
+  }, [loadCatalogs, loadCatalogsOnMount, showToast]);
 
   useEffect(() => {
     return () => {
@@ -477,8 +520,30 @@ function useStudentOptions(data: StudentData, form: StudentForm) {
 }
 
 function StudentShell({ children, title, variant = "workflow" }: { children: ReactNode; title: string; variant?: "main" | "workflow" }) {
-  const navigate = useNavigate();
-  const { user } = useAuth();
+  const navigate = useStudentNavigate();
+  const paths = useStudentPaths();
+  const { variant: portalVariant } = useStudentPortal();
+
+  if (portalVariant === "teacher") {
+    const body = (
+      <>
+        {variant === "workflow" ? (
+          <div className="mb-4">
+            <button type="button" className="db-icon-button" onClick={() => navigate(paths.home)} aria-label="Back">
+              <ArrowLeft size={20} />
+            </button>
+          </div>
+        ) : null}
+        {children}
+      </>
+    );
+    return (
+      <div className="portal-engage-workflow ann-workflow">
+        <section className="db-workflow-body ann-workflow-body">{body}</section>
+      </div>
+    );
+  }
+
   return (
     <main className="db-workflow min-h-screen">
       <header className="db-workflow-header">
@@ -581,7 +646,6 @@ function studentPayload(form: StudentForm, update = false) {
     programId: form.programId,
     branchId: form.branchId,
     batchId: form.batchId,
-    semester: Number(form.semester),
     classId: form.classId,
     sectionId: form.sectionId,
     ...(update ? {} : { password: form.password.trim() || normalizeStudentRoll(form.rollNumber) })
@@ -603,7 +667,7 @@ function validateStudentIdentityForm(form: StudentForm, update = false, includeP
 function validateStudentForm(form: StudentForm, update = false) {
   const identityError = validateStudentIdentityForm(form, update);
   if (identityError) return identityError;
-  if (!form.campusId || !form.programId || !form.branchId || !form.batchId || !form.semester || !form.classId || !form.sectionId) return "Complete student academic structure.";
+  if (!form.campusId || !form.programId || !form.branchId || !form.batchId || !form.classId || !form.sectionId) return "Complete student academic structure.";
   return "";
 }
 

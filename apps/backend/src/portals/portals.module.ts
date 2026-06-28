@@ -26,6 +26,7 @@ import { ResultsModule } from "../results/results.module";
 import { ReportsModule } from "../reports/reports.module";
 import { StudentsModule } from "../students/students.module";
 import { TeacherPortalStudentsService } from "./teacher-portal-students.service";
+import { TeacherPortalStudentSearchService } from "./teacher-portal-student-search.service";
 import { TeacherPortalResultsService } from "./teacher-portal-results.service";
 import { TeacherPortalTeamsService } from "./teacher-portal-teams.service";
 import { TeacherPortalFinanceService } from "./teacher-portal-finance.service";
@@ -59,6 +60,7 @@ import { TeacherPortalTimetableService } from "./teacher-portal-timetable.servic
     TeacherPortalHtpoAttendanceService,
     TeacherPortalTimetableService,
     TeacherPortalStudentsService,
+    TeacherPortalStudentSearchService,
     TeacherPortalResultsService,
     TeacherPortalTeamsService,
     TeacherPortalFinanceService,

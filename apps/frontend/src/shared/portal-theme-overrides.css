@@ -1826,3 +1826,117 @@ html[data-portal-theme="dark"] .erp-select-list::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.1) !important;
 }
 
+/* Student workflow inside teacher portal — neutral dark surfaces (no admin blue) */
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .db-glass-button {
+  border-left-color: var(--bd3) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .db-glass-button.danger {
+  border-left-color: rgb(248 113 113 / 55%) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .db-section {
+  border-color: var(--bd) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .teacher-stepper button {
+  border-color: var(--bd2) !important;
+  background: var(--bg3) !important;
+  color: var(--t2) !important;
+  box-shadow: none !important;
+}
+
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .teacher-stepper button span {
+  border: 0 !important;
+  background: var(--bg4) !important;
+  color: var(--t2) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .teacher-stepper button.active {
+  border-color: var(--inv) !important;
+  background: var(--inv) !important;
+  color: var(--inv-t) !important;
+  box-shadow: none !important;
+}
+
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .teacher-stepper button.active span {
+  background: rgb(255 255 255 / 18%) !important;
+  color: var(--inv-t) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .teacher-step-card h2,
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .teacher-step-card p,
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .db-existing-records-page-intro h2,
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .db-existing-records-page-intro p {
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .teacher-step-card p,
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .db-existing-records-page-intro p {
+  color: var(--t3) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .teacher-flow .db-field span {
+  color: var(--t3) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .teacher-flow-actions {
+  border-top-color: var(--bd2) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .db-search-bar {
+  border-color: var(--bd2) !important;
+  background: var(--bg3) !important;
+  color: var(--t1) !important;
+  box-shadow: none !important;
+}
+
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .db-search-bar input {
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .db-search-bar input::placeholder {
+  color: var(--t3) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .db-suggestions button {
+  border-color: var(--bd2) !important;
+  background: var(--bg3) !important;
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .db-suggestions button:hover,
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .db-suggestions button:focus-visible {
+  border-color: var(--bd3) !important;
+  background: var(--bg4) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .db-suggestions button span {
+  color: var(--t3) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .db-existing-records,
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .db-existing-record-card {
+  border-color: var(--bd) !important;
+  background: var(--bg2) !important;
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .db-existing-records-head,
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .db-existing-records-empty {
+  color: var(--t2) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .db-table th {
+  color: var(--t4) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .teacher-profile-head h2,
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .teacher-profile-head p {
+  color: var(--t1) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .teacher-profile-head p {
+  color: var(--t3) !important;
+}
+

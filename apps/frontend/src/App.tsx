@@ -117,7 +117,14 @@ export function App() {
             <Route path="results/students/:studentProfileId" element={<Pages.TeacherPortalResultsStudentPage />} />
             <Route path="teams" element={<Pages.TeacherPortalTeamsPage />} />
             <Route path="teams/create" element={<Pages.TeacherPortalTeamsCreatePage />} />
-            <Route path="students" element={<Pages.TeacherPortalStudentsPage />} />
+            <Route path="students" element={<Pages.TeacherStudentsLayout />}>
+              <Route index element={<Pages.StudentsHomePage />} />
+              <Route path="add-student" element={<Pages.AddStudentPage />} />
+              <Route path="modify-student" element={<Pages.ModifyStudentPage />} />
+              <Route path="delete-student" element={<Pages.DeleteStudentPage />} />
+              <Route path="existing-records" element={<Pages.StudentsExistingRecordsPage />} />
+              <Route path="history" element={<Pages.ModuleHistoryPage title="Add Student" entities={["StudentProfile"]} />} />
+            </Route>
             <Route path="teams/:teamId/edit" element={<Pages.TeacherPortalTeamsEditPage />} />
             <Route path="subjects" element={<Pages.TeacherPortalSubjectsPage />} />
             <Route path="syllabus" element={<Pages.TeacherPortalSyllabusPage />} />
