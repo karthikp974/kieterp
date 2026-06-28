@@ -16,6 +16,8 @@ const TILE_DESCRIPTIONS: Record<TeacherPortalModuleKey, string> = {
   results: "Result entry and review.",
   teams: "Section teams.",
   students: "Add students in your branch or section scope.",
+  student_search: "Find and edit a student's full profile.",
+  section_overview: "Section students grouped team-wise.",
   subjects: "Add and manage subjects.",
   syllabus: "Add and edit syllabus units/topics.",
   syllabus_progress: "Mark syllabus topics covered.",

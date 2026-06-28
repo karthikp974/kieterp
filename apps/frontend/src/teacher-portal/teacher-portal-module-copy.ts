@@ -8,6 +8,8 @@ export const TEACHER_MODULE_SUBTITLES: Record<TeacherPortalModuleKey, string> = 
   results: "Upload PDFs or enter marks for students in your assigned subjects and sections.",
   teams: "Create class teams and assign students within your scope.",
   students: "Add students in your branch or section scope. Each record stores who enrolled them.",
+  student_search: "Find a student in your sections and view or edit their full profile, fees, and marks.",
+  section_overview: "Browse a section's students team-wise by personal, fee, academic, or marks view.",
   subjects: "Add, edit, or remove subjects for your assigned section.",
   syllabus: "Add, edit, or delete syllabus units and topics for your subjects.",
   syllabus_progress: "Mark how many syllabus topics are covered for your sections.",

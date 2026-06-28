@@ -9,7 +9,9 @@ import {
   FileSpreadsheet,
   GraduationCap,
   LayoutDashboard,
+  LayoutGrid,
   Megaphone,
+  Search,
   MessageSquare,
   UsersRound
 } from "lucide-react";
@@ -22,6 +24,8 @@ export const TEACHER_MODULE_ICONS: Record<TeacherPortalModuleKey, LucideIcon> = 
   results: GraduationCap,
   teams: UsersRound,
   students: GraduationCap,
+  student_search: Search,
+  section_overview: LayoutGrid,
   subjects: BookOpen,
   syllabus: BookMarked,
   syllabus_progress: ClipboardCheck,
@@ -36,7 +40,7 @@ export const TEACHER_MODULE_ICONS: Record<TeacherPortalModuleKey, LucideIcon> = 
 export const TEACHER_NAV_SECTIONS: Record<string, TeacherPortalModuleKey[]> = {
   Overview: ["dashboard"],
   Academics: ["attendance", "timetable", "subjects", "syllabus", "syllabus_progress", "results"],
-  Students: ["students", "teams"],
+  Students: ["students", "student_search", "section_overview", "teams"],
   Operations: ["finance", "reports"],
   Engage: ["announcements", "feedback", "applications"]
 };
@@ -185,6 +189,8 @@ export function pathForTeacherModule(key: TeacherPortalModuleKey): string {
     results: "/teacher/results",
     teams: "/teacher/teams",
     students: "/teacher/students",
+    student_search: "/teacher/student-search",
+    section_overview: "/teacher/section-overview",
     subjects: "/teacher/subjects",
     syllabus: "/teacher/syllabus",
     syllabus_progress: "/teacher/syllabus/progress",

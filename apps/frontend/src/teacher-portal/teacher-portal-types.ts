@@ -5,6 +5,8 @@ export type TeacherPortalModuleKey =
   | "results"
   | "teams"
   | "students"
+  | "student_search"
+  | "section_overview"
   | "subjects"
   | "syllabus"
   | "syllabus_progress"

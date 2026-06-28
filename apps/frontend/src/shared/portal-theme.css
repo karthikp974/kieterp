@@ -1133,6 +1133,79 @@ html[data-portal-theme] body {
   margin-bottom: 14px;
 }
 
+/* Teacher portal — Search Student / Section Overview */
+.portal-root .tp-student-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.portal-root .tp-student-toolbar .db-input {
+  flex: 1 1 220px;
+  max-width: 320px;
+}
+.portal-root .tp-section-label {
+  margin: 4px 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--t2);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.portal-root .tp-detail-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px 18px;
+}
+.portal-root .tp-detail-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid var(--bd);
+  padding-bottom: 6px;
+}
+.portal-root .tp-detail-label {
+  font-size: 12px;
+  color: var(--t3);
+}
+.portal-root .tp-detail-value,
+.portal-root .tp-detail-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--t1);
+}
+.portal-root .tp-edit-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--t3);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 2px;
+}
+.portal-root .tp-edit-icon:hover {
+  color: var(--brand, #1d4ed8);
+}
+.portal-root .tp-pay-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+/* Overdue = danger token */
+.portal-root .tp-overdue {
+  color: var(--danger, #dc2626);
+  font-weight: 600;
+}
+.portal-root .tp-overdue-row td {
+  color: var(--danger, #dc2626);
+}
+
 .portal-root .tp-kpi {
   padding: 16px;
   border-radius: 10px;

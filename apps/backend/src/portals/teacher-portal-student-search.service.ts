@@ -24,7 +24,7 @@ const profileInclude = {
       payments: { where: { status: "ACTIVE" as const }, select: { amount: true } }
     }
   },
-  resultEntries: { include: { subject: { select: { code: true, name: true } } } }
+  resultEntries: { include: { subject: { select: { id: true, code: true, name: true } } } }
 } satisfies Prisma.StudentProfileInclude;
 
 type ProfileRow = Prisma.StudentProfileGetPayload<{ include: typeof profileInclude }>;
@@ -316,6 +316,7 @@ export class TeacherPortalStudentSearchService {
         campus: { code: student.section.campus.code, name: student.section.campus.name },
         program: { code: program.code, name: program.name },
         branch: { code: branch.code, name: branch.name },
+        batchId: student.section.class.batchId,
         batch: { startYear: student.section.class.batch.startYear, endYear: student.section.class.batch.endYear },
         semester: student.section.class.semesterNumber,
         section: { id: student.section.id, name: student.section.name }
@@ -324,6 +325,7 @@ export class TeacherPortalStudentSearchService {
       marks: student.resultEntries
         .map((m) => ({
           id: m.id,
+          subjectId: m.subject.id,
           subject: `${m.subject.code} — ${m.subject.name}`,
           semesterNumber: m.semesterNumber,
           examType: m.examType,
