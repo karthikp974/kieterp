@@ -270,6 +270,7 @@ export class FinanceService {
           batchId: section.class.batchId,
           classId: dto.classId,
           sectionId: dto.sectionId,
+          yearNumber: dto.yearNumber ?? section.class.yearNumber,
           feeHeadName: dto.feeHead.trim(),
           amount: dto.feeAmount,
           remarks: dto.remarks?.trim(),
