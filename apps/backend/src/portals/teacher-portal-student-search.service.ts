@@ -1,9 +1,12 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { AuthSessionStatus, Prisma, StructureStatus, TeacherRoleKind, UserStatus } from "@prisma/client";
 import { AuthUser } from "../auth/auth.types";
+import { Response } from "express";
 import { computeFeeOverdue } from "../common/fee-overdue.util";
+import { buildExportBasename } from "../common/export-filename.util";
 import { formatIstDate } from "../common/ist-time.util";
 import { toPagination } from "../common/pagination.dto";
+import { sendTabularExport, type TabularExportFormat } from "../common/tabular-export.util";
 import { RequestContext } from "../auth/request-context";
 import { PrismaService } from "../prisma/prisma.service";
 import { StudentSearchQueryDto, TeacherStudentProfileEditDto } from "./teacher-student-search.dto";
@@ -222,6 +225,52 @@ export class TeacherPortalStudentSearchService {
     }
 
     return this.profile(user, studentProfileId);
+  }
+
+  /** Export one student's full profile (personal + academic + fees + marks) to PDF/Excel. */
+  async exportProfile(user: AuthUser, studentProfileId: string, format: TabularExportFormat, response: Response) {
+    const p = await this.profile(user, studentProfileId);
+    const rows: (string | number | null)[][] = [
+      ["Field", "Value"],
+      ["— Personal —", ""],
+      ["Name", p.personal.fullName],
+      ["Roll Number", p.personal.rollNumber],
+      ["Email", p.personal.email ?? "-"],
+      ["Username", p.personal.username ?? "-"],
+      ["Phone", p.personal.phone ?? "-"],
+      ["Date of Birth", p.personal.dateOfBirth ?? "-"],
+      ["Father Name", p.personal.fatherName ?? "-"],
+      ["Guardian Name", p.personal.guardianName ?? "-"],
+      ["Address", p.personal.address ?? "-"],
+      ["Status", p.personal.status],
+      ["— Academic —", ""],
+      ["Campus", p.academic.campus.code],
+      ["Department", p.academic.program.code],
+      ["Branch", p.academic.branch.code],
+      ["Batch", `${p.academic.batch.startYear}-${p.academic.batch.endYear}`],
+      ["Semester", String(p.academic.semester)],
+      ["Section", p.academic.section.name],
+      ["— Fees —", ""],
+      ["Total Assigned", p.fees.totals.assigned],
+      ["Total Paid", p.fees.totals.paid],
+      ["Balance", p.fees.totals.balance],
+      ...p.fees.items.map((f) => [
+        `${f.feeHead} (due ${f.dueDate ?? "-"})`,
+        `Paid ${f.paid}/${f.amount} · Balance ${f.balance} · ${f.status}${f.daysOverdue ? ` (${f.daysOverdue}d overdue)` : ""}`
+      ]),
+      ["— Marks —", ""],
+      ...p.marks.map((m) => [
+        `Sem ${m.semesterNumber} · ${m.subject} (${m.examType})`,
+        `Int ${m.internals ?? "-"} · Ext ${m.externals ?? "-"} · Total ${m.totalMarks ?? "-"} · ${m.grade ?? "-"} · ${m.status}`
+      ])
+    ];
+    await sendTabularExport(
+      response,
+      format,
+      buildExportBasename("Student", p.personal.rollNumber),
+      `Student — ${p.personal.fullName} (${p.personal.rollNumber})`,
+      rows
+    );
   }
 
   private toProfile(student: ProfileRow) {

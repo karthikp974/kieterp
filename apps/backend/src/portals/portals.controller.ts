@@ -116,6 +116,7 @@ import { TeacherPortalEngageService } from "./teacher-portal-engage.service";
 import { TeacherPortalStudentsService } from "./teacher-portal-students.service";
 import { TeacherPortalStudentSearchService } from "./teacher-portal-student-search.service";
 import { StudentSearchQueryDto, TeacherStudentProfileEditDto } from "./teacher-student-search.dto";
+import { TabularExportFormatQueryDto } from "../common/export-query.dto";
 import { getRequestContext } from "../auth/request-context";
 import { BulkCreateStudentsDto, CreateStudentDto, ResetStudentPasswordDto, StudentListQueryDto, UpdateStudentDto } from "../students/students.dto";
 
@@ -720,6 +721,17 @@ export class PortalsController {
   @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
   teacherStudentSearchProfile(@CurrentUser() user: AuthUser, @Param("studentProfileId") studentProfileId: string) {
     return this.teacherPortalStudentSearch.profile(user, studentProfileId);
+  }
+
+  @Get("teacher/student-search/:studentProfileId/export")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherStudentSearchExport(
+    @CurrentUser() user: AuthUser,
+    @Param("studentProfileId") studentProfileId: string,
+    @Query() query: TabularExportFormatQueryDto,
+    @Res() response: Response
+  ) {
+    return this.teacherPortalStudentSearch.exportProfile(user, studentProfileId, query.format, response);
   }
 
   // Edit personal/login fields (section/campus excluded). Audited old→new + IP.
