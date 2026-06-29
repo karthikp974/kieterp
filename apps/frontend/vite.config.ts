@@ -5,6 +5,27 @@ function normalizeChunkId(id: string): string {
   return id.split("\\").join("/");
 }
 
+/** Hostnames allowed for `vite preview` (Docker/EC2/domain access). */
+function previewAllowedHosts(env: Record<string, string>): string[] | boolean {
+  if (env.PREVIEW_ALLOW_ALL_HOSTS === "true") {
+    return true;
+  }
+  const hosts = new Set(["localhost", "127.0.0.1"]);
+  for (const entry of (env.PREVIEW_ALLOWED_HOSTS ?? "").split(",")) {
+    const host = entry.trim();
+    if (host) hosts.add(host);
+  }
+  const publicUrl = env.PUBLIC_APP_URL?.trim();
+  if (publicUrl) {
+    try {
+      hosts.add(new URL(publicUrl).hostname);
+    } catch {
+      /* ignore invalid PUBLIC_APP_URL */
+    }
+  }
+  return [...hosts];
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd() + "/../..", "");
   const frontendPort = Number(env.FRONTEND_PORT) || 5173;
@@ -32,6 +53,7 @@ export default defineConfig(({ mode }) => {
     host: "0.0.0.0",
     port: frontendPort,
     strictPort: true,
+    allowedHosts: previewAllowedHosts(env),
     proxy: {
       "/api": {
         target: apiTarget,
