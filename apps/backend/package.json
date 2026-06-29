@@ -7,6 +7,7 @@
     "dev:watch": "dotenv -e ../../.env -- nodemon --watch src --ext ts --exec ts-node -r tsconfig-paths/register src/main.ts",
     "worker": "ts-node -r tsconfig-paths/register src/worker.ts",
     "build": "tsc -p tsconfig.build.json",
+    "build:docker": "tsc -p tsconfig.build.json --noCheck",
     "start": "node dist/src/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
