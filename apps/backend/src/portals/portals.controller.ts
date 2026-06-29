@@ -426,12 +426,6 @@ export class PortalsController {
     return this.teacherPortalResults.getImportJob(user, jobId);
   }
 
-  @Post("teacher/results/imports/:jobId/push")
-  @RequiresPermission(PermissionAction.UPLOAD_RESULTS)
-  teacherResultsPushImport(@CurrentUser() user: AuthUser, @Param("jobId") jobId: string) {
-    return this.teacherPortalResults.pushImportResults(user, jobId);
-  }
-
   @Post("teacher/results/imports/:jobId/cancel")
   @RequiresPermission(PermissionAction.UPLOAD_RESULTS)
   teacherResultsCancelImport(@CurrentUser() user: AuthUser, @Param("jobId") jobId: string) {

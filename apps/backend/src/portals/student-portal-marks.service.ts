@@ -355,22 +355,16 @@ export class StudentPortalMarksService {
 
       const c0 = 50;
       const c1 = 120;
-      const c2 = 200;
-      const c3 = 255;
-      const c4 = 315;
-      const c5 = 375;
-      const c6 = 440;
-      const c7 = 500;
+      const c2 = 320;
+      const c3 = 400;
+      const c4 = 470;
       let y = doc.y;
       doc.font("Helvetica-Bold").fontSize(8);
       doc.text("Code", c0, y);
-      doc.text("Subject", c1, y, { width: 75 });
-      doc.text("Int", c2, y, { width: 42 });
-      doc.text("Ext", c3, y, { width: 42 });
-      doc.text("Total", c4, y, { width: 42 });
-      doc.text("Gr", c5, y, { width: 36 });
-      doc.text("Cr", c6, y, { width: 32 });
-      doc.text("Status", c7, y, { width: 52 });
+      doc.text("Subject", c1, y, { width: 190 });
+      doc.text("Internals", c2, y, { width: 58 });
+      doc.text("Grade", c3, y, { width: 48 });
+      doc.text("Credit", c4, y, { width: 42 });
       y += 14;
       doc.moveTo(44, y).lineTo(555, y).strokeColor("#dbe3ef").lineWidth(0.4).stroke();
       y += 6;
@@ -381,14 +375,11 @@ export class StudentPortalMarksService {
           doc.addPage();
           y = 50;
         }
-        doc.text(row.subjectCode.slice(0, 10), c0, y, { width: 62 });
-        doc.text(row.subjectName.slice(0, 28), c1, y, { width: 75 });
-        doc.text(row.internals === null ? "—" : String(row.internals), c2, y, { width: 42 });
-        doc.text(row.externals === null ? "—" : String(row.externals), c3, y, { width: 42 });
-        doc.text(row.totalMarks === null ? "—" : String(row.totalMarks), c4, y, { width: 42 });
-        doc.text(row.grade ?? "—", c5, y, { width: 36 });
-        doc.text(row.credits === null ? "—" : String(row.credits), c6, y, { width: 32 });
-        doc.text(row.passFail.slice(0, 10), c7, y, { width: 52 });
+        doc.text(row.subjectCode.slice(0, 12), c0, y, { width: 62 });
+        doc.text(row.subjectName.slice(0, 42), c1, y, { width: 190 });
+        doc.text(row.internals === null ? "—" : String(row.internals), c2, y, { width: 58 });
+        doc.text(row.grade ?? "—", c3, y, { width: 48 });
+        doc.text(row.credits === null ? "—" : String(row.credits), c4, y, { width: 42 });
         y += 14;
       }
 

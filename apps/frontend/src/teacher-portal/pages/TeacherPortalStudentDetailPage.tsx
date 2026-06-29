@@ -1,18 +1,32 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Pencil, Check, X, FileDown, ArrowLeft } from "lucide-react";
+import { Pencil, Check, X, ArrowLeft } from "lucide-react";
 import { useAuth } from "../../auth/auth-context";
-import { FormSelect } from "../../shared/FormSelect";
 import { useToast } from "../../shared/toast-context";
 import { downloadAuthenticatedExport } from "../../shared/download-authenticated-export";
 import { RequireTeacherModule } from "../RequireTeacherModule";
 import { TeacherPortalModuleShell, TeacherPortalPanelWrap } from "../TeacherPortalModuleShell";
 import { useTeacherPortalHeaderTitle } from "../teacher-portal-header-context";
+import { TeacherPortalExportButton } from "../TeacherPortalExportDialog";
 import { TpBadge, TpCard, TpCardHead } from "../teacher-portal-ui";
 
 type FeeItem = { assignmentId: string; feeHead: string; amount: number; paid: number; balance: number; dueDate: string | null; status: "paid" | "pending" | "overdue"; daysOverdue: number };
 type FeeYear = { yearNumber: number; hasOverdue: boolean; totals: { assigned: number; paid: number; balance: number }; items: FeeItem[] };
-type MarkItem = { id: string; subjectId: string; subject: string; semesterNumber: number; examType: string; internals: number | null; externals: number | null; totalMarks: number | null; grade: string | null; status: string };
+type MarkItem = {
+  id: string;
+  subjectId: string;
+  subjectCode: string;
+  subjectName: string;
+  subject: string;
+  semesterNumber: number;
+  examType: string;
+  internals: number | null;
+  externals: number | null;
+  totalMarks: number | null;
+  grade: string | null;
+  credits: number | null;
+  status: string;
+};
 type MarkSem = { semesterNumber: number; items: MarkItem[] };
 type Profile = {
   id: string;
@@ -22,13 +36,14 @@ type Profile = {
   marks: { semesters: MarkSem[] };
 };
 
-const PAY_MODES: [string, string][] = [["CASH", "Cash"], ["UPI", "UPI"], ["CARD", "Card"], ["BANK_TRANSFER", "Bank transfer"], ["CHEQUE", "Cheque"], ["OTHER", "Other"]];
+
 const PERSONAL_FIELDS: [string, string][] = [
   ["fullName", "Name"], ["rollNumber", "Roll Number"], ["email", "Login Email"], ["username", "Username"], ["phone", "Phone"],
   ["dateOfBirth", "Date of Birth"], ["fatherName", "Father Name"], ["guardianName", "Guardian Name"],
   ["village", "Village"], ["mandal", "Mandal"], ["district", "District"], ["state", "State"], ["pincode", "Pincode"], ["homeAddress", "Home Address"]
 ];
 const inr = (n: number) => `₹${Number(n ?? 0).toLocaleString("en-IN")}`;
+const fmtMark = (n: number | null) => (n == null ? "—" : String(n));
 
 function StudentDetail() {
   const { studentProfileId = "" } = useParams();
@@ -38,7 +53,6 @@ function StudentDetail() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
-  const [pay, setPay] = useState<{ assignmentId: string; amount: string; mode: string } | null>(null);
   const [markDraft, setMarkDraft] = useState<Record<string, { internals: string; externals: string; totalMarks: string; grade: string }>>({});
 
   useTeacherPortalHeaderTitle(profile ? String(profile.personal.fullName ?? "Student") : "Student");
@@ -70,16 +84,6 @@ function StudentDetail() {
     } catch (e) { showToast(e instanceof Error ? e.message : "Save failed", "error"); }
   }
 
-  async function submitPayment() {
-    if (!profile || !pay) return;
-    const amount = Number(pay.amount);
-    if (!amount || amount <= 0) { showToast("Enter a valid amount", "error"); return; }
-    try {
-      await api("/api/payments/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ studentProfileId: profile.id, batchId: profile.academic.batchId, feeLineKind: "ASSIGNMENT", studentFeeAssignmentId: pay.assignmentId, amount, paymentMode: pay.mode, idempotencyKey: crypto.randomUUID() }) });
-      showToast("Payment recorded"); setPay(null); await load();
-    } catch (e) { showToast(e instanceof Error ? e.message : "Payment failed", "error"); }
-  }
-
   async function saveMark(m: MarkItem) {
     const d = markDraft[m.id];
     if (!d || !profile) return;
@@ -90,16 +94,22 @@ function StudentDetail() {
     } catch (e) { showToast(e instanceof Error ? e.message : "Marks save failed", "error"); }
   }
 
-  function exportCard(card: string, format: "pdf" | "excel") {
-    if (!accessToken) return;
-    void downloadAuthenticatedExport(accessToken, `/api/portals/teacher/student-search/${studentProfileId}/export`, { format, card });
-  }
+  const studentLabel = profile ? `${profile.personal.fullName ?? "Student"} (${profile.personal.rollNumber ?? "—"})` : "Student";
 
-  const ExportBtns = ({ card }: { card: string }) => (
-    <div className="db-inline-actions">
-      <button type="button" className="erp-btn erp-btn--secondary erp-btn--sm" onClick={() => exportCard(card, "excel")}><FileDown size={13} /> Excel</button>
-      <button type="button" className="erp-btn erp-btn--secondary erp-btn--sm" onClick={() => exportCard(card, "pdf")}><FileDown size={13} /> PDF</button>
-    </div>
+  const ExportBtn = ({ card, cardLabel }: { card: string; cardLabel: string }) => (
+    <TeacherPortalExportButton
+      title="Export student profile"
+      leadPrimary={studentLabel}
+      leadSecondary={cardLabel}
+      onExport={async (format) => {
+        if (!accessToken) {
+          showToast("Sign in again to export.", "error");
+          return;
+        }
+        downloadAuthenticatedExport(accessToken, `/api/portals/teacher/student-search/${studentProfileId}/export`, { format, card });
+        showToast("Export started — check your downloads.");
+      }}
+    />
   );
 
   if (!profile) {
@@ -112,12 +122,12 @@ function StudentDetail() {
       <TeacherPortalPanelWrap>
         <div className="tp-detail-topbar">
           <button type="button" className="erp-btn erp-btn--secondary erp-btn--sm" onClick={() => navigate("/teacher/student-search")}><ArrowLeft size={14} /> Back to search</button>
-          <ExportBtns card="all" />
+          <ExportBtn card="all" cardLabel="Full profile" />
         </div>
 
         {/* ACADEMIC first */}
         <TpCard>
-          <TpCardHead title="Academic details" actions={<ExportBtns card="academic" />} />
+          <TpCardHead title="Academic details" actions={<ExportBtn card="academic" cardLabel="Academic details" />} />
           <div className="tp-detail-list">
             <div className="tp-detail-row"><span className="tp-detail-label">Campus</span><span>{p.academic.campus.code}</span></div>
             <div className="tp-detail-row"><span className="tp-detail-label">Department</span><span>{p.academic.program.code} — {p.academic.program.name}</span></div>
@@ -130,7 +140,7 @@ function StudentDetail() {
 
         {/* PERSONAL (editable, address as columns) */}
         <TpCard>
-          <TpCardHead title="Personal details" actions={<ExportBtns card="personal" />} />
+          <TpCardHead title="Personal details" actions={<ExportBtn card="personal" cardLabel="Personal details" />} />
           <div className="tp-detail-list">
             {PERSONAL_FIELDS.map(([key, label]) => {
               const value = p.personal[key];
@@ -153,75 +163,74 @@ function StudentDetail() {
           </div>
         </TpCard>
 
-        {/* FEE — one card per year, swipeable; overdue row red */}
+        {/* FEE — one card per year, stacked vertically; overdue row red */}
         <TpCard>
-          <TpCardHead title="Fee details" actions={<><TpBadge variant="outline">Balance {inr(p.fees.totals.balance)}</TpBadge><ExportBtns card="fee" /></>} />
+          <TpCardHead title="Fee details" actions={<><TpBadge variant="outline">Balance {inr(p.fees.totals.balance)}</TpBadge><ExportBtn card="fee" cardLabel="Fee details" /></>} />
           {p.fees.years.length ? (
             <div className="tp-carousel">
               {p.fees.years.map((yr) => (
                 <div className="tp-carousel-card" key={yr.yearNumber}>
                   <div className="tp-carousel-head"><strong>Year {yr.yearNumber || "—"}</strong><span>Bal {inr(yr.totals.balance)}</span></div>
-                  <table className="db-table">
-                    <thead><tr><th>Fee Head</th><th>Amt</th><th>Paid</th><th>Bal</th><th>Due</th><th>Status</th><th></th></tr></thead>
-                    <tbody>
-                      {yr.items.map((f) => (
-                        <tr key={f.assignmentId} className={f.status === "overdue" ? "tp-overdue-row" : undefined}>
-                          <td>{f.feeHead}</td><td>{inr(f.amount)}</td><td>{inr(f.paid)}</td><td>{inr(f.balance)}</td><td>{f.dueDate ?? "—"}</td>
-                          <td className={f.status === "overdue" ? "tp-overdue" : undefined}>{f.status === "overdue" ? `Overdue ${f.daysOverdue}d` : f.status}</td>
-                          <td>{f.balance > 0 ? <button type="button" className="erp-btn erp-btn--secondary erp-btn--sm" onClick={() => setPay({ assignmentId: f.assignmentId, amount: String(f.balance), mode: "CASH" })}>Pay</button> : null}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  <div className="tp-table-wrap">
+                    <table className="db-table tp-detail-table">
+                      <thead><tr><th>Fee Head</th><th>Amt</th><th>Paid</th><th>Bal</th><th>Due</th><th>Status</th></tr></thead>
+                      <tbody>
+                        {yr.items.map((f) => (
+                          <tr key={f.assignmentId} className={f.status === "overdue" ? "tp-overdue-row" : undefined}>
+                            <td>{f.feeHead}</td><td>{inr(f.amount)}</td><td>{inr(f.paid)}</td><td>{inr(f.balance)}</td><td>{f.dueDate ?? "—"}</td>
+                            <td className={f.status === "overdue" ? "tp-overdue" : undefined}>{f.status === "overdue" ? `Overdue ${f.daysOverdue}d` : f.status}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               ))}
             </div>
           ) : <p style={{ color: "var(--t3)" }}>No fees assigned.</p>}
-          {pay ? (
-            <div className="tp-pay-form">
-              <input className="db-input" type="number" value={pay.amount} onChange={(e) => setPay({ ...pay, amount: e.target.value })} placeholder="Amount" />
-              <FormSelect value={pay.mode} options={PAY_MODES} onChange={(mode) => setPay({ ...pay, mode })} aria-label="Payment mode" />
-              <button type="button" className="erp-btn erp-btn--primary erp-btn--sm" onClick={() => void submitPayment()}>Record</button>
-              <button type="button" className="erp-btn erp-btn--secondary erp-btn--sm" onClick={() => setPay(null)}>Cancel</button>
-            </div>
-          ) : null}
         </TpCard>
 
-        {/* MARKS — one card per semester, swipeable */}
+        {/* MARKS — one card per semester, stacked vertically */}
         <TpCard>
-          <TpCardHead title="Marks" actions={<ExportBtns card="marks" />} />
+          <TpCardHead title="Marks" actions={<ExportBtn card="marks" cardLabel="Marks" />} />
           {p.marks.semesters.length ? (
             <div className="tp-carousel">
               {p.marks.semesters.map((sem) => (
                 <div className="tp-carousel-card" key={sem.semesterNumber}>
                   <div className="tp-carousel-head"><strong>Semester {sem.semesterNumber}</strong></div>
-                  <table className="db-table">
-                    <thead><tr><th>Subject</th><th>Int</th><th>Ext</th><th>Total</th><th>Grade</th><th></th></tr></thead>
-                    <tbody>
-                      {sem.items.map((m) => {
-                        const d = markDraft[m.id];
-                        return (
-                          <tr key={m.id}>
-                            <td>{m.subject}</td>
-                            {d ? (
-                              <>
-                                <td><input className="db-input" type="number" value={d.internals} onChange={(e) => setMarkDraft({ ...markDraft, [m.id]: { ...d, internals: e.target.value } })} /></td>
-                                <td><input className="db-input" type="number" value={d.externals} onChange={(e) => setMarkDraft({ ...markDraft, [m.id]: { ...d, externals: e.target.value } })} /></td>
-                                <td><input className="db-input" type="number" value={d.totalMarks} onChange={(e) => setMarkDraft({ ...markDraft, [m.id]: { ...d, totalMarks: e.target.value } })} /></td>
-                                <td><input className="db-input" value={d.grade} onChange={(e) => setMarkDraft({ ...markDraft, [m.id]: { ...d, grade: e.target.value } })} /></td>
-                                <td><div className="db-inline-actions"><button type="button" className="erp-btn erp-btn--primary erp-btn--sm" onClick={() => void saveMark(m)}><Check size={13} /></button><button type="button" className="erp-btn erp-btn--secondary erp-btn--sm" onClick={() => setMarkDraft((pp) => { const n = { ...pp }; delete n[m.id]; return n; })}><X size={13} /></button></div></td>
-                              </>
-                            ) : (
-                              <>
-                                <td>{m.internals ?? "—"}</td><td>{m.externals ?? "—"}</td><td>{m.totalMarks ?? "—"}</td><td>{m.grade ?? "—"}</td>
-                                <td><button type="button" className="tp-edit-icon" aria-label="Edit marks" onClick={() => setMarkDraft({ ...markDraft, [m.id]: { internals: String(m.internals ?? ""), externals: String(m.externals ?? ""), totalMarks: String(m.totalMarks ?? ""), grade: m.grade ?? "" } })}><Pencil size={14} /></button></td>
-                              </>
-                            )}
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                  <div className="tp-table-wrap">
+                    <table className="db-table tp-detail-table">
+                      <thead><tr><th>Code</th><th>Subject</th><th>Internals</th><th>Grade</th><th>Credit</th><th></th></tr></thead>
+                      <tbody>
+                        {sem.items.map((m) => {
+                          const d = markDraft[m.id];
+                          const subjectCode = m.subjectCode ?? m.subject.split(" — ")[0] ?? m.subject;
+                          const subjectName = m.subjectName ?? (m.subject.split(" — ").slice(1).join(" — ") || m.subject);
+                          return (
+                            <tr key={m.id}>
+                              <td>{subjectCode}</td>
+                              <td className="tp-detail-table-subject">{subjectName}</td>
+                              {d ? (
+                                <>
+                                  <td><input className="db-input" type="number" value={d.internals} onChange={(e) => setMarkDraft({ ...markDraft, [m.id]: { ...d, internals: e.target.value } })} /></td>
+                                  <td><input className="db-input" value={d.grade} onChange={(e) => setMarkDraft({ ...markDraft, [m.id]: { ...d, grade: e.target.value } })} /></td>
+                                  <td>{fmtMark(m.credits)}</td>
+                                  <td><div className="db-inline-actions"><button type="button" className="erp-btn erp-btn--primary erp-btn--sm" onClick={() => void saveMark(m)}><Check size={13} /></button><button type="button" className="erp-btn erp-btn--secondary erp-btn--sm" onClick={() => setMarkDraft((pp) => { const n = { ...pp }; delete n[m.id]; return n; })}><X size={13} /></button></div></td>
+                                </>
+                              ) : (
+                                <>
+                                  <td>{fmtMark(m.internals)}</td>
+                                  <td>{m.grade ?? "—"}</td>
+                                  <td>{fmtMark(m.credits)}</td>
+                                  <td><button type="button" className="tp-edit-icon" aria-label="Edit marks" onClick={() => setMarkDraft({ ...markDraft, [m.id]: { internals: String(m.internals ?? ""), externals: String(m.externals ?? ""), totalMarks: String(m.totalMarks ?? ""), grade: m.grade ?? "" } })}><Pencil size={14} /></button></td>
+                                </>
+                              )}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               ))}
             </div>

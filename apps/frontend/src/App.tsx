@@ -121,8 +121,6 @@ export function App() {
               <Route index element={<Pages.StudentsHomePage />} />
               <Route path="add-student" element={<Pages.AddStudentPage />} />
               <Route path="modify-student" element={<Pages.ModifyStudentPage />} />
-              <Route path="delete-student" element={<Pages.DeleteStudentPage />} />
-              <Route path="existing-records" element={<Pages.StudentsExistingRecordsPage />} />
               <Route path="history" element={<Pages.ModuleHistoryPage title="Add Student" entities={["StudentProfile"]} />} />
             </Route>
             <Route path="student-search" element={<Pages.TeacherPortalSearchStudentPage />} />

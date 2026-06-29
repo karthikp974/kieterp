@@ -69,8 +69,6 @@ const TITLE_MAP: Record<string, string> = {
   "/teacher/students": "Add Student",
   "/teacher/students/add-student": "Add Student",
   "/teacher/students/modify-student": "Modify Student",
-  "/teacher/students/delete-student": "Delete Student",
-  "/teacher/students/existing-records": "Existing records",
   "/teacher/students/history": "History",
   "/teacher/subjects": "Subjects",
   "/teacher/syllabus": "Syllabus",

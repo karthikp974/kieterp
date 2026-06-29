@@ -27,9 +27,15 @@ function SearchStudent() {
   }, [authFetch, term]);
 
   useEffect(() => {
-    void runSearch().catch((e) => showToast(e instanceof Error ? e.message : "Search failed", "error"));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (!term.trim()) {
+      setResults([]);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void runSearch().catch((e) => showToast(e instanceof Error ? e.message : "Search failed", "error"));
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [runSearch, showToast, term]);
 
   return (
     <TeacherPortalModuleShell title="Search Student" subtitle={TEACHER_MODULE_SUBTITLES.student_search}>
@@ -37,7 +43,7 @@ function SearchStudent() {
         <TpCard>
           <TpCardHead title="Find a student" />
           <div className="tp-student-toolbar">
-            <input className="db-input" placeholder="Search by name or roll number" value={term} onChange={(e) => setTerm(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void runSearch().catch(() => undefined); }} />
+            <input className="db-input" placeholder="Search by name or roll number (your sections only)" value={term} onChange={(e) => setTerm(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void runSearch().catch(() => undefined); }} />
             <button type="button" className="erp-btn erp-btn--secondary erp-btn--sm" onClick={() => void runSearch().catch((e) => showToast(e instanceof Error ? e.message : "Search failed", "error"))}>Search</button>
           </div>
           <div className="db-table-wrap">
@@ -49,7 +55,7 @@ function SearchStudent() {
                     <td>{r.rollNumber}</td><td>{r.fullName}</td><td>{r.sectionLabel}</td>
                     <td><button type="button" className="erp-btn erp-btn--secondary erp-btn--sm" onClick={() => navigate(`/teacher/student-search/${r.id}`)}>Open</button></td>
                   </tr>
-                )) : <tr><td colSpan={4} style={{ textAlign: "center", padding: "18px 0", color: "var(--t3)" }}>No students found.</td></tr>}
+                )) : <tr><td colSpan={4} style={{ textAlign: "center", padding: "18px 0", color: "var(--t3)" }}>{term.trim() ? "No students found." : "Type a name or roll number to search."}</td></tr>}
               </tbody>
             </table>
           </div>

@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { FileDown } from "lucide-react";
 import { useAuth } from "../../auth/auth-context";
 import { FormSelect } from "../../shared/FormSelect";
 import { useToast } from "../../shared/toast-context";
 import { downloadAuthenticatedExport } from "../../shared/download-authenticated-export";
 import { RequireTeacherModule } from "../RequireTeacherModule";
 import { TEACHER_MODULE_SUBTITLES } from "../teacher-portal-module-copy";
+import { TeacherPortalExportButton } from "../TeacherPortalExportDialog";
 import { TeacherPortalModuleShell, TeacherPortalPanelWrap } from "../TeacherPortalModuleShell";
 import { TpBadge, TpCard, TpCardHead } from "../teacher-portal-ui";
 
@@ -61,10 +61,8 @@ function SectionOverview() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sectionId, view]);
 
-  function exportOverview(format: "pdf" | "excel") {
-    if (!sectionId || !accessToken) return;
-    void downloadAuthenticatedExport(accessToken, "/api/portals/teacher/section-overview/export", { sectionId, view, format });
-  }
+  const sectionLabel = sections.find((sec) => sec.id === sectionId)?.label ?? "Section";
+  const viewLabel = VIEWS.find(([v]) => v === view)?.[1] ?? view;
 
   function header(): string[] {
     if (view === "personal") return ["Roll", "Name", "Phone", "Father", "Guardian", "Address", "DOB", "Status"];
@@ -75,7 +73,8 @@ function SectionOverview() {
 
   function renderStudentRows(st: Student) {
     const d = st.data;
-    const overdueCls = st.isOverdue ? "tp-overdue-row" : undefined;
+    // Overdue red applies only in the Fee and Marks views — not Personal/Academic.
+    const overdueCls = (view === "fee" || view === "marks") && st.isOverdue ? "tp-overdue-row" : undefined;
     if (view === "personal") return [<tr key={st.id} className={overdueCls}><td>{st.rollNumber}</td><td>{st.fullName}</td><td>{s(d.phone)}</td><td>{s(d.fatherName)}</td><td>{s(d.guardianName)}</td><td>{s(d.address)}</td><td>{s(d.dateOfBirth)}</td><td>{s(d.status)}</td></tr>];
     if (view === "academic") return [<tr key={st.id} className={overdueCls}><td>{st.rollNumber}</td><td>{st.fullName}</td><td>{s(d.email)}</td><td>{s(d.username)}</td><td>{s(d.status)}</td></tr>];
     if (view === "fee") return [<tr key={st.id} className={overdueCls}><td>{st.rollNumber}</td><td>{st.fullName}</td><td>{inr(d.assigned)}</td><td>{inr(d.paid)}</td><td>{inr(d.balance)}</td><td className={st.isOverdue ? "tp-overdue" : undefined}>{st.isOverdue ? `Overdue (${s(d.daysOverdue)}d)` : s(d.status)}</td></tr>];
@@ -95,12 +94,24 @@ function SectionOverview() {
     <TeacherPortalModuleShell title="Section Overview" subtitle={TEACHER_MODULE_SUBTITLES.section_overview}>
       <TeacherPortalPanelWrap>
         <TpCard>
-          <TpCardHead title="Select" actions={
-            <div className="db-inline-actions">
-              <button type="button" className="erp-btn erp-btn--secondary erp-btn--sm" onClick={() => exportOverview("excel")}><FileDown size={14} /> Excel</button>
-              <button type="button" className="erp-btn erp-btn--secondary erp-btn--sm" onClick={() => exportOverview("pdf")}><FileDown size={14} /> PDF</button>
-            </div>
-          } />
+          <TpCardHead
+            title="Select"
+            actions={
+              <TeacherPortalExportButton
+                title="Export section overview"
+                leadPrimary={sectionLabel}
+                leadSecondary={viewLabel}
+                onExport={async (format) => {
+                  if (!sectionId || !accessToken) {
+                    showToast("Sign in again to export.", "error");
+                    return;
+                  }
+                  downloadAuthenticatedExport(accessToken, "/api/portals/teacher/section-overview/export", { sectionId, view, format });
+                  showToast("Export started — check your downloads.");
+                }}
+              />
+            }
+          />
           <div className="tp-student-toolbar">
             <FormSelect value={sectionId} options={sections.map((sec) => [sec.id, sec.label])} onChange={setSectionId} aria-label="Section" />
             <FormSelect value={view} options={VIEWS} onChange={(v) => setView(v as View)} aria-label="View type" />

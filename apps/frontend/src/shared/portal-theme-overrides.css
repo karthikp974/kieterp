@@ -1940,3 +1940,13 @@ html[data-portal-theme="dark"] .erp-select-list::-webkit-scrollbar-thumb {
   color: var(--t3) !important;
 }
 
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .student-edit-card {
+  border-color: var(--bd2) !important;
+  background: var(--bg2) !important;
+}
+
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .student-edit-card .db-field span,
+.portal-root[data-portal-theme="dark"] .portal-engage-workflow .teacher-flow .db-field span {
+  color: var(--t3) !important;
+}
+

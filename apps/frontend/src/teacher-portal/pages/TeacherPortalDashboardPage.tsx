@@ -4,7 +4,7 @@ import { RequireTeacherModule } from "../RequireTeacherModule";
 import { TeacherTodayTimetableCard } from "../TeacherTodayTimetableCard";
 import { useTeacherPortal } from "../teacher-portal-context";
 import type { TeacherPortalModuleKey } from "../teacher-portal-types";
-import { teacherIsStpoOnlyPortal } from "../teacher-section-scope-types";
+import { teacherHasCtpoRole, teacherIsStpoOnlyPortal } from "../teacher-section-scope-types";
 import { TpCard, TpKpi, TpKpiGrid } from "../teacher-portal-ui";
 import { HtpoDashboard } from "./HtpoDashboard";
 import { TeacherDashboardHome } from "./TeacherDashboardHome";
@@ -35,6 +35,7 @@ export function TeacherPortalDashboardPage() {
   const hasHtpoRole = dashboard?.assignments.some((a) => a.role === "HTPO") ?? false;
   const roles = dashboard?.assignments.map((assignment) => assignment.role) ?? menu?.roles ?? [];
   const isStpoOnlyPortal = teacherIsStpoOnlyPortal(roles);
+  const hasCtpoRole = teacherHasCtpoRole(roles);
   const tiles = (menu?.modules ?? []).filter((item) => item.key !== "dashboard");
 
   if (hasHtpoRole && dashboard) {
@@ -67,7 +68,7 @@ export function TeacherPortalDashboardPage() {
 
       {isStpoOnlyPortal && dashboard ? (
         <TeacherTodayTimetableCard slots={dashboard.todayTimetable} refreshDashboard={refreshDashboard} />
-      ) : tiles.length ? (
+      ) : !hasCtpoRole && tiles.length ? (
         <TpCard>
           <h3 className="tp-card-title mb-3">Quick access</h3>
           <div className="teacher-portal-tile-grid">
@@ -91,6 +92,7 @@ export function TeacherPortalDashboardPage() {
         dashboard={dashboard}
         refreshDashboard={refreshDashboard}
         showTodayTimetable={!isStpoOnlyPortal}
+        hideCtpoAssignmentCards={hasCtpoRole}
       />
     </RequireTeacherModule>
   );

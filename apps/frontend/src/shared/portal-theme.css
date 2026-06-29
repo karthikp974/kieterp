@@ -1108,6 +1108,7 @@ html[data-portal-theme] body {
   border-radius: 10px;
   border: 1px solid var(--bd);
   background: var(--bg2);
+  min-width: 0;
 }
 
 .portal-root .tp-card-head {
@@ -1206,7 +1207,7 @@ html[data-portal-theme] body {
   color: var(--danger, #dc2626) !important;
 }
 
-/* Student detail page: topbar + swipeable year/semester carousels */
+/* Student detail page: topbar + stacked year/semester blocks */
 .portal-root .tp-detail-topbar {
   display: flex;
   align-items: center;
@@ -1216,22 +1217,42 @@ html[data-portal-theme] body {
 }
 .portal-root .tp-carousel {
   display: flex;
+  flex-direction: column;
   gap: 12px;
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none; /* Firefox: hide the scroll bar */
-}
-.portal-root .tp-carousel::-webkit-scrollbar {
-  display: none; /* Chrome/Safari: hide the scroll bar (swipe still works) */
 }
 .portal-root .tp-carousel-card {
-  flex: 0 0 min(460px, 88%);
-  scroll-snap-align: start;
+  width: 100%;
+  min-width: 0;
   border: 1px solid var(--bd);
   border-radius: 10px;
   padding: 12px;
   background: var(--bg1);
+  overflow: hidden;
+}
+.portal-root .tp-table-wrap {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: visible;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 8px;
+  border: 1px solid var(--bd);
+  background: var(--bg2);
+}
+.portal-root .tp-detail-table {
+  width: 100%;
+  min-width: 560px;
+  margin: 0;
+}
+.portal-root .tp-detail-table-subject {
+  min-width: 140px;
+  max-width: 220px;
+  white-space: normal;
+}
+.portal-root .tp-detail-table .db-input {
+  min-width: 72px;
+  width: 100%;
 }
 .portal-root .tp-carousel-head {
   display: flex;
@@ -1396,6 +1417,11 @@ html[data-portal-theme] body {
   color: var(--t3);
   line-height: 1.45;
   max-width: 52rem;
+}
+
+.portal-root .teacher-portal-panel-wrap {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .portal-root .teacher-portal-panel-wrap > section,

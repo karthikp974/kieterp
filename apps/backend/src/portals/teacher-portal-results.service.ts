@@ -341,7 +341,12 @@ export class TeacherPortalResultsService {
         result: job.result
       },
       sectionReports,
-      pushed: Boolean((job.result as { pushed?: boolean } | null)?.pushed)
+      missingRollNumbersFromPdf:
+        ((job.result as { missingRollNumbersFromPdf?: string[] } | null)?.missingRollNumbersFromPdf ?? []).map((roll) =>
+          roll.toUpperCase()
+        ),
+      autoPublished: Boolean((job.result as { autoPublished?: boolean } | null)?.autoPublished),
+      publishedCount: Number((job.result as { publishedCount?: number } | null)?.publishedCount ?? 0)
     };
   }
 
@@ -360,30 +365,6 @@ export class TeacherPortalResultsService {
 
     await this.queues.cancelBackgroundJob(jobId, RESULTS_IMPORT_INTERRUPTED_MESSAGE);
     return { ok: true, cancelled: true, status: "failed" as const };
-  }
-
-  async pushImportResults(user: AuthUser, jobId: string) {
-    const job = await this.getImportJob(user, jobId);
-    if (job.job.status !== "completed") {
-      throw new BadRequestException("Import is still running or failed. Push is available after a successful import.");
-    }
-    const published = await this.prisma.resultEntry.updateMany({
-      where: { importJobId: jobId },
-      data: { isPublished: true }
-    });
-    const currentResult = (job.job.result ?? {}) as Record<string, unknown>;
-    await this.prisma.backgroundJobRecord.update({
-      where: { id: jobId },
-      data: {
-        result: {
-          ...currentResult,
-          pushed: true,
-          pushedAt: new Date().toISOString(),
-          publishedCount: published.count
-        } as Prisma.InputJsonObject
-      }
-    });
-    return { ok: true, publishedCount: published.count };
   }
 
   private async buildImportSectionReports(user: AuthUser, result: unknown) {

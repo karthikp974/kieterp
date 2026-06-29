@@ -7,20 +7,28 @@ import type { TeacherAssignment, TeacherDashboard } from "../teacher-portal-type
 export function TeacherDashboardHome({
   dashboard,
   refreshDashboard,
-  showTodayTimetable = true
+  showTodayTimetable = true,
+  hideCtpoAssignmentCards = false
 }: {
   dashboard: TeacherDashboard | null;
   refreshDashboard: () => Promise<void>;
   showTodayTimetable?: boolean;
+  hideCtpoAssignmentCards?: boolean;
 }) {
   const { hasModule } = useTeacherPortal();
   const showAnnouncements = hasModule("announcements");
 
   if (!dashboard) return <p className="db-empty">Loading teacher workspace…</p>;
+
+  const assignments = hideCtpoAssignmentCards
+    ? dashboard.assignments.filter((a) => a.role !== "CTPO")
+    : dashboard.assignments;
+
   return (
     <div className="grid gap-5">
+      {assignments.length ? (
       <section className="grid gap-4 lg:grid-cols-3 [&>.db-section]:mt-0">
-        {dashboard.assignments.map((assignment) => (
+        {assignments.map((assignment) => (
           <section key={assignment.id} className="db-section">
             <h2>{assignment.role} assignment</h2>
             <p className="mb-3 text-sm leading-snug portal-text-muted">{roleDescription(assignment.role)}</p>
@@ -30,8 +38,10 @@ export function TeacherDashboardHome({
             <ScopeLines assignment={assignment} />
           </section>
         ))}
-        {!dashboard.assignments.length ? <p className="db-empty">No active teacher assignments yet.</p> : null}
       </section>
+      ) : !hideCtpoAssignmentCards ? (
+        <p className="db-empty">No active teacher assignments yet.</p>
+      ) : null}
       {showTodayTimetable || showAnnouncements ? (
       <section className={`grid gap-4 ${showTodayTimetable && showAnnouncements ? "xl:grid-cols-2" : ""} [&>.db-section]:mt-0`}>
         {showTodayTimetable ? (

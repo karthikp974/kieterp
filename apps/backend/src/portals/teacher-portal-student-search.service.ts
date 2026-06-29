@@ -333,6 +333,8 @@ export class TeacherPortalStudentSearchService {
       .map((m) => ({
         id: m.id,
         subjectId: m.subject.id,
+        subjectCode: m.subject.code,
+        subjectName: m.subject.name,
         subject: `${m.subject.code} — ${m.subject.name}`,
         semesterNumber: m.semesterNumber,
         examType: m.examType,
@@ -340,6 +342,7 @@ export class TeacherPortalStudentSearchService {
         externals: m.externals != null ? Number(m.externals) : null,
         totalMarks: m.totalMarks != null ? Number(m.totalMarks) : null,
         grade: m.grade,
+        credits: m.credits != null ? Number(m.credits) : null,
         status: m.status
       }))
       .sort((a, b) => a.semesterNumber - b.semesterNumber || a.subject.localeCompare(b.subject));
