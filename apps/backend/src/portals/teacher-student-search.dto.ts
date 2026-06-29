@@ -1,9 +1,20 @@
 import { UserStatus } from "@prisma/client";
-import { IsEmail, IsEnum, IsOptional, IsString, MaxLength, MinLength } from "class-validator";
+import { IsEmail, IsEnum, IsIn, IsOptional, IsString, MaxLength, MinLength } from "class-validator";
 import { PaginationQueryDto } from "../common/pagination.dto";
+import { TABULAR_EXPORT_FORMATS, type TabularExportFormat } from "../common/tabular-export.util";
 
 /** Search students within the teacher's sections by name or roll number. */
 export class StudentSearchQueryDto extends PaginationQueryDto {}
+
+/** Export one student's profile, optionally a single card (personal/academic/fee/marks/all). */
+export class StudentProfileExportQueryDto {
+  @IsIn([...TABULAR_EXPORT_FORMATS])
+  format!: TabularExportFormat;
+
+  @IsOptional()
+  @IsIn(["all", "personal", "academic", "fee", "marks"])
+  card?: "all" | "personal" | "academic" | "fee" | "marks";
+}
 
 /**
  * Teacher-editable student fields on the Search Student page. Section/campus are

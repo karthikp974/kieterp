@@ -144,6 +144,9 @@ export const TeacherPortalSearchStudentPage = lazy(() =>
 export const TeacherPortalSectionOverviewPage = lazy(() =>
   import("./teacher-portal/pages/TeacherPortalSectionOverviewPage").then((m) => ({ default: m.TeacherPortalSectionOverviewPage }))
 );
+export const TeacherPortalStudentDetailPage = lazy(() =>
+  import("./teacher-portal/pages/TeacherPortalStudentDetailPage").then((m) => ({ default: m.TeacherPortalStudentDetailPage }))
+);
 export const TeacherStudentsLayout = lazy(() =>
   import("./teacher-portal/TeacherStudentsLayout").then((m) => ({ default: m.TeacherStudentsLayout }))
 );

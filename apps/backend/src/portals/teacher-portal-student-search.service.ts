@@ -13,6 +13,9 @@ import { StudentSearchQueryDto, TeacherStudentProfileEditDto } from "./teacher-s
 
 type FieldChange = { old: unknown; new: unknown };
 
+export const PROFILE_CARDS = ["all", "personal", "academic", "fee", "marks"] as const;
+export type ProfileCard = (typeof PROFILE_CARDS)[number];
+
 const profileInclude = {
   user: { select: { id: true, fullName: true, email: true, username: true, phone: true, status: true } },
   section: {
@@ -20,7 +23,7 @@ const profileInclude = {
   },
   feeAssignments: {
     include: {
-      feeStructure: { include: { feeHead: true } },
+      feeStructure: { include: { feeHead: true, class: { select: { yearNumber: true } } } },
       payments: { where: { status: "ACTIVE" as const }, select: { amount: true } }
     }
   },
@@ -233,48 +236,49 @@ export class TeacherPortalStudentSearchService {
     return this.profile(user, studentProfileId);
   }
 
-  /** Export one student's full profile (personal + academic + fees + marks) to PDF/Excel. */
-  async exportProfile(user: AuthUser, studentProfileId: string, format: TabularExportFormat, response: Response) {
+  /** Export one student's card (personal/academic/fee/marks) or all, to PDF/Excel. */
+  async exportProfile(user: AuthUser, studentProfileId: string, format: TabularExportFormat, response: Response, card: ProfileCard = "all") {
     const p = await this.profile(user, studentProfileId);
-    const rows: (string | number | null)[][] = [
-      ["Field", "Value"],
-      ["— Personal —", ""],
-      ["Name", p.personal.fullName],
-      ["Roll Number", p.personal.rollNumber],
-      ["Email", p.personal.email ?? "-"],
-      ["Username", p.personal.username ?? "-"],
-      ["Phone", p.personal.phone ?? "-"],
-      ["Date of Birth", p.personal.dateOfBirth ?? "-"],
-      ["Father Name", p.personal.fatherName ?? "-"],
-      ["Guardian Name", p.personal.guardianName ?? "-"],
-      ["Address", p.personal.address ?? "-"],
-      ["Status", p.personal.status],
-      ["— Academic —", ""],
-      ["Campus", p.academic.campus.code],
-      ["Department", p.academic.program.code],
-      ["Branch", p.academic.branch.code],
-      ["Batch", `${p.academic.batch.startYear}-${p.academic.batch.endYear}`],
-      ["Semester", String(p.academic.semester)],
-      ["Section", p.academic.section.name],
-      ["— Fees —", ""],
-      ["Total Assigned", p.fees.totals.assigned],
-      ["Total Paid", p.fees.totals.paid],
-      ["Balance", p.fees.totals.balance],
-      ...p.fees.items.map((f) => [
-        `${f.feeHead} (due ${f.dueDate ?? "-"})`,
-        `Paid ${f.paid}/${f.amount} · Balance ${f.balance} · ${f.status}${f.daysOverdue ? ` (${f.daysOverdue}d overdue)` : ""}`
-      ]),
-      ["— Marks —", ""],
-      ...p.marks.map((m) => [
-        `Sem ${m.semesterNumber} · ${m.subject} (${m.examType})`,
-        `Int ${m.internals ?? "-"} · Ext ${m.externals ?? "-"} · Total ${m.totalMarks ?? "-"} · ${m.grade ?? "-"} · ${m.status}`
-      ])
-    ];
+    const rows: (string | number | null)[][] = [["Field", "Value"]];
+
+    const wantAll = card === "all";
+    if (wantAll || card === "academic") {
+      rows.push(["— Academic —", ""],
+        ["Campus", p.academic.campus.code], ["Department", p.academic.program.code], ["Branch", p.academic.branch.code],
+        ["Batch", `${p.academic.batch.startYear}-${p.academic.batch.endYear}`], ["Semester", String(p.academic.semester)], ["Section", p.academic.section.name]);
+    }
+    if (wantAll || card === "personal") {
+      rows.push(["— Personal —", ""],
+        ["Name", p.personal.fullName], ["Roll Number", p.personal.rollNumber], ["Email", p.personal.email ?? "-"], ["Username", p.personal.username ?? "-"],
+        ["Phone", p.personal.phone ?? "-"], ["Date of Birth", p.personal.dateOfBirth ?? "-"], ["Father Name", p.personal.fatherName ?? "-"], ["Guardian Name", p.personal.guardianName ?? "-"],
+        ["Village", p.personal.village ?? "-"], ["Mandal", p.personal.mandal ?? "-"], ["District", p.personal.district ?? "-"], ["State", p.personal.state ?? "-"], ["Pincode", p.personal.pincode ?? "-"], ["Home Address", p.personal.homeAddress ?? "-"],
+        ["Status", p.personal.status]);
+    }
+    if (wantAll || card === "fee") {
+      rows.push(["— Fees —", ""], ["Total Assigned", p.fees.totals.assigned], ["Total Paid", p.fees.totals.paid], ["Balance", p.fees.totals.balance]);
+      for (const yr of p.fees.years) {
+        rows.push([`Year ${yr.yearNumber || "—"}`, `Balance ${yr.totals.balance}${yr.hasOverdue ? " · OVERDUE" : ""}`]);
+        for (const f of yr.items) {
+          rows.push([`  ${f.feeHead} (due ${f.dueDate ?? "-"})`, `Paid ${f.paid}/${f.amount} · Balance ${f.balance} · ${f.status}${f.daysOverdue ? ` (${f.daysOverdue}d overdue)` : ""}`]);
+        }
+      }
+    }
+    if (wantAll || card === "marks") {
+      rows.push(["— Marks —", ""]);
+      for (const sem of p.marks.semesters) {
+        rows.push([`Semester ${sem.semesterNumber}`, ""]);
+        for (const m of sem.items) {
+          rows.push([`  ${m.subject} (${m.examType})`, `Int ${m.internals ?? "-"} · Ext ${m.externals ?? "-"} · Total ${m.totalMarks ?? "-"} · ${m.grade ?? "-"} · ${m.status}`]);
+        }
+      }
+    }
+
+    const cardLabel = wantAll ? "Profile" : card.charAt(0).toUpperCase() + card.slice(1);
     await sendTabularExport(
       response,
       format,
-      buildExportBasename("Student", p.personal.rollNumber),
-      `Student — ${p.personal.fullName} (${p.personal.rollNumber})`,
+      buildExportBasename(`Student_${cardLabel}`, p.personal.rollNumber),
+      `${p.personal.fullName} (${p.personal.rollNumber}) — ${cardLabel}`,
       rows
     );
   }
@@ -288,8 +292,11 @@ export class TeacherPortalStudentSearchService {
       const paid = a.payments.reduce((sum, p) => sum + Number(p.amount), 0);
       const balance = Math.max(due - paid, 0);
       const overdue = computeFeeOverdue(balance, a.feeStructure.dueDate);
+      // Fee year: the structure's stored year, else the linked class's year, else 0 (ungrouped).
+      const yearNumber = a.feeStructure.yearNumber ?? a.feeStructure.class?.yearNumber ?? 0;
       return {
         assignmentId: a.id,
+        yearNumber,
         feeHead: a.feeStructure.feeHeadName ?? a.feeStructure.feeHead.name,
         amount: due,
         paid,
@@ -303,6 +310,45 @@ export class TeacherPortalStudentSearchService {
       (acc, f) => ({ assigned: acc.assigned + f.amount, paid: acc.paid + f.paid, balance: acc.balance + f.balance }),
       { assigned: 0, paid: 0, balance: 0 }
     );
+    // One card per year — completed years first, current/highest last.
+    const feeYearMap = new Map<number, typeof fees>();
+    for (const f of fees) {
+      if (!feeYearMap.has(f.yearNumber)) feeYearMap.set(f.yearNumber, []);
+      feeYearMap.get(f.yearNumber)!.push(f);
+    }
+    const feeYears = [...feeYearMap.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([yearNumber, items]) => ({
+        yearNumber,
+        items,
+        hasOverdue: items.some((i) => i.status === "overdue"),
+        totals: items.reduce(
+          (acc, i) => ({ assigned: acc.assigned + i.amount, paid: acc.paid + i.paid, balance: acc.balance + i.balance }),
+          { assigned: 0, paid: 0, balance: 0 }
+        )
+      }));
+
+    // One card per semester.
+    const markItems = student.resultEntries
+      .map((m) => ({
+        id: m.id,
+        subjectId: m.subject.id,
+        subject: `${m.subject.code} — ${m.subject.name}`,
+        semesterNumber: m.semesterNumber,
+        examType: m.examType,
+        internals: m.internals != null ? Number(m.internals) : null,
+        externals: m.externals != null ? Number(m.externals) : null,
+        totalMarks: m.totalMarks != null ? Number(m.totalMarks) : null,
+        grade: m.grade,
+        status: m.status
+      }))
+      .sort((a, b) => a.semesterNumber - b.semesterNumber || a.subject.localeCompare(b.subject));
+    const markSemMap = new Map<number, typeof markItems>();
+    for (const m of markItems) {
+      if (!markSemMap.has(m.semesterNumber)) markSemMap.set(m.semesterNumber, []);
+      markSemMap.get(m.semesterNumber)!.push(m);
+    }
+    const markSemesters = [...markSemMap.entries()].sort((a, b) => a[0] - b[0]).map(([semesterNumber, items]) => ({ semesterNumber, items }));
 
     return {
       id: student.id,
@@ -333,21 +379,8 @@ export class TeacherPortalStudentSearchService {
         semester: student.section.class.semesterNumber,
         section: { id: student.section.id, name: student.section.name }
       },
-      fees: { items: fees, totals: feeTotals },
-      marks: student.resultEntries
-        .map((m) => ({
-          id: m.id,
-          subjectId: m.subject.id,
-          subject: `${m.subject.code} — ${m.subject.name}`,
-          semesterNumber: m.semesterNumber,
-          examType: m.examType,
-          internals: m.internals != null ? Number(m.internals) : null,
-          externals: m.externals != null ? Number(m.externals) : null,
-          totalMarks: m.totalMarks != null ? Number(m.totalMarks) : null,
-          grade: m.grade,
-          status: m.status
-        }))
-        .sort((a, b) => a.semesterNumber - b.semesterNumber || a.subject.localeCompare(b.subject))
+      fees: { items: fees, totals: feeTotals, years: feeYears },
+      marks: { items: markItems, semesters: markSemesters }
     };
   }
 

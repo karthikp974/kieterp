@@ -114,11 +114,10 @@ import {
 } from "../reports/portal-reports.dto";
 import { TeacherPortalEngageService } from "./teacher-portal-engage.service";
 import { TeacherPortalStudentsService } from "./teacher-portal-students.service";
-import { TeacherPortalStudentSearchService } from "./teacher-portal-student-search.service";
+import { TeacherPortalStudentSearchService, PROFILE_CARDS, type ProfileCard } from "./teacher-portal-student-search.service";
 import { TeacherPortalSectionOverviewService } from "./teacher-portal-section-overview.service";
-import { StudentSearchQueryDto, TeacherStudentProfileEditDto } from "./teacher-student-search.dto";
+import { StudentSearchQueryDto, StudentProfileExportQueryDto, TeacherStudentProfileEditDto } from "./teacher-student-search.dto";
 import { SectionOverviewExportQueryDto, SectionOverviewQueryDto } from "./teacher-section-overview.dto";
-import { TabularExportFormatQueryDto } from "../common/export-query.dto";
 import { getRequestContext } from "../auth/request-context";
 import { BulkCreateStudentsDto, CreateStudentDto, ResetStudentPasswordDto, StudentListQueryDto, UpdateStudentDto } from "../students/students.dto";
 
@@ -731,10 +730,11 @@ export class PortalsController {
   teacherStudentSearchExport(
     @CurrentUser() user: AuthUser,
     @Param("studentProfileId") studentProfileId: string,
-    @Query() query: TabularExportFormatQueryDto,
+    @Query() query: StudentProfileExportQueryDto,
     @Res() response: Response
   ) {
-    return this.teacherPortalStudentSearch.exportProfile(user, studentProfileId, query.format, response);
+    const safeCard = (query.card && PROFILE_CARDS.includes(query.card as ProfileCard) ? query.card : "all") as ProfileCard;
+    return this.teacherPortalStudentSearch.exportProfile(user, studentProfileId, query.format, response, safeCard);
   }
 
   // Edit personal/login fields (section/campus excluded). Audited old→new + IP.

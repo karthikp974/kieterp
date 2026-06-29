@@ -126,6 +126,7 @@ export function App() {
               <Route path="history" element={<Pages.ModuleHistoryPage title="Add Student" entities={["StudentProfile"]} />} />
             </Route>
             <Route path="student-search" element={<Pages.TeacherPortalSearchStudentPage />} />
+            <Route path="student-search/:studentProfileId" element={<Pages.TeacherPortalStudentDetailPage />} />
             <Route path="section-overview" element={<Pages.TeacherPortalSectionOverviewPage />} />
             <Route path="teams/:teamId/edit" element={<Pages.TeacherPortalTeamsEditPage />} />
             <Route path="subjects" element={<Pages.TeacherPortalSubjectsPage />} />
