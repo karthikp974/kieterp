@@ -12,6 +12,7 @@ ENV DATABASE_URL="postgresql://build:build@localhost:5432/build?schema=public"
 WORKDIR /app/apps/backend
 RUN npx prisma generate
 WORKDIR /app
+RUN test -f node_modules/.prisma/client/default.js
 RUN npm run build -w apps/backend
 
 FROM node:22-alpine AS runner
