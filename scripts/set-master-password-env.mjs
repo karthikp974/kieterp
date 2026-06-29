@@ -3,8 +3,11 @@
  * Generate ERP_MASTER_PASSWORD_HASH and patch the repo-root .env for Docker Compose.
  * Docker Compose treats $ as variable substitution in .env — bcrypt hashes must use $$ per $.
  *
- * Usage (from repo root, e.g. on EC2 after git pull):
+ * Usage (local dev with Node installed):
  *   node scripts/set-master-password-env.mjs "Karhan@974"
+ *
+ * EC2 / Docker-only hosts (no Node on Ubuntu) — use the shell script instead:
+ *   sh scripts/set-master-password-env.sh "Karhan@974"
  *   docker compose up -d backend
  */
 import { spawnSync } from "node:child_process";
