@@ -6,7 +6,12 @@ RUN npm install
 
 FROM deps AS build
 COPY apps/backend apps/backend
-RUN npm run prisma:generate -w apps/backend
+# prisma.config.ts requires DATABASE_URL; generate only reads schema — no DB connection.
+# Use a throwaway URL at build time. Runtime gets the real URL from docker-compose env_file.
+ENV DATABASE_URL="postgresql://build:build@localhost:5432/build?schema=public"
+WORKDIR /app/apps/backend
+RUN npx prisma generate
+WORKDIR /app
 RUN npm run build -w apps/backend
 
 FROM node:22-alpine AS runner
