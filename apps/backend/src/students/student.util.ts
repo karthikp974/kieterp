@@ -13,10 +13,8 @@ export function buildStudentFallbackEmail(rollNumber: string) {
 export function resolveStudentInitialPassword(rollNumber: string, password?: string | null) {
   const normalizedRoll = normalizeRollNumber(rollNumber);
   const chosen = password?.trim() || normalizedRoll;
-  if (chosen.length < 8) {
-    throw new BadRequestException(
-      "Password must be at least 8 characters. Use a longer roll/admission number or provide an explicit password."
-    );
+  if (!chosen) {
+    throw new BadRequestException("Password is required.");
   }
   return chosen;
 }

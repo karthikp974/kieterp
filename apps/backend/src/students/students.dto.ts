@@ -41,7 +41,7 @@ export class CreateStudentDto {
 
   @IsOptional()
   @IsString()
-  @MinLength(8)
+  @MinLength(1)
   password?: string;
 
   // Optional at the DTO layer so teacher-scoped creates can default it from the
@@ -159,7 +159,7 @@ export class BulkCreateStudentsDto {
 
 export class ResetStudentPasswordDto {
   @IsString()
-  @MinLength(8)
+  @MinLength(1)
   password!: string;
 }
 
