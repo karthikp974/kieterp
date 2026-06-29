@@ -14,6 +14,12 @@ export class StudentProfileExportQueryDto {
   @IsOptional()
   @IsIn(["all", "personal", "academic", "fee", "marks"])
   card?: "all" | "personal" | "academic" | "fee" | "marks";
+
+  // Single-use download token appended by the browser download helper (whitelisted so
+  // forbidNonWhitelisted validation passes); consumed by the JWT strategy, not used here.
+  @IsOptional()
+  @IsString()
+  accessToken?: string;
 }
 
 /**

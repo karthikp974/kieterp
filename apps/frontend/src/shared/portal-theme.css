@@ -1202,8 +1202,8 @@ html[data-portal-theme] body {
   color: var(--danger, #dc2626);
   font-weight: 600;
 }
-.portal-root .tp-overdue-row td {
-  color: var(--danger, #dc2626);
+.portal-root table.db-table tbody tr.tp-overdue-row td {
+  color: var(--danger, #dc2626) !important;
 }
 
 /* Student detail page: topbar + swipeable year/semester carousels */
@@ -1218,9 +1218,12 @@ html[data-portal-theme] body {
   display: flex;
   gap: 12px;
   overflow-x: auto;
-  padding-bottom: 8px;
   scroll-snap-type: x mandatory;
   -webkit-overflow-scrolling: touch;
+  scrollbar-width: none; /* Firefox: hide the scroll bar */
+}
+.portal-root .tp-carousel::-webkit-scrollbar {
+  display: none; /* Chrome/Safari: hide the scroll bar (swipe still works) */
 }
 .portal-root .tp-carousel-card {
   flex: 0 0 min(460px, 88%);
@@ -1229,9 +1232,6 @@ html[data-portal-theme] body {
   border-radius: 10px;
   padding: 12px;
   background: var(--bg1);
-}
-.portal-root .tp-carousel-card--alert {
-  border-color: var(--danger, #dc2626);
 }
 .portal-root .tp-carousel-head {
   display: flex;

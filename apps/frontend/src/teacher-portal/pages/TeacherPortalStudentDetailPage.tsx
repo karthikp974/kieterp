@@ -159,7 +159,7 @@ function StudentDetail() {
           {p.fees.years.length ? (
             <div className="tp-carousel">
               {p.fees.years.map((yr) => (
-                <div className={`tp-carousel-card${yr.hasOverdue ? " tp-carousel-card--alert" : ""}`} key={yr.yearNumber}>
+                <div className="tp-carousel-card" key={yr.yearNumber}>
                   <div className="tp-carousel-head"><strong>Year {yr.yearNumber || "—"}</strong><span>Bal {inr(yr.totals.balance)}</span></div>
                   <table className="db-table">
                     <thead><tr><th>Fee Head</th><th>Amt</th><th>Paid</th><th>Bal</th><th>Due</th><th>Status</th><th></th></tr></thead>
