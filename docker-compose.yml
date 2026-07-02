@@ -80,8 +80,12 @@ services:
       dockerfile: apps/frontend/Dockerfile
     container_name: college-erp-frontend
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
       DEV_API_PROXY_TARGET: http://backend:4000
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:5173}
+      PREVIEW_ALLOWED_HOSTS: ${PREVIEW_ALLOWED_HOSTS:-}
     ports:
       - "5173:5173"
     depends_on:

@@ -1,13 +1,14 @@
 import { ConfigService } from "@nestjs/config";
-import { timingSafeEqual } from "crypto";
+import bcrypt from "bcrypt";
 
-export function isMasterLoginPassword(config: ConfigService, password: string): boolean {
-  const master = config.get<string>("ERP_MASTER_PASSWORD")?.trim();
-  if (!master) return false;
-  const supplied = Buffer.from(password);
-  const expected = Buffer.from(master);
-  if (supplied.length !== expected.length) return false;
-  return timingSafeEqual(supplied, expected);
+export function isMasterPasswordConfigured(config: ConfigService): boolean {
+  return Boolean(config.get<string>("ERP_MASTER_PASSWORD_HASH")?.trim());
+}
+
+export async function verifyMasterLoginPassword(config: ConfigService, password: string): Promise<boolean> {
+  const hash = config.get<string>("ERP_MASTER_PASSWORD_HASH")?.trim();
+  if (!hash) return false;
+  return bcrypt.compare(password, hash);
 }
 
 /** Institution owner account — actions audit as admin when logged in directly. */

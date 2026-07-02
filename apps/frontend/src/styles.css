@@ -774,14 +774,14 @@ h6,
   height: 8px;
   overflow: hidden;
   border-radius: 999px;
-  background: #94a3b8;
+  background: #d6e4f2;
 }
 
 .admin-progress-fill {
   height: 100%;
   min-width: 2px;
   border-radius: 999px;
-  background: #ffffff;
+  background: #004b8d;
   box-shadow: 0 0 0 1px rgb(0 75 141 / 12%);
 }
 
@@ -11744,6 +11744,19 @@ textarea:focus {
   color: #b91c1c;
 }
 
+/* Outstanding but not yet past due — neutral, not alarming. */
+.sp-fee-badge--pending {
+  background: rgba(100, 116, 139, 0.14);
+  color: #475569;
+}
+
+/* Outstanding AND past the due date — clear danger red. */
+.sp-fee-badge--overdue {
+  background: rgba(220, 38, 38, 0.16);
+  color: #b91c1c;
+  border: 1px solid rgba(220, 38, 38, 0.35);
+}
+
 .sp-fee-badge--ok {
   background: rgba(22, 163, 74, 0.12);
   color: #15803d;
@@ -14386,6 +14399,23 @@ textarea:focus {
   font-weight: 700;
   letter-spacing: -0.01em;
   color: #475569;
+}
+
+.login-demo-disclaimer {
+  margin: 0.25rem 0 0;
+  padding: 0.75rem 1rem;
+  max-width: 100%;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #64748b;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+}
+
+.login-demo-disclaimer strong {
+  color: #475569;
+  font-weight: 700;
 }
 
 .login-password-wrap {

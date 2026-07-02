@@ -1,6 +1,8 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
 import { PermissionAction } from "@prisma/client";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
+import { AuthUser } from "../auth/auth.types";
+import { CurrentUser } from "../auth/current-user.decorator";
 import { PaginationQueryDto } from "../common/pagination.dto";
 import { PermissionGuard } from "../permissions/permission.guard";
 import { RequiresPermission } from "../permissions/requires-permission.decorator";
@@ -37,14 +39,14 @@ export class DepartmentsController extends DepartmentBranchBaseController {
 
   @Patch(":id")
   @RequiresPermission(PermissionAction.MANAGE_STRUCTURE)
-  update(@Param("id") id: string, @Body() dto: UpdateDepartmentDto) {
-    return this.service.updateDepartment(id, dto);
+  update(@Param("id") id: string, @Body() dto: UpdateDepartmentDto, @CurrentUser() user: AuthUser) {
+    return this.service.updateDepartment(id, dto, user);
   }
 
   @Delete(":id")
   @RequiresPermission(PermissionAction.MANAGE_STRUCTURE)
-  archive(@Param("id") id: string) {
-    return this.service.archiveDepartment(id);
+  archive(@Param("id") id: string, @CurrentUser() user: AuthUser) {
+    return this.service.archiveDepartment(id, user);
   }
 }
 
@@ -64,13 +66,13 @@ export class BranchesController extends DepartmentBranchBaseController {
 
   @Patch(":id")
   @RequiresPermission(PermissionAction.MANAGE_STRUCTURE)
-  update(@Param("id") id: string, @Body() dto: UpdateBranchDto) {
-    return this.service.updateBranch(id, dto);
+  update(@Param("id") id: string, @Body() dto: UpdateBranchDto, @CurrentUser() user: AuthUser) {
+    return this.service.updateBranch(id, dto, user);
   }
 
   @Delete(":id")
   @RequiresPermission(PermissionAction.MANAGE_STRUCTURE)
-  archive(@Param("id") id: string) {
-    return this.service.archiveBranch(id);
+  archive(@Param("id") id: string, @CurrentUser() user: AuthUser) {
+    return this.service.archiveBranch(id, user);
   }
 }

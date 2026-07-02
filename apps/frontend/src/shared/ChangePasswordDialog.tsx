@@ -18,8 +18,8 @@ export function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
       showToast("New passwords do not match", "error");
       return;
     }
-    if (newPassword.length < 8) {
-      showToast("Password must be at least 8 characters", "error");
+    if (!newPassword.trim()) {
+      showToast("Password is required", "error");
       return;
     }
     setSaving(true);
@@ -58,11 +58,11 @@ export function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
         </label>
         <label className="db-field">
           <span>New password</span>
-          <input className="db-input" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required minLength={8} autoComplete="new-password" />
+          <input className="db-input" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required minLength={1} autoComplete="new-password" />
         </label>
         <label className="db-field">
           <span>Confirm new password</span>
-          <input className="db-input" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required minLength={8} autoComplete="new-password" />
+          <input className="db-input" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required minLength={1} autoComplete="new-password" />
         </label>
         <div className="db-wf-actions">
           <WfBtn type="button" onClick={onClose}>

@@ -1,5 +1,7 @@
 export type FeeAssignmentUiStatus = "PAID" | "PARTIAL" | "UNPAID";
 
+export type FeeOverdueStatus = "paid" | "pending" | "overdue";
+
 export type StudentFeeAssignmentItem = {
   id: string;
   yearNumber: number;
@@ -10,6 +12,8 @@ export type StudentFeeAssignmentItem = {
   paidRupees: number;
   balanceRupees: number;
   status: FeeAssignmentUiStatus;
+  feeStatus?: FeeOverdueStatus;
+  daysOverdue?: number;
   dueDate: string | null;
   latestPaymentId: string | null;
   canPay: boolean;
@@ -64,6 +68,8 @@ export type StudentFeeBreakdownRow = {
   paymentStatus: string;
   uiStatus: "PAID" | "PAY_NOW";
   dueDate: string | null;
+  feeStatus?: FeeOverdueStatus;
+  daysOverdue?: number;
 };
 
 export type StudentFeePaymentHistoryRow = {
@@ -176,6 +182,8 @@ export function normalizeFeeStatusResponse(raw: StudentFeeStatusResponse): Stude
       paidRupees: row.paidRupees,
       balanceRupees: row.balanceRupees,
       status,
+      feeStatus: row.feeStatus,
+      daysOverdue: row.daysOverdue,
       dueDate: row.dueDate,
       latestPaymentId,
       canPay: row.uiStatus === "PAY_NOW" || row.balanceRupees > 0,

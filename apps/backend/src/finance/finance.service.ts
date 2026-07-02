@@ -5,8 +5,11 @@ import { Response } from "express";
 import { AuthUser, ScopeRef } from "../auth/auth.types";
 import { buildExportBasename } from "../common/export-filename.util";
 import { toPagination, PaginationQueryDto } from "../common/pagination.dto";
+import { computeFeeOverdue } from "../common/fee-overdue.util";
 import { sendTabularExport } from "../common/tabular-export.util";
 import { CampusScopeService, isInstitutionWideAdmin } from "../permissions/campus-scope.service";
+import { CacheService } from "../cache/cache.service";
+import { ADMIN_DASHBOARD_CACHE_PREFIX } from "../cache/cache.constants";
 import { PermissionsService } from "../permissions/permissions.service";
 import { assertStudentSelfProfile, studentProfileToScope } from "../permissions/operational-scope.util";
 import { SharedGroupAcademicService } from "../permissions/shared-group-academic.service";
@@ -64,8 +67,14 @@ export class FinanceService {
     private readonly prisma: PrismaService,
     private readonly permissions: PermissionsService,
     private readonly campusScope: CampusScopeService,
-    private readonly sharedGroup: SharedGroupAcademicService
+    private readonly sharedGroup: SharedGroupAcademicService,
+    private readonly cache: CacheService
   ) {}
+
+  /** Invalidate cached admin dashboards after a payment changes today's collections. */
+  private async invalidateDashboardCache() {
+    await this.cache.delByPrefix(ADMIN_DASHBOARD_CACHE_PREFIX);
+  }
 
   async listHeads() {
     return this.prisma.feeHead.findMany({ where: { isActive: true }, orderBy: { code: "asc" } });
@@ -261,6 +270,7 @@ export class FinanceService {
           batchId: section.class.batchId,
           classId: dto.classId,
           sectionId: dto.sectionId,
+          yearNumber: dto.yearNumber ?? section.class.yearNumber,
           feeHeadName: dto.feeHead.trim(),
           amount: dto.feeAmount,
           remarks: dto.remarks?.trim(),
@@ -471,6 +481,7 @@ export class FinanceService {
         });
         return created;
       });
+      await this.invalidateDashboardCache();
       return { payment: this.toPaymentObject(payment) };
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
@@ -546,6 +557,7 @@ export class FinanceService {
         }
       });
     });
+    await this.invalidateDashboardCache();
     return { ok: true };
   }
 
@@ -890,6 +902,8 @@ export class FinanceService {
   }) {
     const paidAmount = assignment.payments.reduce((sum, payment) => sum + Number(payment.amount), 0);
     const dueAmount = Number(assignment.feeStructure.amount);
+    const balance = Math.max(dueAmount - paidAmount, 0);
+    const overdue = computeFeeOverdue(balance, assignment.feeStructure.dueDate);
     return {
       id: assignment.id,
       feeStructureId: assignment.feeStructure.id,
@@ -897,8 +911,10 @@ export class FinanceService {
       feeHead: assignment.feeStructure.feeHead,
       dueAmount,
       paidAmount,
-      balance: Math.max(dueAmount - paidAmount, 0),
+      balance,
       status: assignment.paymentStatus,
+      feeStatus: overdue.status,
+      daysOverdue: overdue.daysOverdue,
       deadline: assignment.feeStructure.dueDate ? formatIstDate(assignment.feeStructure.dueDate) : null,
       remarks: assignment.feeStructure.remarks,
       campus: assignment.feeStructure.campus,
@@ -1237,6 +1253,7 @@ export class FinanceService {
         await tx.idempotencyKey.update({ where: { key: dto.idempotencyKey }, data: { response: payload as Prisma.InputJsonObject } });
         return payload;
       });
+      await this.invalidateDashboardCache();
       return response;
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {

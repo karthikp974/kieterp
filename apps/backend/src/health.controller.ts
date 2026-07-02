@@ -1,6 +1,8 @@
 import { Controller, Get } from "@nestjs/common";
+import { SkipThrottle } from "@nestjs/throttler";
 
 /** GET /api — avoids confusing 404 when someone opens the API root in a browser. */
+@SkipThrottle()
 @Controller()
 export class ApiRootController {
   @Get()
@@ -16,6 +18,7 @@ export class ApiRootController {
 }
 
 /** Public liveness probe for smoke checks and load balancers. */
+@SkipThrottle()
 @Controller("health")
 export class HealthController {
   @Get()

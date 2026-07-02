@@ -1,6 +1,8 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma, StructureStatus } from "@prisma/client";
 import { toPagination } from "../common/pagination.dto";
+import { AuthUser } from "../auth/auth.types";
+import { CampusScopeService } from "../permissions/campus-scope.service";
 import { SharedGroupAcademicService } from "../permissions/shared-group-academic.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { CreateSyllabusDto, SyllabusSearchQueryDto, SyllabusTopicInputDto, SyllabusUnitDto, UpdateSyllabusDto } from "./syllabus.dto";
@@ -9,6 +11,7 @@ import { CreateSyllabusDto, SyllabusSearchQueryDto, SyllabusTopicInputDto, Sylla
 export class SyllabusService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly campusScope: CampusScopeService,
     private readonly sharedGroup: SharedGroupAcademicService
   ) {}
 
@@ -90,8 +93,9 @@ export class SyllabusService {
     return this.response(created);
   }
 
-  async update(id: string, dto: UpdateSyllabusDto) {
-    await this.ensureSyllabus(id);
+  async update(id: string, dto: UpdateSyllabusDto, user: AuthUser) {
+    const syllabus = await this.ensureSyllabus(id);
+    await this.assertSyllabusScope(user, syllabus.subjectId);
     const units = this.normalizeUnits(dto.units);
     if (!units.length) throw new BadRequestException("Add at least one syllabus unit.");
 
@@ -156,8 +160,9 @@ export class SyllabusService {
     return this.response(updated);
   }
 
-  async archive(id: string) {
-    await this.ensureSyllabus(id);
+  async archive(id: string, user: AuthUser) {
+    const syllabus = await this.ensureSyllabus(id);
+    await this.assertSyllabusScope(user, syllabus.subjectId);
     const archivedAt = new Date();
     const archived = await this.prisma.$transaction(async (tx) => {
       await tx.syllabusTopic.updateMany({
@@ -197,6 +202,11 @@ export class SyllabusService {
     const syllabus = await this.prisma.syllabus.findFirst({ where: { id, isArchived: false } });
     if (!syllabus) throw new NotFoundException("Syllabus not found.");
     return syllabus;
+  }
+
+  private async assertSyllabusScope(user: AuthUser, subjectId: string) {
+    const subject = await this.prisma.subject.findUnique({ where: { id: subjectId }, select: { branchId: true } });
+    if (subject) await this.campusScope.assertBranchInScope(user, subject.branchId);
   }
 
   private normalizeUnits(units: SyllabusUnitDto[]) {

@@ -63,7 +63,7 @@ function statusFromJob(status: string, result: ImportJobResult | null | undefine
         ? `Parsed ${parsed} rows but saved none (${skipped} skipped). Example: ${sample} Open the import report for details.`
         : `Parsed ${parsed} rows but saved none. Open the import report for details.`;
     }
-    return `Imported ${imported} of ${parsed} parsed rows. Review the report before publishing.`;
+    return `Imported ${imported} of ${parsed} parsed rows. Results are live on student portals. Open the import report for missing roll numbers.`;
   }
   const progress = result?.progress;
   if (progress?.phase === "parsing") {

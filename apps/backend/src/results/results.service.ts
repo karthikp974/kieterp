@@ -6,6 +6,7 @@ import { mkdir, writeFile } from "fs/promises";
 import { join } from "path";
 import { AuthUser, ScopeRef } from "../auth/auth.types";
 import { buildExportBasename } from "../common/export-filename.util";
+import { isPdfBuffer } from "../common/file-signature.util";
 import { toPagination } from "../common/pagination.dto";
 import { sendTabularExport } from "../common/tabular-export.util";
 import { PermissionsService } from "../permissions/permissions.service";
@@ -136,6 +137,9 @@ export class ResultsService {
     const isTxt = file.mimetype === "text/plain" || lowerName.endsWith(".txt");
     if (!isPdf && !isTxt) {
       throw new BadRequestException("Only PDF or TXT result files are allowed.");
+    }
+    if (isPdf && !isTxt && !isPdfBuffer(file.buffer)) {
+      throw new BadRequestException("File is not a valid PDF.");
     }
     if (!this.canUploadSomeResults(user)) {
       throw new ForbiddenException("No active teacher assignment allows result upload.");

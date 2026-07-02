@@ -13,7 +13,7 @@ export function downloadFinanceExport(
   accessToken: string,
   params: { sectionId?: string; status: string; format: string }
 ) {
-  downloadAuthenticatedExport(accessToken, "/api/portals/teacher/finance/students/export", {
+  return downloadAuthenticatedExport(accessToken, "/api/portals/teacher/finance/students/export", {
     sectionId: params.sectionId,
     status: params.status,
     format: params.format
@@ -30,5 +30,6 @@ export function financeStatusLabel(status: string) {
   if (status === "paid") return "Paid";
   if (status === "partial") return "Partial";
   if (status === "pending") return "Pending";
+  if (status === "overdue") return "Overdue";
   return "All statuses";
 }

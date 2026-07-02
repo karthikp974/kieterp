@@ -9,6 +9,8 @@ import { StructureStatus, SyllabusResourceKind, UserType } from "@prisma/client"
 import { createReadStream, existsSync, mkdirSync, writeFileSync } from "fs";
 import { extname, join } from "path";
 import { AuthUser } from "../auth/auth.types";
+import { isPdfBuffer } from "../common/file-signature.util";
+import { isPathWithinRoot } from "../common/safe-path.util";
 import { PrismaService } from "../prisma/prisma.service";
 import { loadStudentPortalProfile } from "./student-portal-load-student";
 import { CreateSyllabusUnitResourceDto } from "./syllabus-unit-resources.dto";
@@ -70,6 +72,7 @@ export class SyllabusUnitResourcesService {
     await this.ensureTeacherCanManageUnit(user, unitId, sectionId);
     if (!file?.buffer?.length) throw new BadRequestException("PDF file is required.");
     if (!PDF_MIME.has(file.mimetype)) throw new BadRequestException("Only PDF files are allowed.");
+    if (!isPdfBuffer(file.buffer)) throw new BadRequestException("File is not a valid PDF.");
     if (file.size > MAX_PDF_BYTES) throw new BadRequestException("PDF must be 12 MB or smaller.");
 
     if (!existsSync(UPLOAD_ROOT)) mkdirSync(UPLOAD_ROOT, { recursive: true });
@@ -118,6 +121,7 @@ export class SyllabusUnitResourcesService {
     await this.ensureUnitInStudentScope(student.sectionId, resource.unitId);
     if (!resource.filePath) throw new NotFoundException("File missing.");
     const abs = join(UPLOAD_ROOT, resource.filePath);
+    if (!isPathWithinRoot(UPLOAD_ROOT, abs)) throw new NotFoundException("Resource not found.");
     if (!existsSync(abs)) throw new NotFoundException("File not found on server.");
     const stream = createReadStream(abs);
     return new StreamableFile(stream, {

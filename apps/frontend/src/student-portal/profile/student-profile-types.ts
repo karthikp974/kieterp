@@ -8,6 +8,12 @@ export type StudentProfileResponse = {
     phone: string;
     guardianName: string;
     address: string;
+    village: string;
+    mandal: string;
+    district: string;
+    state: string;
+    pincode: string;
+    homeAddress: string;
   };
   academic: {
     campus: { name: string; code: string };

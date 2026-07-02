@@ -272,6 +272,16 @@ export class AssignFeeDto {
   @IsDateString()
   deadline!: string;
 
+  @IsOptional()
+  @IsString()
+  batchId?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  yearNumber?: number;
+
   @IsString()
   @MaxLength(120)
   idempotencyKey!: string;

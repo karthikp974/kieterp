@@ -4,12 +4,33 @@ import { AuthUser } from "../auth/auth.types";
 import { formatIstDate, istDayRangeFromIso, todayIstDate } from "../common/ist-time.util";
 import { isInstitutionWideAdmin } from "../permissions/campus-scope.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { CacheService } from "../cache/cache.service";
+import { ADMIN_DASHBOARD_CACHE_PREFIX, DASHBOARD_CACHE_TTL_SECONDS } from "../cache/cache.constants";
 
 @Injectable()
 export class AdminPortalDashboardService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cache: CacheService
+  ) {}
 
   async summary(user: AuthUser) {
+    // Cached per scope + day (45s TTL). Invalidated on fee-payment mutations.
+    const scopeKey = isInstitutionWideAdmin(user)
+      ? "all"
+      : user.campusId
+        ? `c:${user.campusId}`
+        : user.campusGroupId
+          ? `g:${user.campusGroupId}`
+          : "none";
+    return this.cache.getOrSet(
+      `${ADMIN_DASHBOARD_CACHE_PREFIX}${scopeKey}:${todayIstDate()}`,
+      DASHBOARD_CACHE_TTL_SECONDS,
+      () => this.computeSummary(user)
+    );
+  }
+
+  private async computeSummary(user: AuthUser) {
     const studentWhere = this.studentScopeWhere(user);
     const paymentWhere = this.paymentScopeWhere(user);
     const todayRange = istDayRangeFromIso(todayIstDate());

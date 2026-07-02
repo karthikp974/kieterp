@@ -1,7 +1,9 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
+import { Request } from "express";
 import { AuthUser } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
+import { getRequestContext } from "../auth/request-context";
 import { OpsBreakdownQueryDto, OpsSessionsQueryDto, TrackActivityDto } from "./ops.dto";
 import { OpsOwnerGuard } from "./ops-owner.guard";
 import { SpectatorActivityService } from "./spectator-activity.service";
@@ -12,8 +14,8 @@ export class OpsController {
 
   @UseGuards(JwtAuthGuard)
   @Post("track")
-  track(@CurrentUser() user: AuthUser, @Body() dto: TrackActivityDto) {
-    return this.spectator.track(user, dto);
+  track(@CurrentUser() user: AuthUser, @Body() dto: TrackActivityDto, @Req() request: Request) {
+    return this.spectator.track(user, dto, getRequestContext(request));
   }
 
   @UseGuards(JwtAuthGuard, OpsOwnerGuard)

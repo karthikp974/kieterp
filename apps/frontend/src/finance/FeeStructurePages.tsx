@@ -17,6 +17,8 @@ type FeeForm = {
   campusId: string;
   programId: string;
   branchId: string;
+  batchId: string;
+  yearNumber: string;
   classId: string;
   sectionId: string;
   targetType: FeeTarget;
@@ -31,6 +33,8 @@ const emptyForm = (): FeeForm => ({
   campusId: "",
   programId: "",
   branchId: "",
+  batchId: "",
+  yearNumber: "",
   classId: "",
   sectionId: "",
   targetType: "SECTION",
@@ -114,6 +118,8 @@ export function FeeStructureAssignPage() {
         campusId: form.campusId,
         programId: form.programId,
         branchId: form.branchId,
+        batchId: form.batchId || undefined,
+        yearNumber: form.yearNumber ? Number(form.yearNumber) : undefined,
         classId: form.classId,
         sectionId: form.sectionId,
         targetType: form.targetType,
@@ -143,9 +149,11 @@ export function FeeStructureAssignPage() {
           <p>Select the academic scope. Each dropdown filters the next one.</p>
         </div>
         <div className="teacher-form-grid">
-          <Field label="Campus"><PlainSelect value={form.campusId} options={data.campuses.map((item) => [item.id, item.code])} onChange={(campusId) => setForm({ ...form, campusId, programId: "", branchId: "", classId: "", sectionId: "", studentId: "" })} placeholder="Select campus" /></Field>
-          <Field label="Department"><PlainSelect value={form.programId} options={options.programs.map((item) => [item.id, `${item.code} - ${item.name}`])} onChange={(programId) => setForm({ ...form, programId, branchId: "", classId: "", sectionId: "", studentId: "" })} placeholder="Select department" /></Field>
-          <Field label="Branch"><PlainSelect value={form.branchId} options={options.branches.map((item) => [item.id, `${item.code} - ${item.name}`])} onChange={(branchId) => setForm({ ...form, branchId, classId: "", sectionId: "", studentId: "" })} placeholder="Select branch" /></Field>
+          <Field label="Campus"><PlainSelect value={form.campusId} options={data.campuses.map((item) => [item.id, item.code])} onChange={(campusId) => setForm({ ...form, campusId, programId: "", branchId: "", batchId: "", yearNumber: "", classId: "", sectionId: "", studentId: "" })} placeholder="Select campus" /></Field>
+          <Field label="Department"><PlainSelect value={form.programId} options={options.programs.map((item) => [item.id, `${item.code} - ${item.name}`])} onChange={(programId) => setForm({ ...form, programId, branchId: "", batchId: "", yearNumber: "", classId: "", sectionId: "", studentId: "" })} placeholder="Select department" /></Field>
+          <Field label="Branch"><PlainSelect value={form.branchId} options={options.branches.map((item) => [item.id, `${item.code} - ${item.name}`])} onChange={(branchId) => setForm({ ...form, branchId, batchId: "", yearNumber: "", classId: "", sectionId: "", studentId: "" })} placeholder="Select branch" /></Field>
+          <Field label="Batch"><PlainSelect value={form.batchId} options={options.batches.map((item) => [item.id, `${item.startYear}-${item.endYear}`])} onChange={(batchId) => setForm({ ...form, batchId, yearNumber: "", classId: "", sectionId: "", studentId: "" })} placeholder="Select batch" /></Field>
+          <Field label="Year"><PlainSelect value={form.yearNumber} options={options.years.map((y) => [String(y), `Year ${y}`])} onChange={(yearNumber) => setForm({ ...form, yearNumber, classId: "", sectionId: "", studentId: "" })} placeholder="Select year" /></Field>
           <Field label="Class"><PlainSelect value={form.classId} options={options.classes.map((item) => [item.id, item.label || `Semester ${item.semesterNumber}`])} onChange={(classId) => setForm({ ...form, classId, sectionId: "", studentId: "" })} placeholder="Select class" /></Field>
           <Field label="Section"><PlainSelect value={form.sectionId} options={options.sections.map((item) => [item.id, item.name])} onChange={(sectionId) => { setForm({ ...form, sectionId, studentId: "" }); setSelectedStudent(null); }} placeholder="Select section" /></Field>
         </div>
@@ -293,11 +301,13 @@ function useFeeOptions(data: FeeData, form: FeeForm) {
   return useMemo(() => {
     const programs = programsForOperationalCampus(data.programs, form.campusId, data.campuses);
     const branches = data.branches.filter((item) => item.programId === form.programId);
-    const branchBatches = data.batches.filter((item) => item.branchId === form.branchId);
-    const classes = data.classes.filter((item) => branchBatches.some((batch) => batch.id === item.batchId));
+    const batches = data.batches.filter((item) => item.branchId === form.branchId);
+    const batchClasses = data.classes.filter((item) => item.batchId === form.batchId);
+    const years = [...new Set(batchClasses.map((item) => item.yearNumber))].sort((a, b) => a - b);
+    const classes = batchClasses.filter((item) => !form.yearNumber || item.yearNumber === Number(form.yearNumber));
     const sections = data.sections.filter((item) => item.classId === form.classId);
-    return { programs, branches, classes, sections };
-  }, [data.batches, data.branches, data.classes, data.programs, data.sections, form.branchId, form.campusId, form.classId, form.programId]);
+    return { programs, branches, batches, years, classes, sections };
+  }, [data.batches, data.branches, data.classes, data.programs, data.sections, form.batchId, form.branchId, form.campusId, form.classId, form.programId, form.yearNumber]);
 }
 
 function FeeShell({

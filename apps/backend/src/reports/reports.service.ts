@@ -10,6 +10,8 @@ import { PermissionsService } from "../permissions/permissions.service";
 import { isInstitutionWideAdmin } from "../permissions/campus-scope.service";
 import { SharedGroupAcademicService } from "../permissions/shared-group-academic.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { CacheService } from "../cache/cache.service";
+import { DASHBOARD_CACHE_TTL_SECONDS, REPORTS_SUMMARY_CACHE_PREFIX } from "../cache/cache.constants";
 import { ReportsExportQueryDto, ReportsQueryDto } from "./reports.dto";
 
 @Injectable()
@@ -17,20 +19,25 @@ export class ReportsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly permissions: PermissionsService,
-    private readonly sharedGroup: SharedGroupAcademicService
+    private readonly sharedGroup: SharedGroupAcademicService,
+    private readonly cache: CacheService
   ) {}
 
   async summary(user: AuthUser, query: ReportsQueryDto) {
     const scope = this.resolveScope(user, query);
+    // Authorize BEFORE serving cached data, then cache the heavy aggregation (45s TTL).
     this.assertAllowed(user, PermissionAction.VIEW_REPORTS, scope);
-    const [students, attendance, finance, results, applications] = await Promise.all([
-      this.studentSummary(scope),
-      this.attendanceSummary(user, query, scope),
-      this.financeSummary(user, query, scope),
-      this.resultsSummary(user, scope),
-      this.applicationSummary(user, scope)
-    ]);
-    return { scope, students, attendance, finance, results, applications };
+    const key = `${REPORTS_SUMMARY_CACHE_PREFIX}${JSON.stringify(scope)}:${JSON.stringify(query ?? {})}`;
+    return this.cache.getOrSet(key, DASHBOARD_CACHE_TTL_SECONDS, async () => {
+      const [students, attendance, finance, results, applications] = await Promise.all([
+        this.studentSummary(scope),
+        this.attendanceSummary(user, query, scope),
+        this.financeSummary(user, query, scope),
+        this.resultsSummary(user, scope),
+        this.applicationSummary(user, scope)
+      ]);
+      return { scope, students, attendance, finance, results, applications };
+    });
   }
 
   async attendance(user: AuthUser, query: ReportsQueryDto) {

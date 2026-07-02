@@ -582,77 +582,74 @@ export class PortalReportsService {
     return target > 0 ? Math.round((paid / target) * 100) : 0;
   }
 
+  /** Resolve which of the given sections the user may see for an action, in ONE query. */
+  private async allowedSectionIds(user: AuthUser, sectionIds: string[], action: PermissionAction): Promise<string[]> {
+    if (!sectionIds.length) return [];
+    const sections = await this.prisma.section.findMany({
+      where: { id: { in: sectionIds }, isArchived: false, status: StructureStatus.ACTIVE },
+      include: this.sectionInclude
+    });
+    return sections
+      .filter((section) => this.permissions.can(user, { action, scope: this.sectionToScope(section) }).allowed)
+      .map((section) => section.id);
+  }
+
   private async passRateForSections(user: AuthUser, sectionIds: string[]) {
-    if (!sectionIds.length) return 0;
-    let pass = 0;
-    let total = 0;
-    for (const sectionId of sectionIds) {
-      const scope = await this.scopeForSectionId(sectionId);
-      if (!this.permissions.can(user, { action: PermissionAction.VIEW_RESULTS, scope }).allowed) continue;
-      const students = await this.prisma.studentProfile.findMany({
-        where: { sectionId, currentStatus: UserStatus.ACTIVE, isArchived: false },
-        select: { id: true }
-      });
-      if (!students.length) continue;
-      const ids = students.map((s) => s.id);
-      const [sectionPass, sectionTotal] = await Promise.all([
-        this.prisma.resultEntry.count({
-          where: { studentProfileId: { in: ids }, isPublished: true, status: ResultEntryStatus.PASS }
-        }),
-        this.prisma.resultEntry.count({
-          where: {
-            studentProfileId: { in: ids },
-            isPublished: true,
-            status: { in: [ResultEntryStatus.PASS, ResultEntryStatus.FAIL, ResultEntryStatus.ABSENT] }
-          }
-        })
-      ]);
-      pass += sectionPass;
-      total += sectionTotal;
-    }
+    // Batched: resolve allowed sections (1 query), load their students (1 query),
+    // then aggregate result counts across all of them (2 queries) — no per-section N+1.
+    const allowed = await this.allowedSectionIds(user, sectionIds, PermissionAction.VIEW_RESULTS);
+    if (!allowed.length) return 0;
+    const students = await this.prisma.studentProfile.findMany({
+      where: { sectionId: { in: allowed }, currentStatus: UserStatus.ACTIVE, isArchived: false },
+      select: { id: true }
+    });
+    if (!students.length) return 0;
+    const ids = students.map((s) => s.id);
+    const [pass, total] = await Promise.all([
+      this.prisma.resultEntry.count({
+        where: { studentProfileId: { in: ids }, isPublished: true, status: ResultEntryStatus.PASS }
+      }),
+      this.prisma.resultEntry.count({
+        where: {
+          studentProfileId: { in: ids },
+          isPublished: true,
+          status: { in: [ResultEntryStatus.PASS, ResultEntryStatus.FAIL, ResultEntryStatus.ABSENT] }
+        }
+      })
+    ]);
     return total ? Math.round((pass / total) * 100) : 0;
   }
 
   private async attendancePercentForSections(user: AuthUser, sectionIds: string[]) {
-    if (!sectionIds.length) return 0;
-    let present = 0;
-    let total = 0;
-    for (const sectionId of sectionIds) {
-      const scope = await this.scopeForSectionId(sectionId);
-      if (!this.permissions.can(user, { action: PermissionAction.VIEW_ATTENDANCE, scope }).allowed) continue;
-      const [sectionPresent, sectionTotal] = await Promise.all([
-        this.prisma.attendanceEntry.count({
-          where: { status: AttendanceEntryStatus.PRESENT, session: { sectionId } }
-        }),
-        this.prisma.attendanceEntry.count({ where: { session: { sectionId } } })
-      ]);
-      present += sectionPresent;
-      total += sectionTotal;
-    }
+    const allowed = await this.allowedSectionIds(user, sectionIds, PermissionAction.VIEW_ATTENDANCE);
+    if (!allowed.length) return 0;
+    const [present, total] = await Promise.all([
+      this.prisma.attendanceEntry.count({
+        where: { status: AttendanceEntryStatus.PRESENT, session: { sectionId: { in: allowed } } }
+      }),
+      this.prisma.attendanceEntry.count({ where: { session: { sectionId: { in: allowed } } } })
+    ]);
     return total ? Math.round((present / total) * 100) : 0;
   }
 
   private async feeCollectionForSections(user: AuthUser, sectionIds: string[]) {
-    if (!sectionIds.length) return 0;
+    const allowed = await this.allowedSectionIds(user, sectionIds, PermissionAction.VIEW_FEES);
+    if (!allowed.length) return 0;
+    const assignments = await this.prisma.studentFeeAssignment.findMany({
+      where: {
+        student: { sectionId: { in: allowed }, currentStatus: UserStatus.ACTIVE, isArchived: false },
+        feeStructure: { isActive: true, isArchived: false }
+      },
+      include: {
+        payments: { where: { status: FeePaymentStatus.ACTIVE }, select: { amount: true } },
+        feeStructure: { select: { amount: true } }
+      }
+    });
     let target = 0;
     let paid = 0;
-    for (const sectionId of sectionIds) {
-      const scope = await this.scopeForSectionId(sectionId);
-      if (!this.permissions.can(user, { action: PermissionAction.VIEW_FEES, scope }).allowed) continue;
-      const assignments = await this.prisma.studentFeeAssignment.findMany({
-        where: {
-          student: { sectionId, currentStatus: UserStatus.ACTIVE, isArchived: false },
-          feeStructure: { isActive: true, isArchived: false }
-        },
-        include: {
-          payments: { where: { status: FeePaymentStatus.ACTIVE }, select: { amount: true } },
-          feeStructure: { select: { amount: true } }
-        }
-      });
-      for (const row of assignments) {
-        target += Number(row.feeStructure.amount);
-        paid += row.payments.reduce((sum, p) => sum + Number(p.amount), 0);
-      }
+    for (const row of assignments) {
+      target += Number(row.feeStructure.amount);
+      paid += row.payments.reduce((sum, p) => sum + Number(p.amount), 0);
     }
     return target > 0 ? Math.round((paid / target) * 100) : 0;
   }

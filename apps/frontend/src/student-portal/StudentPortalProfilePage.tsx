@@ -26,6 +26,7 @@ export function StudentPortalProfilePage() {
   const [dateOfBirth, setDateOfBirth] = useState("");
   const [guardianName, setGuardianName] = useState("");
   const [address, setAddress] = useState("");
+  const [addr, setAddr] = useState({ village: "", mandal: "", district: "", state: "", pincode: "", homeAddress: "" });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -38,6 +39,14 @@ export function StudentPortalProfilePage() {
       setDateOfBirth(profile.personal.dateOfBirth ?? "");
       setGuardianName(profile.personal.guardianName);
       setAddress(profile.personal.address);
+      setAddr({
+        village: profile.personal.village ?? "",
+        mandal: profile.personal.mandal ?? "",
+        district: profile.personal.district ?? "",
+        state: profile.personal.state ?? "",
+        pincode: profile.personal.pincode ?? "",
+        homeAddress: profile.personal.homeAddress ?? ""
+      });
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not load profile.", "error");
       setData(null);
@@ -62,7 +71,12 @@ export function StudentPortalProfilePage() {
           phone: phone.trim() || undefined,
           dateOfBirth: dateOfBirth || undefined,
           guardianName: guardianName.trim() || undefined,
-          address: address.trim() || undefined
+          village: addr.village.trim() || undefined,
+          mandal: addr.mandal.trim() || undefined,
+          district: addr.district.trim() || undefined,
+          state: addr.state.trim() || undefined,
+          pincode: addr.pincode.trim() || undefined,
+          homeAddress: addr.homeAddress.trim() || undefined
         })
       });
       if (!res.ok) throw await readError(res);
@@ -151,15 +165,32 @@ export function StudentPortalProfilePage() {
                 onChange={(e) => setGuardianName(e.target.value)}
               />
             </label>
+            {([
+              ["village", "Village"],
+              ["mandal", "Mandal"],
+              ["district", "District"],
+              ["state", "State"],
+              ["pincode", "Pincode"]
+            ] as const).map(([key, label]) => (
+              <label className="sp-profile-field" key={key}>
+                <span>{label}</span>
+                <input
+                  className="sp-profile-input"
+                  value={addr[key]}
+                  disabled={!editable.address || saving}
+                  onChange={(e) => setAddr((prev) => ({ ...prev, [key]: e.target.value }))}
+                />
+              </label>
+            ))}
             <label className="sp-profile-field sp-profile-field--full">
-              <span>Address</span>
+              <span>Home address</span>
               <textarea
                 className="sp-profile-textarea"
-                rows={3}
-                value={address}
-                placeholder="Enter your address"
+                rows={2}
+                value={addr.homeAddress}
+                placeholder="House no, street, landmark"
                 disabled={!editable.address || saving}
-                onChange={(e) => setAddress(e.target.value)}
+                onChange={(e) => setAddr((prev) => ({ ...prev, homeAddress: e.target.value }))}
               />
             </label>
             <button type="submit" className="sp-profile-save-btn" disabled={saving}>

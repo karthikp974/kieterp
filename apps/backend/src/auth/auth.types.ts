@@ -38,4 +38,8 @@ export type JwtAccessPayload = {
   type: UserType;
   campusId?: string | null;
   campusGroupId?: string | null;
+  /** Single-use short-lived download token (for export URLs that can't send headers). */
+  dl?: boolean;
+  /** jti tracked in Redis for single-use enforcement of download tokens. */
+  jti?: string;
 };

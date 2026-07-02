@@ -1,10 +1,22 @@
 import ExcelJS from "exceljs";
 import PDFDocument from "pdfkit";
 import { Response } from "express";
+import { formatIstDateTime } from "./ist-time.util";
+import {
+  drawPdfInstitutionalHeader,
+  drawPdfSectionHeading,
+  drawPdfTable,
+  formatPdfTimestamp,
+  resolveKietLogoPath
+} from "./pdf-institutional.util";
 
 export const TABULAR_EXPORT_FORMATS = ["csv", "excel", "google-sheets", "pdf", "docx", "txt"] as const;
 export type TabularExportFormat = (typeof TABULAR_EXPORT_FORMATS)[number];
 export type TabularExportFormatWithTxt = TabularExportFormat;
+
+const KIET_BLUE = "FF004B8D";
+const KIET_SLATE = "FF64748B";
+const ROW_STRIPE = "FFF8FAFC";
 
 function escapeHtml(value: string | number) {
   return String(value)
@@ -19,6 +31,19 @@ function escapeRtf(value: string | number) {
     .replace(/\\/g, "\\\\")
     .replace(/{/g, "\\{")
     .replace(/}/g, "\\}");
+}
+
+function isKeyValueExport(rows: (string | number | null | undefined)[][]) {
+  const headers = rows[0] ?? [];
+  return headers.length === 2 && String(headers[0]).toLowerCase() === "field" && String(headers[1]).toLowerCase() === "value";
+}
+
+function isSectionMarker(field: string) {
+  return field.startsWith("—") && field.endsWith("—");
+}
+
+function sectionTitle(field: string) {
+  return field.replace(/^—\s*|\s*—$/g, "").trim();
 }
 
 function toCsv(rows: (string | number | null | undefined)[][]) {
@@ -41,68 +66,162 @@ function buildRtf(title: string, rows: (string | number | null | undefined)[][])
   return `{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 Arial;}}\\f0\\fs22 ${lines.join("")} }`;
 }
 
+function styleInstitutionRow(cell: ExcelJS.Cell, colCount: number) {
+  cell.font = { size: 14, bold: true, color: { argb: KIET_BLUE } };
+  cell.alignment = { vertical: "middle" };
+}
+
+function styleTitleRow(cell: ExcelJS.Cell) {
+  cell.font = { size: 12, bold: true, color: { argb: KIET_BLUE } };
+}
+
+function styleMetaRow(cell: ExcelJS.Cell) {
+  cell.font = { size: 9, color: { argb: KIET_SLATE } };
+}
+
+function styleHeaderCell(cell: ExcelJS.Cell) {
+  cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+  cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: KIET_BLUE } };
+  cell.border = { bottom: { style: "thin", color: { argb: KIET_BLUE } } };
+}
+
+async function addWorksheetLogo(wb: ExcelJS.Workbook, ws: ExcelJS.Worksheet, colCount: number) {
+  const logoPath = resolveKietLogoPath();
+  if (!logoPath) return;
+  try {
+    const imageId = wb.addImage({ filename: logoPath, extension: "png" });
+    ws.addImage(imageId, {
+      tl: { col: Math.max(colCount - 1.2, 0), row: 0 },
+      ext: { width: 96, height: 48 }
+    });
+  } catch {
+    /* logo optional */
+  }
+}
+
 async function buildXlsxBuffer(title: string, rows: (string | number | null | undefined)[][]) {
   const wb = new ExcelJS.Workbook();
   wb.creator = "College ERP";
-  const ws = wb.addWorksheet("Report", { views: [{ state: "frozen", ySplit: 2 }] });
-  ws.getCell("A1").value = title;
-  ws.getCell("A1").font = { size: 14, bold: true, color: { argb: "FF004B8D" } };
-  ws.mergeCells(1, 1, 1, Math.max(rows[0]?.length ?? 1, 1));
+  const ws = wb.addWorksheet("Report");
+  const colCount = Math.max(rows[0]?.length ?? 1, 2);
+  const keyValue = isKeyValueExport(rows);
+  const generatedAt = formatIstDateTime(new Date(), false);
 
-  const header = rows[0] ?? [];
-  header.forEach((value, index) => {
-    const cell = ws.getCell(2, index + 1);
-    cell.value = String(value ?? "");
-    cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF004B8D" } };
-  });
+  ws.getRow(1).height = 28;
+  const institutionCell = ws.getCell("A1");
+  institutionCell.value = "KIET Group of Institutions";
+  styleInstitutionRow(institutionCell, colCount);
+  ws.mergeCells(1, 1, 1, colCount);
+  await addWorksheetLogo(wb, ws, colCount);
 
-  rows.slice(1).forEach((row, rowIndex) => {
-    row.forEach((value, colIndex) => {
-      ws.getCell(rowIndex + 3, colIndex + 1).value = value ?? "";
+  const titleCell = ws.getCell("A2");
+  titleCell.value = title;
+  styleTitleRow(titleCell);
+  ws.mergeCells(2, 1, 2, colCount);
+
+  const metaCell = ws.getCell("A3");
+  metaCell.value = `Generated ${generatedAt} (IST)`;
+  styleMetaRow(metaCell);
+  ws.mergeCells(3, 1, 3, colCount);
+
+  if (keyValue) {
+    let r = 5;
+    for (const row of rows.slice(1)) {
+      const field = String(row[0] ?? "");
+      if (isSectionMarker(field)) {
+        ws.mergeCells(r, 1, r, 2);
+        const cell = ws.getCell(r, 1);
+        cell.value = sectionTitle(field);
+        cell.font = { bold: true, color: { argb: KIET_BLUE } };
+        r += 1;
+        continue;
+      }
+      ws.getCell(r, 1).value = field;
+      ws.getCell(r, 1).font = { bold: true, color: { argb: KIET_BLUE } };
+      ws.getCell(r, 2).value = row[1] ?? "";
+      r += 1;
+    }
+    ws.getColumn(1).width = 28;
+    ws.getColumn(2).width = 52;
+    ws.views = [{ state: "frozen", ySplit: 4 }];
+  } else {
+    const headerRowNum = 5;
+    const header = rows[0] ?? [];
+    header.forEach((value, index) => {
+      styleHeaderCell(ws.getCell(headerRowNum, index + 1));
+      ws.getCell(headerRowNum, index + 1).value = String(value ?? "");
     });
-  });
 
-  ws.columns = header.map(() => ({ width: 18 }));
+    rows.slice(1).forEach((row, rowIndex) => {
+      row.forEach((value, colIndex) => {
+        const cell = ws.getCell(headerRowNum + 1 + rowIndex, colIndex + 1);
+        cell.value = value ?? "";
+        if (rowIndex % 2 === 1) {
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: ROW_STRIPE } };
+        }
+      });
+    });
+
+    ws.columns = header.map(() => ({ width: 16 }));
+    ws.views = [{ state: "frozen", ySplit: headerRowNum }];
+  }
+
   const buf = await wb.xlsx.writeBuffer();
   return Buffer.from(buf);
 }
 
 async function buildPdfBuffer(title: string, rows: (string | number | null | undefined)[][]): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ margin: 44, size: "A4", layout: rows[0]?.length && rows[0].length > 5 ? "landscape" : "portrait" });
+    const keyValue = isKeyValueExport(rows);
+    const headers = rows[0] ?? [];
+    const colCount = Math.max(headers.length, 1);
+    const landscape = !keyValue && colCount > 5;
+    const doc = new PDFDocument({ margin: 44, size: "A4", layout: landscape ? "landscape" : "portrait" });
     const chunks: Buffer[] = [];
     doc.on("data", (chunk) => chunks.push(chunk as Buffer));
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
 
-    doc.font("Helvetica-Bold").fontSize(16).fillColor("#004b8d").text(title);
-    doc.moveDown(0.8);
+    const left = doc.page.margins.left;
+    const right = doc.page.margins.right;
+    const contentWidth = doc.page.width - left - right;
+    const bottomLimit = doc.page.height - doc.page.margins.bottom - 24;
 
-    const headers = rows[0] ?? [];
-    const colCount = Math.max(headers.length, 1);
-    const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-    const colWidth = pageWidth / colCount;
-    let y = doc.y;
+    drawPdfInstitutionalHeader(doc, title);
+    doc
+      .font("Helvetica")
+      .fontSize(9)
+      .fillColor("#64748b")
+      .text(`Generated ${formatPdfTimestamp(new Date())}`, left, doc.y, { width: contentWidth, align: "center" });
+    doc.moveDown(0.7);
 
-    doc.font("Helvetica-Bold").fontSize(9).fillColor("#111");
-    headers.forEach((header, index) => {
-      doc.text(String(header ?? ""), doc.page.margins.left + index * colWidth, y, { width: colWidth - 4 });
-    });
-    y += 16;
-    doc.moveTo(doc.page.margins.left, y).lineTo(doc.page.width - doc.page.margins.right, y).strokeColor("#dbe3ef").stroke();
-    y += 8;
-
-    doc.font("Helvetica").fontSize(8).fillColor("#222");
-    for (const row of rows.slice(1)) {
-      if (y > doc.page.height - doc.page.margins.bottom - 24) {
-        doc.addPage();
-        y = doc.page.margins.top;
+    if (keyValue) {
+      for (const row of rows.slice(1)) {
+        if (doc.y > bottomLimit) {
+          doc.addPage();
+        }
+        const field = String(row[0] ?? "");
+        const value = String(row[1] ?? "—");
+        if (isSectionMarker(field)) {
+          doc.moveDown(0.25);
+          drawPdfSectionHeading(doc, sectionTitle(field));
+          continue;
+        }
+        const y = doc.y;
+        doc.font("Helvetica-Bold").fontSize(9).fillColor("#004b8d").text(field, left, y, { width: 148 });
+        doc.font("Helvetica").fontSize(9).fillColor("#222").text(value || "—", left + 152, y, { width: contentWidth - 152 });
+        doc.moveDown(0.2);
       }
-      row.forEach((cell, index) => {
-        doc.text(String(cell ?? ""), doc.page.margins.left + index * colWidth, y, { width: colWidth - 4 });
-      });
-      y += 14;
+    } else {
+      const baseWidth = contentWidth / colCount;
+      const columns = headers.map((header) => ({ header: String(header ?? ""), width: baseWidth }));
+      drawPdfTable(
+        doc,
+        doc.y,
+        left,
+        columns,
+        rows.slice(1).map((row) => row.map((cell) => String(cell ?? "—")))
+      );
     }
 
     doc.end();

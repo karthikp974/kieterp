@@ -39,7 +39,9 @@ export type HtpoResultsImportJob = {
     importedCount: number;
     missingFromPdf: { rollNumber: string; fullName: string }[];
   }[];
-  pushed: boolean;
+  missingRollNumbersFromPdf: string[];
+  autoPublished: boolean;
+  publishedCount: number;
 };
 
 export type HtpoResultSubjectRow = {

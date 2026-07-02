@@ -21,6 +21,10 @@ export function teacherHasHtpoRole(roles: string[]) {
   return roles.includes("HTPO");
 }
 
+export function teacherHasCtpoRole(roles: string[]) {
+  return roles.includes("CTPO");
+}
+
 export function teacherIsStpoOnlyPortal(roles: string[]) {
   return roles.length > 0 && roles.every((role) => role === "STPO");
 }

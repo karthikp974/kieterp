@@ -35,13 +35,13 @@ export function StudentPortalMarksSkeleton() {
           </div>
           <div className="sp-marks-table-skel">
             <div className="sp-marks-table-skel-row sp-marks-table-skel-row--head">
-              {Array.from({ length: 9 }).map((_, c) => (
+              {Array.from({ length: 5 }).map((_, c) => (
                 <span key={c} className="sp-marks-skel-cell" />
               ))}
             </div>
             {Array.from({ length: 4 }).map((_, r) => (
               <div key={r} className="sp-marks-table-skel-row">
-                {Array.from({ length: 9 }).map((_, c) => (
+                {Array.from({ length: 5 }).map((_, c) => (
                   <span key={c} className="sp-marks-skel-cell" />
                 ))}
               </div>

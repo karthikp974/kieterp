@@ -19,6 +19,27 @@ function normalizeResultSubjectCode(value: string) {
   return value.trim().toUpperCase();
 }
 
+/** Match JNTUK subcode against the student's current or immediately previous semester only. */
+export async function resolveResultSubjectByCodeForSemesters(
+  db: ResultSubjectDb,
+  input: { branchId: string; subjectCode: string; semesterNumbers: number[] }
+): Promise<SubjectRecord | null> {
+  const code = normalizeResultSubjectCode(input.subjectCode);
+  const semesters = [...new Set(input.semesterNumbers.filter((n) => Number.isFinite(n) && n >= 1))];
+  if (!code || !semesters.length) return null;
+
+  return db.subject.findFirst({
+    where: {
+      code: { equals: code, mode: "insensitive" },
+      branchId: input.branchId,
+      semesterNumber: { in: semesters },
+      status: StructureStatus.ACTIVE,
+      isArchived: false
+    },
+    orderBy: { semesterNumber: "desc" }
+  });
+}
+
 /** Resolve catalog subject by code — semester comes from the subject record, not the student. */
 export async function resolveResultSubjectByCode(
   db: ResultSubjectDb,

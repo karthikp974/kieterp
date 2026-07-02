@@ -6,7 +6,8 @@ RUN npm install
 
 FROM deps AS build
 COPY apps/frontend apps/frontend
-RUN npm run build -w apps/frontend
+ENV NODE_OPTIONS=--max-old-space-size=768
+RUN npm run build:docker -w apps/frontend
 
 FROM node:22-alpine AS runner
 WORKDIR /app

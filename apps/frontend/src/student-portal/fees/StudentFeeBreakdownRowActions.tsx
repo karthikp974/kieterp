@@ -12,16 +12,21 @@ type Props = {
   view: FeeBreakdownView;
 };
 
-function statusLabel(status: StudentFeeAssignmentItem["status"]) {
-  if (status === "PAID") return "Paid";
-  if (status === "PARTIAL") return "Partial";
-  return "Not paid";
-}
-
-function statusClass(status: StudentFeeAssignmentItem["status"]) {
-  if (status === "PAID") return "sp-fee-badge sp-fee-badge--paid";
-  if (status === "PARTIAL") return "sp-fee-badge sp-fee-badge--partial";
-  return "sp-fee-badge sp-fee-badge--unpaid";
+function badgeFor(item: Pick<StudentFeeAssignmentItem, "status" | "feeStatus" | "daysOverdue">) {
+  if (item.status === "PAID") {
+    return { className: "sp-fee-badge sp-fee-badge--paid", label: "Paid" };
+  }
+  if (item.feeStatus === "overdue") {
+    const days = item.daysOverdue ?? 0;
+    return {
+      className: "sp-fee-badge sp-fee-badge--overdue",
+      label: days > 0 ? `Overdue by ${days} day${days === 1 ? "" : "s"}` : "Overdue"
+    };
+  }
+  if (item.status === "PARTIAL") {
+    return { className: "sp-fee-badge sp-fee-badge--partial", label: "Partial" };
+  }
+  return { className: "sp-fee-badge sp-fee-badge--pending", label: "Pending" };
 }
 
 export function StudentFeeBreakdownRowActions({ item, view }: Props) {
@@ -119,8 +124,9 @@ export function StudentFeeBreakdownRowActions({ item, view }: Props) {
   );
 }
 
-export function StudentFeeBreakdownStatusBadge({ status }: { status: StudentFeeAssignmentItem["status"] }) {
-  return <span className={statusClass(status)}>{statusLabel(status)}</span>;
+export function StudentFeeBreakdownStatusBadge({ item }: { item: StudentFeeAssignmentItem }) {
+  const badge = badgeFor(item);
+  return <span className={badge.className}>{badge.label}</span>;
 }
 
 export function StudentFeeBreakdownAmount({ item }: { item: StudentFeeAssignmentItem }) {

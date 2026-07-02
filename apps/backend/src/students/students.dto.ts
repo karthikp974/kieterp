@@ -32,13 +32,23 @@ export class CreateStudentDto {
   @MaxLength(120)
   fatherName!: string;
 
+  @IsOptional() @IsString() @MaxLength(120) village?: string;
+  @IsOptional() @IsString() @MaxLength(120) mandal?: string;
+  @IsOptional() @IsString() @MaxLength(120) district?: string;
+  @IsOptional() @IsString() @MaxLength(120) state?: string;
+  @IsOptional() @IsString() @MaxLength(20) pincode?: string;
+  @IsOptional() @IsString() @MaxLength(250) homeAddress?: string;
+
   @IsOptional()
   @IsString()
-  @MinLength(8)
+  @MinLength(1)
   password?: string;
 
+  // Optional at the DTO layer so teacher-scoped creates can default it from the
+  // section's campus. StudentsService.create still rejects a missing campus.
+  @IsOptional()
   @IsString()
-  campusId!: string;
+  campusId?: string;
 
   @IsOptional()
   @IsString()
@@ -97,6 +107,13 @@ export class UpdateStudentDto {
   @MaxLength(50)
   rollNumber?: string;
 
+  @IsOptional() @IsString() @MaxLength(120) village?: string;
+  @IsOptional() @IsString() @MaxLength(120) mandal?: string;
+  @IsOptional() @IsString() @MaxLength(120) district?: string;
+  @IsOptional() @IsString() @MaxLength(120) state?: string;
+  @IsOptional() @IsString() @MaxLength(20) pincode?: string;
+  @IsOptional() @IsString() @MaxLength(250) homeAddress?: string;
+
   @IsOptional()
   @IsString()
   campusId?: string;
@@ -142,7 +159,7 @@ export class BulkCreateStudentsDto {
 
 export class ResetStudentPasswordDto {
   @IsString()
-  @MinLength(8)
+  @MinLength(1)
   password!: string;
 }
 

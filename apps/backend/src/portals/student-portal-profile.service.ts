@@ -36,6 +36,12 @@ export class StudentPortalProfileService {
     if (dto.address !== undefined) {
       studentData.address = dto.address.trim() || null;
     }
+    if (dto.village !== undefined) studentData.village = dto.village.trim() || null;
+    if (dto.mandal !== undefined) studentData.mandal = dto.mandal.trim() || null;
+    if (dto.district !== undefined) studentData.district = dto.district.trim() || null;
+    if (dto.state !== undefined) studentData.state = dto.state.trim() || null;
+    if (dto.pincode !== undefined) studentData.pincode = dto.pincode.trim() || null;
+    if (dto.homeAddress !== undefined) studentData.homeAddress = dto.homeAddress.trim() || null;
 
     if (Object.keys(userData).length) {
       await this.prisma.user.update({ where: { id: user.id }, data: userData });
@@ -123,7 +129,13 @@ export class StudentPortalProfileService {
         email: student.user.email,
         phone: student.user.phone ?? "",
         guardianName: student.guardianName ?? "",
-        address: student.address ?? ""
+        address: student.address ?? "",
+        village: student.village ?? "",
+        mandal: student.mandal ?? "",
+        district: student.district ?? "",
+        state: student.state ?? "",
+        pincode: student.pincode ?? "",
+        homeAddress: student.homeAddress ?? ""
       },
       academic: {
         campus: { name: campus.name, code: campus.code },
@@ -140,6 +152,12 @@ export class StudentPortalProfileService {
         dateOfBirth: true,
         guardianName: true,
         address: true,
+        village: true,
+        mandal: true,
+        district: true,
+        state: true,
+        pincode: true,
+        homeAddress: true,
         avatar: true,
         fullName: false,
         rollNumber: false,

@@ -4,7 +4,7 @@ import { AuthSessionStatus, Prisma, StructureStatus, UserStatus, UserType } from
 import bcrypt from "bcrypt";
 import { AuthUser } from "../auth/auth.types";
 import { toPagination } from "../common/pagination.dto";
-import { CampusScopeService } from "../permissions/campus-scope.service";
+import { CampusScopeService, isInstitutionWideAdmin } from "../permissions/campus-scope.service";
 import { SharedGroupAcademicService } from "../permissions/shared-group-academic.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { QueueService } from "../queues/queues.module";
@@ -24,12 +24,12 @@ export class StudentsService {
     private readonly queues: QueueService
   ) {}
 
-  async list(query: StudentListQueryDto, user: AuthUser) {
+  async list(query: StudentListQueryDto, user: AuthUser, scopeWhere: Prisma.StudentProfileWhereInput = {}) {
     const pagination = toPagination(query);
     if (query.campusId) {
       await this.campusScope.assertCampusAllowed(user, query.campusId);
     }
-    const where: Prisma.StudentProfileWhereInput = {
+    const baseWhere: Prisma.StudentProfileWhereInput = {
       isArchived: false,
       currentStatus: query.status ?? UserStatus.ACTIVE,
       sectionId: query.sectionId,
@@ -47,12 +47,17 @@ export class StudentsService {
           }
         : {})
     };
+    // Extra scope (e.g. teacher section restriction) is ANDed so it never collides with the search OR.
+    const where: Prisma.StudentProfileWhereInput = Object.keys(scopeWhere).length
+      ? { AND: [baseWhere, scopeWhere] }
+      : baseWhere;
 
     const [items, total] = await Promise.all([
       this.prisma.studentProfile.findMany({
         where,
         include: {
           user: { include: { campus: true } },
+          createdBy: { select: { id: true, fullName: true, username: true, type: true } },
           section: { include: { class: { include: { batch: { include: { branch: { include: { program: { include: { campus: true } } } } } } } } } }
         },
         orderBy: { createdAt: "desc" },
@@ -71,10 +76,15 @@ export class StudentsService {
 
   async get(id: string, user: AuthUser) {
     await this.campusScope.assertStudentInScope(user, id);
+    return this.getById(id);
+  }
+
+  async getById(id: string) {
     const student = await this.prisma.studentProfile.findUnique({
       where: { id },
       include: {
         user: true,
+        createdBy: { select: { id: true, fullName: true, username: true, type: true } },
         section: { include: { class: { include: { batch: { include: { branch: { include: { program: { include: { campus: true } } } } } } } } } }
       }
     });
@@ -82,7 +92,7 @@ export class StudentsService {
     return { student: this.toStudentObject(student) };
   }
 
-  async create(dto: CreateStudentDto) {
+  async create(dto: CreateStudentDto, actor?: AuthUser) {
     const section = await this.getSectionWithCampus(dto.sectionId);
     await this.validateRequestedStructure(section, dto);
     const operationalCampusId = dto.campusId?.trim();
@@ -114,16 +124,27 @@ export class StudentsService {
             rollNumber,
             dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : undefined,
             fatherName: dto.fatherName.trim(),
-            currentStatus: UserStatus.ACTIVE
+            village: dto.village?.trim() || undefined,
+            mandal: dto.mandal?.trim() || undefined,
+            district: dto.district?.trim() || undefined,
+            state: dto.state?.trim() || undefined,
+            pincode: dto.pincode?.trim() || undefined,
+            homeAddress: dto.homeAddress?.trim() || undefined,
+            currentStatus: UserStatus.ACTIVE,
+            createdById: actor?.id
           },
           include: {
             user: true,
+            createdBy: { select: { id: true, fullName: true, username: true, type: true } },
             section: { include: { class: { include: { batch: { include: { branch: { include: { program: { include: { campus: true } } } } } } } } } }
           }
         });
       });
 
-      await this.logAudit("CREATE_STUDENT", "StudentProfile", student.id, { rollNumber });
+      await this.logAudit("CREATE_STUDENT", "StudentProfile", student.id, {
+        rollNumber,
+        ...(actor ? { createdById: actor.id } : {})
+      });
       return { student: this.toStudentObject(student) };
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
@@ -170,6 +191,12 @@ export class StudentsService {
             rollNumber: dto.rollNumber ? normalizeRollNumber(dto.rollNumber) : undefined,
             dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : undefined,
             fatherName: dto.fatherName !== undefined ? dto.fatherName.trim() || null : undefined,
+            village: dto.village !== undefined ? dto.village.trim() || null : undefined,
+            mandal: dto.mandal !== undefined ? dto.mandal.trim() || null : undefined,
+            district: dto.district !== undefined ? dto.district.trim() || null : undefined,
+            state: dto.state !== undefined ? dto.state.trim() || null : undefined,
+            pincode: dto.pincode !== undefined ? dto.pincode.trim() || null : undefined,
+            homeAddress: dto.homeAddress !== undefined ? dto.homeAddress.trim() || null : undefined,
             sectionId: dto.sectionId,
             currentStatus: dto.status
           },
@@ -269,26 +296,33 @@ export class StudentsService {
     return { job: this.toImportJobObject(job) };
   }
 
-  async getImportJob(jobId: string) {
+  async getImportJob(jobId: string, user: AuthUser) {
     const job = await this.prisma.backgroundJobRecord.findFirst({
       where: { id: jobId, jobName: STUDENT_BULK_IMPORT_JOB }
     });
     if (!job) throw new NotFoundException("Import job not found.");
+    // BackgroundJobRecord has no campus column; a scoped admin may only read a job
+    // they themselves queued (its results contain student roll numbers).
+    if (!isInstitutionWideAdmin(user)) {
+      const requestedById = (job.payload as { requestedById?: string } | null)?.requestedById;
+      if (requestedById !== user.id) throw new NotFoundException("Import job not found.");
+    }
     return { job: this.toImportJobObject(job) };
   }
 
   /** Worker-side executor (called by SystemProcessor). Creates students one-by-one with live progress. */
-  async executeBulkImport(jobId: string, students: CreateStudentDto[]) {
+  async executeBulkImport(jobId: string, students: CreateStudentDto[], requestedById?: string) {
     const total = students.length;
     const created: string[] = [];
     const errors: { rollNumber: string; message: string }[] = [];
+    const actor = requestedById ? ({ id: requestedById } as AuthUser) : undefined;
 
     await this.writeBulkImportProgress(jobId, { phase: "importing", processed: 0, total, percent: total ? 8 : 100 });
 
     let processed = 0;
     for (const student of students) {
       try {
-        const result = await this.create(student);
+        const result = await this.create(student, actor);
         created.push(result.student.id);
       } catch (error) {
         errors.push({
@@ -393,6 +427,7 @@ export class StudentsService {
     dateOfBirth: Date | null;
     fatherName: string | null;
     currentStatus: UserStatus;
+    createdBy?: { id: string; fullName: string; username: string | null; type: UserType } | null;
     user: {
       id: string;
       fullName: string;
@@ -425,6 +460,14 @@ export class StudentsService {
         rollNumber: student.rollNumber,
         status: student.currentStatus
       },
+      createdBy: student.createdBy
+        ? {
+            id: student.createdBy.id,
+            fullName: student.createdBy.fullName,
+            username: student.createdBy.username,
+            type: student.createdBy.type
+          }
+        : null,
       structure: {
         currentSectionId: student.section.id,
         campus: student.user.campus ?? student.section.class.batch.branch.program.campus,

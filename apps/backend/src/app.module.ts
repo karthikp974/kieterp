@@ -1,9 +1,11 @@
 import { BullModule } from "@nestjs/bullmq";
 import { Module } from "@nestjs/common";
-import { APP_INTERCEPTOR } from "@nestjs/core";
+import { APP_GUARD, APP_INTERCEPTOR } from "@nestjs/core";
+import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 import { AnnouncementsModule } from "./announcements/announcements.module";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { AuditContextInterceptor } from "./common/audit-context.interceptor";
+import { CacheModule } from "./cache/cache.module";
 import { AuditLogPatchService } from "./common/audit-log-patch.service";
 import { ApplicationsModule } from "./applications/applications.module";
 import { AuditModule } from "./audit/audit.module";
@@ -36,6 +38,10 @@ import { HealthController, ApiRootController } from "./health.controller";
   controllers: [ApiRootController, HealthController],
   imports: [
     ConfigModule.forRoot({ isGlobal: true, envFilePath: [".env", "../../.env"] }),
+    // Global rate limit: 100 requests/min/IP. Auth routes override this with
+    // tighter limits via @Throttle. In-memory store = per-instance; switch to a
+    // Redis throttler store if you run multiple instances and need shared counts.
+    ThrottlerModule.forRoot([{ name: "default", ttl: 60_000, limit: 100 }]),
     BullModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
@@ -46,6 +52,7 @@ import { HealthController, ApiRootController } from "./health.controller";
       })
     }),
     PrismaModule,
+    CacheModule,
     PermissionsModule,
     AnnouncementsModule,
     ApplicationsModule,
@@ -74,6 +81,7 @@ import { HealthController, ApiRootController } from "./health.controller";
   ],
   providers: [
     AuditLogPatchService,
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_INTERCEPTOR, useClass: AuditContextInterceptor }
   ]
 })

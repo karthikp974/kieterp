@@ -2,6 +2,8 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Prisma, StructureStatus } from "@prisma/client";
 import { toPagination } from "../common/pagination.dto";
 import { normalizeCode, normalizeName } from "../core/structure.util";
+import { AuthUser } from "../auth/auth.types";
+import { CampusScopeService } from "../permissions/campus-scope.service";
 import { SharedGroupAcademicService } from "../permissions/shared-group-academic.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { CreateSubjectModuleDto, SubjectSearchQueryDto, UpdateSubjectModuleDto } from "./subjects.dto";
@@ -10,6 +12,7 @@ import { CreateSubjectModuleDto, SubjectSearchQueryDto, UpdateSubjectModuleDto }
 export class SubjectsService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly campusScope: CampusScopeService,
     private readonly sharedGroup: SharedGroupAcademicService
   ) {}
 
@@ -69,8 +72,9 @@ export class SubjectsService {
     return this.subjectResponse(created);
   }
 
-  async update(id: string, dto: UpdateSubjectModuleDto) {
-    await this.ensureSubject(id);
+  async update(id: string, dto: UpdateSubjectModuleDto, user: AuthUser) {
+    const subject = await this.ensureSubject(id);
+    await this.campusScope.assertBranchInScope(user, subject.branchId);
     const code = dto.subjectCode ? normalizeCode(dto.subjectCode) : undefined;
     if (code) await this.ensureSubjectCodeAvailable(code, id);
     const updated = await this.safeWrite(() =>
@@ -87,8 +91,9 @@ export class SubjectsService {
     return this.subjectResponse(updated);
   }
 
-  async archive(id: string) {
-    await this.ensureSubject(id);
+  async archive(id: string, user: AuthUser) {
+    const subject = await this.ensureSubject(id);
+    await this.campusScope.assertBranchInScope(user, subject.branchId);
     const archivedAt = new Date();
     const archived = await this.prisma.$transaction(async (tx) => {
       await tx.sectionSubjectAssignment.updateMany({ where: { subjectId: id, isActive: true }, data: { isActive: false } });

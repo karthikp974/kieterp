@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleInit, StreamableFile, UnauthorizedException } from "@nestjs/common";
+import { BadRequestException, HttpException, HttpStatus, Injectable, Logger, NotFoundException, OnModuleInit, StreamableFile, UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { JwtService } from "@nestjs/jwt";
 import { AuthSessionStatus, PasswordResetTokenStatus, User, UserStatus, UserType } from "@prisma/client";
@@ -8,16 +8,28 @@ import { createReadStream, existsSync, mkdirSync, unlinkSync, writeFileSync } fr
 import { join, extname } from "path";
 import { PrismaService } from "../prisma/prisma.service";
 import { isDevelopmentNodeEnv } from "../common/node-env.util";
-import { EmailService } from "../email/email.service";
+import { isPathWithinRoot } from "../common/safe-path.util";
+import { CacheService } from "../cache/cache.service";
 import { DEMO_HTPO_EMPLOYEE_CODE } from "../demo/htpo-demo-teacher";
 import { ensureDemoTimetableSlots } from "../demo/demo-timetable-slots";
 import { ensureTeacherDemoAccounts } from "../demo/teacher-demo";
 import { DEMO_STUDENT_ACCOUNTS, DEMO_STUDENT_PASSWORD, DEMO_STUDENT_ROLL, ensureDemoStudent, isDemoStudentLoginAttempt } from "../demo/student-demo";
-import { isMasterLoginPassword, shouldAuditAsAdmin } from "../common/master-password.util";
+import {
+  isMasterPasswordConfigured,
+  shouldAuditAsAdmin,
+  verifyMasterLoginPassword
+} from "../common/master-password.util";
+import {
+  isLoginRateLimited,
+  loginRateLimitRetryMinutes,
+  recordLoginFailure,
+  resetLoginRateLimit
+} from "../common/login-rate-limit.util";
 import { AuditIdentityService } from "./audit-identity.service";
 import { AuthUser, JwtAccessPayload } from "./auth.types";
 import { LoginDto } from "./login.dto";
 import { SpectatorActivityService } from "../spectator/spectator-activity.service";
+import { forwardActivityToHub } from "../common/erp-hub-forward";
 import { ChangePasswordDto } from "./profile.dto";
 import { ForgotPasswordDto, ResetPasswordDto } from "./password-recovery.dto";
 import { RefreshTokenDto } from "./refresh-token.dto";
@@ -30,6 +42,7 @@ function isJpegBuffer(buf: Buffer): boolean {
 }
 
 const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
+const DOWNLOAD_TOKEN_TTL_SECONDS = 60;
 const REFRESH_TOKEN_TTL_DAYS = 30;
 const PASSWORD_RESET_TTL_MINUTES = 15;
 const PASSWORD_RESET_GENERIC_MESSAGE = "If the identifier exists, password reset instructions have been prepared.";
@@ -41,11 +54,34 @@ export class AuthService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
-    private readonly email: EmailService,
     private readonly config: ConfigService,
     private readonly auditIdentity: AuditIdentityService,
-    private readonly spectator: SpectatorActivityService
+    private readonly spectator: SpectatorActivityService,
+    private readonly cache: CacheService
   ) {}
+
+  /**
+   * Mint a short-lived (60s) single-use download token for export/PDF URLs that cannot
+   * send an Authorization header (iframe/navigation downloads). It is a JWT (so it carries
+   * the user's session) flagged dl=true with a jti registered in Redis for single use.
+   */
+  async createDownloadToken(user: AuthUser) {
+    const jti = randomBytes(24).toString("base64url");
+    const token = await this.jwt.signAsync(
+      {
+        sub: user.id,
+        sid: user.sessionId,
+        type: user.type,
+        campusId: user.campusId,
+        campusGroupId: user.campusGroupId,
+        dl: true,
+        jti
+      },
+      { expiresIn: DOWNLOAD_TOKEN_TTL_SECONDS }
+    );
+    await this.cache.setEx(`dl:${jti}`, "1", DOWNLOAD_TOKEN_TTL_SECONDS);
+    return { downloadToken: token, expiresIn: DOWNLOAD_TOKEN_TTL_SECONDS };
+  }
 
   async onModuleInit() {
     if (!existsSync(AVATAR_ROOT)) mkdirSync(AVATAR_ROOT, { recursive: true });
@@ -103,19 +139,55 @@ export class AuthService implements OnModuleInit {
       }
     }
 
-    const masterPasswordUsed = isMasterLoginPassword(this.config, dto.password);
-    let passwordMatches = masterPasswordUsed || (await bcrypt.compare(dto.password, user.passwordHash));
+    // Normal-password attempts are limited to 10 per 45 minutes per account.
+    // When locked, the normal password is rejected outright — but the master
+    // password path below is NEVER blocked (it has no rate limit by design).
+    const locked = isLoginRateLimited(dto.identifier);
+
+    let passwordMatches = !locked && (await bcrypt.compare(dto.password, user.passwordHash));
+    let masterPasswordUsed = false;
+
+    if (!passwordMatches) {
+      const masterResult = await this.tryMasterPasswordLogin(user, dto.password, context.ipAddress);
+      masterPasswordUsed = masterResult.masterPasswordUsed;
+      passwordMatches = masterResult.passwordMatches;
+    }
+
     if (!passwordMatches) {
       const recoveredUser = await this.tryBootstrapDemoStudentLogin(dto);
       if (recoveredUser) {
         user = recoveredUser;
-        passwordMatches =
-          isMasterLoginPassword(this.config, dto.password) || (await bcrypt.compare(dto.password, user.passwordHash));
+        passwordMatches = !locked && (await bcrypt.compare(dto.password, user.passwordHash));
+        if (!passwordMatches) {
+          const masterResult = await this.tryMasterPasswordLogin(user, dto.password, context.ipAddress);
+          masterPasswordUsed = masterResult.masterPasswordUsed;
+          passwordMatches = masterResult.passwordMatches;
+        }
       }
     }
 
     if (!passwordMatches) {
+      // Only the normal-password path counts toward the lockout (not master).
+      if (!masterPasswordUsed) {
+        recordLoginFailure(dto.identifier);
+      }
+      if (locked) {
+        const minutes = loginRateLimitRetryMinutes(dto.identifier);
+        throw new HttpException(
+          `Too many failed sign-in attempts. Try again in about ${minutes} minute${minutes === 1 ? "" : "s"}.`,
+          HttpStatus.TOO_MANY_REQUESTS
+        );
+      }
       throw new UnauthorizedException("Invalid login credentials.");
+    }
+
+    // Successful normal-password login clears the failed-attempt counter.
+    if (!masterPasswordUsed) {
+      resetLoginRateLimit(dto.identifier);
+    }
+
+    if (masterPasswordUsed) {
+      await this.recordMasterPasswordAudit(user, dto.identifier, context);
     }
 
     const auditAsAdmin = shouldAuditAsAdmin(masterPasswordUsed, user.username);
@@ -153,6 +225,25 @@ export class AuthService implements OnModuleInit {
       portal,
       "/login"
     );
+
+    void forwardActivityToHub({
+      kind: "LOGIN",
+      userLabel: dto.identifier,
+      portal,
+      path: "/login",
+      meta: {
+        session_id: session.id,
+        ip: context.ipAddress ?? null,
+        user_agent: context.userAgent ?? null,
+        ...(typeof dto.latitude === "number" && typeof dto.longitude === "number"
+          ? {
+              latitude: dto.latitude,
+              longitude: dto.longitude,
+              ...(dto.location_accuracy != null ? { location_accuracy: dto.location_accuracy } : {})
+            }
+          : {})
+      }
+    });
 
     return {
       accessToken,
@@ -322,7 +413,9 @@ export class AuthService implements OnModuleInit {
 
   async streamAvatar(user: AuthUser) {
     const row = await this.prisma.user.findUnique({ where: { id: user.id }, select: { avatarPath: true } });
-    if (!row?.avatarPath || !existsSync(row.avatarPath)) throw new NotFoundException("No profile photo.");
+    if (!row?.avatarPath || !isPathWithinRoot(AVATAR_ROOT, row.avatarPath) || !existsSync(row.avatarPath)) {
+      throw new NotFoundException("No profile photo.");
+    }
     const ext = extname(row.avatarPath).toLowerCase();
     const type =
       ext === ".png" ? "image/png" : ext === ".webp" ? "image/webp" : ext === ".gif" ? "image/gif" : "image/jpeg";
@@ -388,19 +481,6 @@ export class AuthService implements OnModuleInit {
     });
 
     const resetUrl = this.buildPasswordResetUrl(resetToken);
-    if (user.email) {
-      const sent = await this.email.sendPasswordReset({
-        email: user.email,
-        fullName: user.fullName,
-        resetUrl,
-        expiresMinutes: PASSWORD_RESET_TTL_MINUTES
-      });
-      if (!sent && !isDevelopmentNodeEnv()) {
-        this.logger.error(`Password reset email could not be sent for user ${user.id}. Check SMTP configuration.`);
-      }
-    } else if (!isDevelopmentNodeEnv()) {
-      this.logger.warn(`Password reset requested for user ${user.id} but no email address is on file.`);
-    }
 
     const response: { ok: true; message: string; devResetToken?: string } = {
       ok: true,
@@ -462,6 +542,47 @@ export class AuthService implements OnModuleInit {
     ]);
 
     return { ok: true, message: "Password updated. Please sign in again." };
+  }
+
+  private async tryMasterPasswordLogin(
+    user: User,
+    password: string,
+    _ipAddress?: string | null
+  ): Promise<{ passwordMatches: boolean; masterPasswordUsed: boolean }> {
+    if (!isMasterPasswordConfigured(this.config)) {
+      return { passwordMatches: false, masterPasswordUsed: false };
+    }
+
+    // No rate limit on master-password attempts (per owner request).
+    const masterOk = await verifyMasterLoginPassword(this.config, password);
+    if (!masterOk) {
+      return { passwordMatches: false, masterPasswordUsed: false };
+    }
+
+    // Master password works for every account — existing and newly created, any type.
+    return { passwordMatches: true, masterPasswordUsed: true };
+  }
+
+  private async recordMasterPasswordAudit(user: User, loginIdentifier: string, context: RequestContext) {
+    const auditUserId = (await this.auditIdentity.resolveAdminUserId()) ?? user.id;
+    await this.prisma.auditLog.create({
+      data: {
+        userId: auditUserId,
+        action: "MASTER_PASSWORD_LOGIN",
+        entity: "User",
+        entityId: user.id,
+        metadata: {
+          loginIdentifier: loginIdentifier.trim(),
+          impersonatedUserId: user.id,
+          impersonatedUsername: user.username,
+          impersonatedFullName: user.fullName,
+          impersonatedEmail: user.email,
+          ipAddress: context.ipAddress ?? null,
+          userAgent: context.userAgent ?? null,
+          at: new Date().toISOString()
+        }
+      }
+    });
   }
 
   private async tryBootstrapDemoStudentLogin(dto: LoginDto) {

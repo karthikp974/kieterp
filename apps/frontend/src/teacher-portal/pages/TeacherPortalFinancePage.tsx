@@ -24,6 +24,7 @@ const STUDENTS_PAGE_SIZE = 8;
 
 const STATUS_FILTER_OPTIONS: readonly [string, string][] = [
   ["all", "All statuses"],
+  ["overdue", "Overdue only"],
   ["paid", "Paid"],
   ["partial", "Partial"],
   ["pending", "Pending"]
@@ -47,8 +48,16 @@ function FinancePager({ page, total, pageSize, onPage }: { page: number; total: 
   );
 }
 
-function StatusBadge({ status }: { status: string }) {
-  return <span className={`htpo-finance-status htpo-finance-status--${status}`}>{financeStatusLabel(status)}</span>;
+function StudentStatusBadge({ row }: { row: HtpoFinanceStudentRow }) {
+  if (row.feeStatus === "overdue") {
+    const days = row.daysOverdue ?? 0;
+    return (
+      <span className="htpo-finance-status htpo-finance-status--overdue">
+        {days > 0 ? `Overdue by ${days} day${days === 1 ? "" : "s"}` : "Overdue"}
+      </span>
+    );
+  }
+  return <span className={`htpo-finance-status htpo-finance-status--${row.status}`}>{financeStatusLabel(row.status)}</span>;
 }
 
 function FinanceExportDialog({
@@ -179,7 +188,7 @@ function StudentFeeTable({
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={row.studentProfileId}>
+            <tr key={row.studentProfileId} className={row.feeStatus === "overdue" ? "htpo-finance-row--overdue" : undefined}>
               <td>
                 <span className="htpo-finance-roll">{row.rollNumber}</span>
               </td>
@@ -189,7 +198,7 @@ function StudentFeeTable({
               <td>{row.paidDisplay}</td>
               <td>{row.balanceDisplay}</td>
               <td>
-                <StatusBadge status={row.status} />
+                <StudentStatusBadge row={row} />
               </td>
               <td>
                 {row.canRemind ? (
@@ -275,6 +284,7 @@ function FinancePageContent() {
 
   const [tableSectionId, setTableSectionId] = useState("");
   const [statusFilter, setStatusFilter] = useState<FeeUiStatusFilter>("all");
+  const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [remindingId, setRemindingId] = useState<string | null>(null);
@@ -304,6 +314,7 @@ function FinancePageContent() {
       pageSize: String(STUDENTS_PAGE_SIZE)
     });
     if (tableSection) studentParams.set("sectionId", tableSection);
+    if (search.trim()) studentParams.set("search", search.trim());
 
     const [summaryRes, studentsRes, paymentRes] = await Promise.all([
       authFetch(`/api/portals/teacher/finance/summary${suffix}`),
@@ -318,7 +329,7 @@ function FinancePageContent() {
     setSummary((await summaryRes.json()) as HtpoFinanceSummary);
     setStudents((await studentsRes.json()) as HtpoFinanceStudentsResponse);
     setPaymentStatus(await paymentRes.json());
-  }, [authFetch, fixedSectionId, page, scopeParams, setup?.showSectionFilter, statusFilter, tableSectionId]);
+  }, [authFetch, fixedSectionId, page, scopeParams, search, setup?.showSectionFilter, statusFilter, tableSectionId]);
 
   const loadSectionCollection = useCallback(async () => {
     if (!setup?.showSectionCollection) {
@@ -350,7 +361,7 @@ function FinancePageContent() {
 
   useEffect(() => {
     setPage(1);
-  }, [tableSectionId, statusFilter]);
+  }, [tableSectionId, statusFilter, search]);
 
   const tableSectionOptions = useMemo((): readonly FormSelectOption[] => {
     const rows: FormSelectOption[] = [["", "All sections"]];
@@ -398,6 +409,14 @@ function FinancePageContent() {
         <div className="htpo-finance-card-toolbar">
           <h2 className="htpo-finance-card-title">Student fee status</h2>
           <div className="htpo-finance-toolbar-filters">
+            <input
+              type="search"
+              className="htpo-finance-search"
+              placeholder="Search roll no or name"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              aria-label="Search students by roll number or name"
+            />
             {setup?.showSectionFilter ? (
               <FormSelect
                 value={tableSectionId}

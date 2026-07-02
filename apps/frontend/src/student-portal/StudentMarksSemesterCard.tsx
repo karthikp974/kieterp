@@ -1,15 +1,8 @@
-import type { MarksSemesterBlock, ResultLine } from "./student-marks-types";
+import type { MarksSemesterBlock } from "./student-marks-types";
 
 function fmtNum(n: number | null) {
   if (n === null) return "—";
   return Number.isInteger(n) ? String(n) : String(n);
-}
-
-function StatusBadge({ status }: { status: ResultLine["status"] }) {
-  const cls =
-    status === "PASS" ? "sp-marks-badge sp-marks-badge--ok" : status === "FAIL" ? "sp-marks-badge sp-marks-badge--bad" : "sp-marks-badge sp-marks-badge--muted";
-  const label = status === "PASS" ? "Pass" : status === "FAIL" ? "Fail" : status === "ABSENT" ? "Absent" : "Withheld";
-  return <span className={cls}>{label}</span>;
 }
 
 type Props = {
@@ -70,38 +63,28 @@ export function StudentMarksSemesterCard({ semester, pdfBusy, onDownloadPdf }: P
           </caption>
           <thead>
             <tr>
-              <th>Exam</th>
               <th>Code</th>
               <th>Subject</th>
-              <th>Internal</th>
-              <th>External</th>
-              <th>Total</th>
+              <th>Internals</th>
               <th>Grade</th>
-              <th>Credits</th>
-              <th>Status</th>
+              <th>Credit</th>
             </tr>
           </thead>
           <tbody>
             {!semester.subjects.length ? (
               <tr>
-                <td colSpan={9} className="sp-marks-table-empty">
+                <td colSpan={5} className="sp-marks-table-empty">
                   No subject results published for this semester yet.
                 </td>
               </tr>
             ) : (
               semester.subjects.map((row) => (
                 <tr key={row.id}>
-                  <td className="sp-marks-td-exam">{row.examType}</td>
                   <td>{row.subjectCode}</td>
                   <td className="sp-marks-td-subj">{row.subjectName}</td>
                   <td>{fmtNum(row.internals)}</td>
-                  <td>{fmtNum(row.externals)}</td>
-                  <td>{fmtNum(row.totalMarks)}</td>
                   <td>{row.grade ?? "—"}</td>
                   <td>{fmtNum(row.credits)}</td>
-                  <td>
-                    <StatusBadge status={row.status} />
-                  </td>
                 </tr>
               ))
             )}

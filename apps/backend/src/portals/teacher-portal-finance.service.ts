@@ -17,6 +17,7 @@ import {
 } from "@prisma/client";
 import { Response } from "express";
 import { AuthUser } from "../auth/auth.types";
+import { computeFeeOverdue, type FeeOverdueStatus } from "../common/fee-overdue.util";
 import { toPagination } from "../common/pagination.dto";
 import { sendTabularExport } from "../common/tabular-export.util";
 import { PermissionsService } from "../permissions/permissions.service";
@@ -54,6 +55,10 @@ type StudentFeeAggregate = {
   paidRupees: number;
   balanceRupees: number;
   status: FeeUiStatus;
+  /** Computed on read: "paid" | "pending" | "overdue" (overdue if any unpaid fee is past due). */
+  feeStatus: FeeOverdueStatus;
+  /** Worst (max) days overdue across the student's unpaid fees; 0 unless overdue. */
+  daysOverdue: number;
 };
 
 @Injectable()
@@ -215,8 +220,20 @@ export class TeacherPortalFinanceService {
   async listStudentFeeStatus(user: AuthUser, query: TeacherFinanceStudentsQueryDto) {
     const ctx = await this.resolveContext(user, query.sectionId);
     let aggregates = await this.loadStudentAggregates(ctx.sectionIds);
-    if (query.status && query.status !== "all") {
+
+    // "overdue" filters on the computed status; paid/partial/pending on the base status.
+    if (query.status === "overdue") {
+      aggregates = aggregates.filter((row) => row.feeStatus === "overdue");
+    } else if (query.status && query.status !== "all") {
       aggregates = aggregates.filter((row) => row.status === query.status);
+    }
+
+    // Search by roll number or name — only over the already scope-bounded students.
+    const search = query.search?.trim().toLowerCase();
+    if (search) {
+      aggregates = aggregates.filter(
+        (row) => row.rollNumber.toLowerCase().includes(search) || row.fullName.toLowerCase().includes(search)
+      );
     }
 
     const pagination = toPagination({ ...query, pageSize: query.pageSize ?? 8 });
@@ -236,6 +253,8 @@ export class TeacherPortalFinanceService {
         paidDisplay: formatInrFull(row.paidRupees),
         balanceDisplay: formatInrFull(row.balanceRupees),
         status: row.status,
+        feeStatus: row.feeStatus,
+        daysOverdue: row.daysOverdue,
         canRemind: row.status === "pending" || row.status === "partial"
       })),
       total,
@@ -300,7 +319,9 @@ export class TeacherPortalFinanceService {
   async exportStudentFeeStatus(user: AuthUser, query: TeacherFinanceExportQueryDto, response: Response) {
     const ctx = await this.resolveContext(user, query.sectionId);
     let aggregates = await this.loadStudentAggregates(ctx.sectionIds);
-    if (query.status && query.status !== "all") {
+    if (query.status === "overdue") {
+      aggregates = aggregates.filter((row) => row.feeStatus === "overdue");
+    } else if (query.status && query.status !== "all") {
       aggregates = aggregates.filter((row) => row.status === query.status);
     }
 
@@ -419,12 +440,16 @@ export class TeacherPortalFinanceService {
     for (const assignment of assignments) {
       const amountRupees = Number(assignment.feeStructure.amount);
       const paidRupees = assignment.payments.reduce((sum, payment) => sum + Number(payment.amount), 0);
+      // Per-fee overdue: this fee's own balance against its own due date.
+      const feeBalance = Math.max(amountRupees - paidRupees, 0);
+      const overdue = computeFeeOverdue(feeBalance, assignment.feeStructure.dueDate);
       const existing = byStudent.get(assignment.studentId);
       if (existing) {
         existing.totalFeeRupees += amountRupees;
         existing.paidRupees += paidRupees;
         existing.balanceRupees = Math.max(existing.totalFeeRupees - existing.paidRupees, 0);
         existing.status = deriveFeeStatus(existing.totalFeeRupees, existing.paidRupees);
+        existing.daysOverdue = Math.max(existing.daysOverdue, overdue.daysOverdue);
       } else {
         const section = assignment.student.section as SectionTree;
         byStudent.set(assignment.studentId, {
@@ -436,9 +461,18 @@ export class TeacherPortalFinanceService {
           totalFeeRupees: amountRupees,
           paidRupees,
           balanceRupees: Math.max(amountRupees - paidRupees, 0),
-          status: deriveFeeStatus(amountRupees, paidRupees)
+          status: deriveFeeStatus(amountRupees, paidRupees),
+          feeStatus: "pending",
+          daysOverdue: overdue.daysOverdue
         });
       }
+    }
+
+    // Roll up the per-student overdue status: paid if nothing outstanding, overdue if any
+    // unpaid fee is past due (daysOverdue > 0), else pending.
+    for (const row of byStudent.values()) {
+      row.feeStatus = row.balanceRupees <= 0 ? "paid" : row.daysOverdue > 0 ? "overdue" : "pending";
+      if (row.feeStatus !== "overdue") row.daysOverdue = 0;
     }
 
     return [...byStudent.values()].sort((a, b) => a.rollNumber.localeCompare(b.rollNumber));

@@ -3,6 +3,8 @@ import { Prisma, TeacherRoleKind, StructureStatus } from "@prisma/client";
 import { Response } from "express";
 import { toPagination } from "../common/pagination.dto";
 import { normalizeCode, normalizeName } from "../core/structure.util";
+import { AuthUser } from "../auth/auth.types";
+import { CampusScopeService } from "../permissions/campus-scope.service";
 import { SharedGroupAcademicService } from "../permissions/shared-group-academic.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { ClassSearchQueryDto, CreateClassDto, CreateSectionsDto, ExportQueryDto, SectionRowDto, SectionSearchQueryDto, UpdateClassDto, UpdateSectionDto } from "./classes-sections.dto";
@@ -11,6 +13,7 @@ import { ClassSearchQueryDto, CreateClassDto, CreateSectionsDto, ExportQueryDto,
 export class ClassesSectionsService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly campusScope: CampusScopeService,
     private readonly sharedGroup: SharedGroupAcademicService
   ) {}
 
@@ -81,8 +84,9 @@ export class ClassesSectionsService {
     return this.classResponse(created);
   }
 
-  async updateClass(id: string, dto: UpdateClassDto) {
+  async updateClass(id: string, dto: UpdateClassDto, user: AuthUser) {
     await this.ensureClass(id);
+    await this.campusScope.assertAcademicClassInScope(user, id);
     const code = dto.code ? normalizeCode(dto.code) : undefined;
     const sections = dto.sections ? this.normalizeSections(dto.sections) : undefined;
     if (code) await this.ensureClassCodeAvailable(code, id);
@@ -121,8 +125,9 @@ export class ClassesSectionsService {
     return this.classResponse(updated);
   }
 
-  async archiveClass(id: string) {
+  async archiveClass(id: string, user: AuthUser) {
     await this.ensureClass(id);
+    await this.campusScope.assertAcademicClassInScope(user, id);
     const archivedAt = new Date();
     const archived = await this.prisma.$transaction(async (tx) => {
       await tx.section.updateMany({ where: { classId: id, isArchived: false }, data: { status: StructureStatus.ARCHIVED, isArchived: true, archivedAt } });
@@ -153,8 +158,9 @@ export class ClassesSectionsService {
     return this.listSections({ classId: dto.classId, page: 1, pageSize: 100 });
   }
 
-  async updateSection(id: string, dto: UpdateSectionDto) {
+  async updateSection(id: string, dto: UpdateSectionDto, user: AuthUser) {
     await this.ensureSection(id);
+    await this.campusScope.assertSectionInScope(user, id);
     const code = dto.code ? normalizeCode(dto.code) : undefined;
     if (code) await this.ensureSectionCodesAvailable([code], [id]);
     const updated = await this.safeWrite(() =>
@@ -168,8 +174,9 @@ export class ClassesSectionsService {
     return this.sectionResponse(updated);
   }
 
-  async archiveSection(id: string) {
+  async archiveSection(id: string, user: AuthUser) {
     await this.ensureSection(id);
+    await this.campusScope.assertSectionInScope(user, id);
     const archived = await this.prisma.section.update({
       where: { id },
       data: { status: StructureStatus.ARCHIVED, isArchived: true, archivedAt: new Date() },
@@ -179,15 +186,16 @@ export class ClassesSectionsService {
     return this.sectionResponse(archived);
   }
 
-  async classDetails(id: string) {
+  async classDetails(id: string, user: AuthUser) {
+    await this.campusScope.assertAcademicClassInScope(user, id);
     const item = await this.prisma.academicClass.findFirst({ where: { id, isArchived: false, status: StructureStatus.ACTIVE }, include: this.classInclude() });
     if (!item) throw new NotFoundException("Class not found.");
     const students = await this.studentsForClass(id);
     return { ...this.classResponse(item), students, teachers: await this.teacherSummary({ classId: id }) };
   }
 
-  async exportClass(id: string, query: ExportQueryDto, response: Response) {
-    const details = await this.classDetails(id);
+  async exportClass(id: string, query: ExportQueryDto, response: Response, user: AuthUser) {
+    const details = await this.classDetails(id, user);
     const rows = details.students.map((student) => [student.fullName, student.rollNumber]);
     const csv = [["Student Name", "Roll Number"], ...rows].map((row) => row.map((cell) => `"${String(cell).replace(/"/g, "\"\"")}"`).join(",")).join("\n");
     const filename = `${details.code || details.name}-students`;

@@ -20,4 +20,11 @@ export class UpdateStudentProfileDto {
   @IsString()
   @MaxLength(500)
   address?: string;
+
+  @IsOptional() @IsString() @MaxLength(120) village?: string;
+  @IsOptional() @IsString() @MaxLength(120) mandal?: string;
+  @IsOptional() @IsString() @MaxLength(120) district?: string;
+  @IsOptional() @IsString() @MaxLength(120) state?: string;
+  @IsOptional() @IsString() @MaxLength(20) pincode?: string;
+  @IsOptional() @IsString() @MaxLength(250) homeAddress?: string;
 }

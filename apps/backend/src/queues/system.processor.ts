@@ -9,10 +9,14 @@ import { PermissionsService } from "../permissions/permissions.service";
 import { studentProfileToScope, studentScopeProfileInclude } from "../permissions/operational-scope.util";
 import { PrismaService } from "../prisma/prisma.service";
 import { ParsedResultRow, parseResultRows } from "../results/result-pdf-parser";
-import { resolveResultSubjectByCode } from "../results/results-subject.util";
+import {
+  loadTeacherResultImportSectionIds,
+  shouldScopeResultImportToTeacherSections
+} from "../results/results-import-scope.util";
+import { resolveResultSubjectByCodeForSemesters } from "../results/results-subject.util";
 import { StudentsService } from "../students/students.service";
 import type { CreateStudentDto } from "../students/students.dto";
-import { RESULT_PDF_IMPORT_JOB, STUDENT_BULK_IMPORT_JOB, SYSTEM_QUEUE } from "./queue.constants";
+import { RESULT_PDF_IMPORT_JOB, SESSION_CLEANUP_JOB, STUDENT_BULK_IMPORT_JOB, SYSTEM_QUEUE } from "./queue.constants";
 import { RESULTS_IMPORT_INTERRUPTED_MESSAGE } from "../results/results-import.constants";
 
 type StudentBulkImportPayload = {
@@ -56,6 +60,11 @@ export class SystemProcessor extends WorkerHost {
   }
 
   async process(job: Job) {
+    // Repeatable housekeeping job has no BackgroundJobRecord — handle before the
+    // import-record machinery below.
+    if (job.name === SESSION_CLEANUP_JOB) {
+      return this.cleanupExpiredSessions();
+    }
     await this.assertImportActive(String(job.id));
     await this.prisma.backgroundJobRecord.updateMany({
       where: { externalId: job.id },
@@ -112,6 +121,14 @@ export class SystemProcessor extends WorkerHost {
     }
   }
 
+  /** Delete AuthSession rows past expiry (cascades to linked rows by schema design). */
+  private async cleanupExpiredSessions() {
+    const { count } = await this.prisma.authSession.deleteMany({
+      where: { expiresAt: { lt: new Date() } }
+    });
+    return { ok: true, deletedSessions: count };
+  }
+
   private async assertImportActive(importJobId: string) {
     const job = await this.prisma.backgroundJobRecord.findUnique({
       where: { id: importJobId },
@@ -157,6 +174,10 @@ export class SystemProcessor extends WorkerHost {
       { parsed: total, imported: 0, skipped: 0 }
     );
 
+    const teacherSectionIds = shouldScopeResultImportToTeacherSections(payload.user)
+      ? await loadTeacherResultImportSectionIds(this.prisma, payload.user.id)
+      : null;
+
     const uniqueRolls = [...new Set(parsedRows.map((row) => row.rollNumber.toUpperCase()))];
     const studentByRoll = new Map<string, ImportStudent>();
     for (let index = 0; index < uniqueRolls.length; index += 400) {
@@ -164,6 +185,7 @@ export class SystemProcessor extends WorkerHost {
       const batch = await this.prisma.studentProfile.findMany({
         where: {
           currentStatus: UserStatus.ACTIVE,
+          ...(teacherSectionIds ? { sectionId: { in: teacherSectionIds.length ? teacherSectionIds : ["__none__"] } } : {}),
           OR: chunk.map((rollNumber) => ({ rollNumber: { equals: rollNumber, mode: "insensitive" as const } }))
         },
         include: studentScopeProfileInclude
@@ -172,10 +194,17 @@ export class SystemProcessor extends WorkerHost {
         studentByRoll.set(student.rollNumber.toUpperCase(), student);
       }
     }
-    const subjectCache = new Map<string, Awaited<ReturnType<typeof resolveResultSubjectByCode>>>();
+    const subjectCache = new Map<string, Awaited<ReturnType<typeof resolveResultSubjectByCodeForSemesters>>>();
     const permissionCache = new Map<string, boolean>();
 
-    const summary = { parsed: total, imported: 0, skipped: 0, errors: [] as string[], importedRollNumbers: [] as string[] };
+    const summary = {
+      parsed: total,
+      imported: 0,
+      skipped: 0,
+      errors: [] as string[],
+      importedRollNumbers: [] as string[],
+      missingRollNumbersFromPdf: [] as string[]
+    };
     let processed = 0;
     let lastProgressWrite = 0;
 
@@ -189,19 +218,34 @@ export class SystemProcessor extends WorkerHost {
         if (!student) {
           summary.skipped += 1;
           if (summary.errors.length < 50) {
-            summary.errors.push(`${row.rollNumber}: student not found or inactive`);
+            summary.errors.push(
+              teacherSectionIds
+                ? `${row.rollNumber}: roll not found in your assigned sections`
+                : `${row.rollNumber}: student not found or inactive`
+            );
           }
         } else {
           const branchId = student.section.class.batch.branchId;
-          const subjectKey = `${branchId}:${row.subjectCode.toUpperCase()}`;
+          const currentSemester = student.section.class.semesterNumber;
+          const allowedSemesters = [currentSemester, currentSemester - 1].filter((sem) => sem >= 1);
+          const subjectKey = `${branchId}:${allowedSemesters.join("-")}:${row.subjectCode.toUpperCase()}`;
           let subject = subjectCache.get(subjectKey);
-          if (!subject) {
-            subject = await resolveResultSubjectByCode(this.prisma, {
+          if (subject === undefined) {
+            subject = await resolveResultSubjectByCodeForSemesters(this.prisma, {
               branchId,
-              subjectCode: row.subjectCode
+              subjectCode: row.subjectCode,
+              semesterNumbers: allowedSemesters
             });
             subjectCache.set(subjectKey, subject);
           }
+          if (!subject) {
+            summary.skipped += 1;
+            if (summary.errors.length < 50) {
+              summary.errors.push(
+                `${row.rollNumber}/${row.subjectCode}: subject not in semester ${allowedSemesters.join(" or ")}`
+              );
+            }
+          } else {
           const semesterNumber = subject.semesterNumber;
 
           const scope = studentProfileToScope(student, subject.id);
@@ -234,7 +278,7 @@ export class SystemProcessor extends WorkerHost {
                 grade: row.grade,
                 credits: row.credits,
                 status: row.status,
-                isPublished: false,
+                isPublished: true,
                 importJobId: recordId,
                 createdById: payload.user.id
               },
@@ -244,12 +288,13 @@ export class SystemProcessor extends WorkerHost {
                 grade: row.grade,
                 credits: row.credits,
                 status: row.status,
-                isPublished: false,
+                isPublished: true,
                 importJobId: recordId
               }
             });
             summary.imported += 1;
             summary.importedRollNumbers.push(student.rollNumber.toUpperCase());
+          }
           }
         }
       } catch (error) {
@@ -282,13 +327,26 @@ export class SystemProcessor extends WorkerHost {
     }
 
     summary.importedRollNumbers = [...new Set(summary.importedRollNumbers)];
-    return { ok: true, originalName: payload.originalName, importJobId: recordId, ...summary, errors: summary.errors.slice(0, 50) };
+    summary.missingRollNumbersFromPdf = uniqueRolls.filter((roll) => !studentByRoll.has(roll)).sort();
+    const publishedCount = await this.prisma.resultEntry.count({ where: { importJobId: recordId, isPublished: true } });
+
+    return {
+      ok: true,
+      originalName: payload.originalName,
+      importJobId: recordId,
+      ...summary,
+      errors: summary.errors.slice(0, 50),
+      publishedCount,
+      autoPublished: true,
+      pushed: true,
+      pushedAt: new Date().toISOString()
+    };
   }
 
   private async processStudentBulkImport(importJobId: string, payload: StudentBulkImportPayload) {
     const recordId = await this.resolveImportRecordId(importJobId);
     await this.assertImportActive(recordId);
-    return this.students.executeBulkImport(recordId, payload.students);
+    return this.students.executeBulkImport(recordId, payload.students, payload.requestedById);
   }
 
   private async resolveImportRecordId(importJobId: string) {

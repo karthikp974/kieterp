@@ -202,7 +202,7 @@ export function StudentManagement() {
   }
 
   async function resetPassword(id: string) {
-    const password = window.prompt("Enter new temporary password, minimum 8 characters");
+    const password = window.prompt("Enter new temporary password");
     if (!password) return;
     await sendJson(`/api/students/${id}/reset-password`, "POST", { password });
     showToast("Student password reset");

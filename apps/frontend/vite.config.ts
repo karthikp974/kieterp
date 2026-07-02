@@ -9,6 +9,11 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd() + "/../..", "");
   const frontendPort = Number(env.FRONTEND_PORT) || 5173;
   const apiTarget = env.DEV_API_PROXY_TARGET || `http://127.0.0.1:${env.BACKEND_PORT || "4000"}`;
+  const previewAllowedHosts = env.PREVIEW_ALLOWED_HOSTS?.split(",")
+    .map((host) => host.trim())
+    .filter(Boolean);
+  const previewHostPolicy =
+    previewAllowedHosts && previewAllowedHosts.length > 0 ? previewAllowedHosts : true;
 
   return {
   plugins: [react()],
@@ -32,6 +37,8 @@ export default defineConfig(({ mode }) => {
     host: "0.0.0.0",
     port: frontendPort,
     strictPort: true,
+    // EC2 / custom domain (kiet.workflowtech.info): allow Host header in Docker preview.
+    allowedHosts: previewHostPolicy,
     proxy: {
       "/api": {
         target: apiTarget,

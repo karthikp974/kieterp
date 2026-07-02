@@ -158,6 +158,11 @@ export function LoginPage() {
           {error ? <p className="login-error">{error}</p> : null}
         </form>
 
+        <p className="login-demo-disclaimer" role="note">
+          The one-click sign-in options below are for <strong>demo and evaluation use only</strong>. In production,
+          please sign in with your assigned roll number or employee code and password using the form above.
+        </p>
+
         <section className="login-demo-groups" aria-label="Demo accounts">
           <div className="login-demo-group">
             <h6 className="login-demo-group-label">Admin</h6>

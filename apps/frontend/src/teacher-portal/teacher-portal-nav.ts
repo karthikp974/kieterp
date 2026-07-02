@@ -9,7 +9,9 @@ import {
   FileSpreadsheet,
   GraduationCap,
   LayoutDashboard,
+  LayoutGrid,
   Megaphone,
+  Search,
   MessageSquare,
   UsersRound
 } from "lucide-react";
@@ -21,6 +23,9 @@ export const TEACHER_MODULE_ICONS: Record<TeacherPortalModuleKey, LucideIcon> = 
   timetable: Calendar,
   results: GraduationCap,
   teams: UsersRound,
+  students: GraduationCap,
+  student_search: Search,
+  section_overview: LayoutGrid,
   subjects: BookOpen,
   syllabus: BookMarked,
   syllabus_progress: ClipboardCheck,
@@ -35,7 +40,7 @@ export const TEACHER_MODULE_ICONS: Record<TeacherPortalModuleKey, LucideIcon> = 
 export const TEACHER_NAV_SECTIONS: Record<string, TeacherPortalModuleKey[]> = {
   Overview: ["dashboard"],
   Academics: ["attendance", "timetable", "subjects", "syllabus", "syllabus_progress", "results"],
-  Students: ["teams"],
+  Students: ["students", "student_search", "section_overview", "teams"],
   Operations: ["finance", "reports"],
   Engage: ["announcements", "feedback", "applications"]
 };
@@ -61,6 +66,10 @@ const TITLE_MAP: Record<string, string> = {
   "/teacher/results/upload": "Upload results",
   "/teacher/results/add": "Add result",
   "/teacher/teams": "Teams",
+  "/teacher/students": "Add Student",
+  "/teacher/students/add-student": "Add Student",
+  "/teacher/students/modify-student": "Modify Student",
+  "/teacher/students/history": "History",
   "/teacher/subjects": "Subjects",
   "/teacher/syllabus": "Syllabus",
   "/teacher/syllabus/manage": "Manage syllabus",
@@ -157,6 +166,9 @@ export function teacherPortalSubPageBackHref(
   ) {
     return "/teacher/results";
   }
+  if (pathname.startsWith("/teacher/students/") && pathname !== "/teacher/students") {
+    return "/teacher/students";
+  }
   const studentMatch = /^\/teacher\/sections\/([^/]+)\/students\/[^/]+$/.exec(pathname);
   if (studentMatch) {
     return navigationState?.from ?? `/teacher/sections/${studentMatch[1]}`;
@@ -174,6 +186,9 @@ export function pathForTeacherModule(key: TeacherPortalModuleKey): string {
     timetable: "/teacher/timetable",
     results: "/teacher/results",
     teams: "/teacher/teams",
+    students: "/teacher/students",
+    student_search: "/teacher/student-search",
+    section_overview: "/teacher/section-overview",
     subjects: "/teacher/subjects",
     syllabus: "/teacher/syllabus",
     syllabus_progress: "/teacher/syllabus/progress",

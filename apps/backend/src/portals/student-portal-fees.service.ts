@@ -15,6 +15,7 @@ import {
   formatPdfTimestamp
 } from "../common/pdf-institutional.util";
 import { AuthUser } from "../auth/auth.types";
+import { computeFeeOverdue, type FeeOverdueStatus } from "../common/fee-overdue.util";
 import { PrismaService } from "../prisma/prisma.service";
 import { loadStudentPortalProfile } from "./student-portal-load-student";
 import { StudentPortalReceiptsService } from "./student-portal-receipts.service";
@@ -35,6 +36,9 @@ type AssignmentRow = {
   paymentStatus: StudentFeePaymentStatus;
   uiStatus: "PAID" | "PAY_NOW";
   dueDate: string | null;
+  /** Computed on read: "paid" | "pending" | "overdue". */
+  feeStatus: FeeOverdueStatus;
+  daysOverdue: number;
 };
 
 @Injectable()
@@ -245,6 +249,7 @@ export class StudentPortalFeesService {
       const paidRupees = a.payments.reduce((s, p) => s + Number(p.amount), 0);
       const balanceRupees = Math.max(amountRupees - paidRupees, 0);
       const status = deriveFeeAssignmentUiStatus(amountRupees, paidRupees, a.paymentStatus);
+      const overdue = computeFeeOverdue(balanceRupees, a.feeStructure.dueDate);
       const latestPaymentId = a.payments[0]?.id ?? null;
       return {
         id: a.id,
@@ -256,6 +261,8 @@ export class StudentPortalFeesService {
         paidRupees,
         balanceRupees,
         status,
+        feeStatus: overdue.status,
+        daysOverdue: overdue.daysOverdue,
         dueDate: a.feeStructure.dueDate ? formatIstDate(a.feeStructure.dueDate) : null,
         latestPaymentId,
         canPay: balanceRupees > 0,
@@ -265,21 +272,29 @@ export class StudentPortalFeesService {
 
     const yearBreakdown = buildStudentFeeYearBlocks(assignmentItems, currentYearNumber);
 
-    const breakdown: AssignmentRow[] = assignmentItems.map((item) => ({
-      id: item.id,
-      feeHead: item.feeHead,
-      amountRupees: item.amountRupees,
-      paidRupees: item.paidRupees,
-      balanceRupees: item.balanceRupees,
-      paymentStatus:
-        item.status === "PAID"
-          ? StudentFeePaymentStatus.PAID
-          : item.status === "PARTIAL"
-            ? StudentFeePaymentStatus.PARTIAL
-            : StudentFeePaymentStatus.UNPAID,
-      uiStatus: item.canPay ? "PAY_NOW" : "PAID",
-      dueDate: item.dueDate
-    }));
+    // Raw due dates by assignment id, to compute overdue status on read.
+    const dueDateById = new Map(assignments.map((a) => [a.id, a.feeStructure.dueDate]));
+
+    const breakdown: AssignmentRow[] = assignmentItems.map((item) => {
+      const overdue = computeFeeOverdue(item.balanceRupees, dueDateById.get(item.id) ?? null);
+      return {
+        id: item.id,
+        feeHead: item.feeHead,
+        amountRupees: item.amountRupees,
+        paidRupees: item.paidRupees,
+        balanceRupees: item.balanceRupees,
+        paymentStatus:
+          item.status === "PAID"
+            ? StudentFeePaymentStatus.PAID
+            : item.status === "PARTIAL"
+              ? StudentFeePaymentStatus.PARTIAL
+              : StudentFeePaymentStatus.UNPAID,
+        uiStatus: item.canPay ? "PAY_NOW" : "PAID",
+        dueDate: item.dueDate,
+        feeStatus: overdue.status,
+        daysOverdue: overdue.daysOverdue
+      };
+    });
 
     const totalFeeRupees = breakdown.reduce((s, r) => s + r.amountRupees, 0);
     const paidRupees = breakdown.reduce((s, r) => s + r.paidRupees, 0);

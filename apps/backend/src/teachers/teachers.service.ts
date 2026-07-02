@@ -4,7 +4,6 @@ import { AuthSessionStatus, Prisma, StructureStatus, TeacherRoleKind, UserStatus
 import bcrypt from "bcrypt";
 import { AuthUser } from "../auth/auth.types";
 import { toPagination } from "../common/pagination.dto";
-import { EmailService } from "../email/email.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { CampusScopeService, isInstitutionWideAdmin } from "../permissions/campus-scope.service";
 import { SharedGroupAcademicService } from "../permissions/shared-group-academic.service";
@@ -25,7 +24,6 @@ export class TeachersService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly email: EmailService,
     private readonly campusScope: CampusScopeService,
     private readonly sharedGroup: SharedGroupAcademicService
   ) {}
@@ -189,17 +187,6 @@ export class TeachersService {
       });
 
       await this.logAudit("CREATE_TEACHER", "TeacherProfile", teacher.id, { employeeCode: teacher.employeeCode });
-      await this.email
-        .sendTeacherWelcome({
-          email: teacher.user.email,
-          fullName: teacher.user.fullName,
-          employeeCode: teacher.employeeCode,
-          temporaryPassword: employeeCode,
-          assignments: teacher.assignments.map((assignment) => this.assignmentEmailLine(assignment))
-        })
-        .catch((error: unknown) => {
-          this.logger.error(error instanceof Error ? error.message : "Unable to send teacher welcome email.");
-        });
       return { teacher: this.toTeacherObject(teacher) };
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {

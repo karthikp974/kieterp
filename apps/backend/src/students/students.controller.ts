@@ -33,8 +33,8 @@ export class StudentsController {
 
   @Post()
   @RequiresPermission(PermissionAction.MANAGE_USERS)
-  create(@Body() dto: CreateStudentDto) {
-    return this.students.create(dto);
+  create(@Body() dto: CreateStudentDto, @CurrentUser() user: AuthUser) {
+    return this.students.create(dto, user);
   }
 
   @Post("bulk")
@@ -45,8 +45,8 @@ export class StudentsController {
 
   @Get("imports/:jobId")
   @RequiresPermission(PermissionAction.MANAGE_USERS)
-  importJob(@Param("jobId") jobId: string) {
-    return this.students.getImportJob(jobId);
+  importJob(@Param("jobId") jobId: string, @CurrentUser() user: AuthUser) {
+    return this.students.getImportJob(jobId, user);
   }
 
   @Patch(":id")

@@ -10,6 +10,7 @@ import {
   Post,
   Put,
   Query,
+  Req,
   Res,
   UploadedFile,
   UseGuards,
@@ -18,7 +19,7 @@ import {
 import { FileInterceptor } from "@nestjs/platform-express";
 import { formatIstDate, istDayOfWeek } from "../common/ist-time.util";
 import { memoryStorage } from "multer";
-import { Response } from "express";
+import { Request, Response } from "express";
 import { StudentAttendanceExportQueryDto, StudentAttendancePageQueryDto } from "./student-attendance-portal.dto";
 import { StudentAttendanceHistoryQueryDto } from "./student-dashboard.dto";
 import { StudentMarksPdfQueryDto } from "./student-marks-portal.dto";
@@ -112,6 +113,13 @@ import {
   PortalReportsExportQueryDto
 } from "../reports/portal-reports.dto";
 import { TeacherPortalEngageService } from "./teacher-portal-engage.service";
+import { TeacherPortalStudentsService } from "./teacher-portal-students.service";
+import { TeacherPortalStudentSearchService, PROFILE_CARDS, type ProfileCard } from "./teacher-portal-student-search.service";
+import { TeacherPortalSectionOverviewService } from "./teacher-portal-section-overview.service";
+import { StudentSearchQueryDto, StudentProfileExportQueryDto, TeacherStudentProfileEditDto } from "./teacher-student-search.dto";
+import { SectionOverviewExportQueryDto, SectionOverviewQueryDto } from "./teacher-section-overview.dto";
+import { getRequestContext } from "../auth/request-context";
+import { BulkCreateStudentsDto, CreateStudentDto, ResetStudentPasswordDto, StudentListQueryDto, UpdateStudentDto } from "../students/students.dto";
 
 @UseGuards(JwtAuthGuard, PermissionGuard)
 @Controller("portals")
@@ -142,7 +150,10 @@ export class PortalsController {
     private readonly teacherPortalTeams: TeacherPortalTeamsService,
     private readonly teacherPortalFinance: TeacherPortalFinanceService,
     private readonly portalReports: PortalReportsService,
-    private readonly teacherPortalEngage: TeacherPortalEngageService
+    private readonly teacherPortalEngage: TeacherPortalEngageService,
+    private readonly teacherPortalStudents: TeacherPortalStudentsService,
+    private readonly teacherPortalStudentSearch: TeacherPortalStudentSearchService,
+    private readonly teacherPortalSectionOverview: TeacherPortalSectionOverviewService
   ) {}
 
   @Get("admin")
@@ -415,12 +426,6 @@ export class PortalsController {
     return this.teacherPortalResults.getImportJob(user, jobId);
   }
 
-  @Post("teacher/results/imports/:jobId/push")
-  @RequiresPermission(PermissionAction.UPLOAD_RESULTS)
-  teacherResultsPushImport(@CurrentUser() user: AuthUser, @Param("jobId") jobId: string) {
-    return this.teacherPortalResults.pushImportResults(user, jobId);
-  }
-
   @Post("teacher/results/imports/:jobId/cancel")
   @RequiresPermission(PermissionAction.UPLOAD_RESULTS)
   teacherResultsCancelImport(@CurrentUser() user: AuthUser, @Param("jobId") jobId: string) {
@@ -434,7 +439,10 @@ export class PortalsController {
   }
 
   @Get("teacher/teams")
-  @RequiresPermission(PermissionAction.VIEW_TEAMS)
+  // sectionId arrives as a query param; the service scopes it to the teacher's
+  // sections (rejecting out-of-scope ids). Skip the guard's scope check, which
+  // can't resolve a bare sectionId against a branch-level (HTPO) assignment.
+  @RequiresPermission(PermissionAction.VIEW_TEAMS, { skipRequestScope: true })
   teacherTeamsList(@CurrentUser() user: AuthUser, @Query() query: TeacherTeamsListQueryDto) {
     return this.teacherPortalTeams.listTeams(user, query);
   }
@@ -484,43 +492,46 @@ export class PortalsController {
   }
 
   @Get("teacher/finance/summary")
-  @RequiresPermission(PermissionAction.VIEW_FEES)
+  // Section filter is a query param; teacherPortalFinance scopes it to the teacher's
+  // own sections. Guard scope-check skipped (can't match a bare sectionId to an
+  // HTPO's branch-level assignment) — see teacher/teams above.
+  @RequiresPermission(PermissionAction.VIEW_FEES, { skipRequestScope: true })
   teacherFinanceSummary(@CurrentUser() user: AuthUser, @Query() query: TeacherFinanceScopeQueryDto) {
     return this.teacherPortalFinance.getSummary(user, query);
   }
 
   @Get("teacher/finance/recent-payments")
-  @RequiresPermission(PermissionAction.VIEW_FEES)
+  @RequiresPermission(PermissionAction.VIEW_FEES, { skipRequestScope: true })
   teacherFinanceRecentPayments(@CurrentUser() user: AuthUser, @Query() query: TeacherFinanceRecentPaymentsQueryDto) {
     return this.teacherPortalFinance.listRecentPayments(user, query);
   }
 
   @Get("teacher/finance/pending-students")
-  @RequiresPermission(PermissionAction.VIEW_FEES)
+  @RequiresPermission(PermissionAction.VIEW_FEES, { skipRequestScope: true })
   teacherFinancePendingStudents(@CurrentUser() user: AuthUser, @Query() query: TeacherFinancePendingStudentsQueryDto) {
     return this.teacherPortalFinance.listPendingStudents(user, query);
   }
 
   @Get("teacher/finance/students")
-  @RequiresPermission(PermissionAction.VIEW_FEES)
+  @RequiresPermission(PermissionAction.VIEW_FEES, { skipRequestScope: true })
   teacherFinanceStudents(@CurrentUser() user: AuthUser, @Query() query: TeacherFinanceStudentsQueryDto) {
     return this.teacherPortalFinance.listStudentFeeStatus(user, query);
   }
 
   @Get("teacher/finance/section-collection")
-  @RequiresPermission(PermissionAction.VIEW_FEES)
+  @RequiresPermission(PermissionAction.VIEW_FEES, { skipRequestScope: true })
   teacherFinanceSectionCollection(@CurrentUser() user: AuthUser, @Query() query: TeacherFinanceScopeQueryDto) {
     return this.teacherPortalFinance.getSectionCollection(user, query);
   }
 
   @Get("teacher/finance/payment-status")
-  @RequiresPermission(PermissionAction.VIEW_FEES)
+  @RequiresPermission(PermissionAction.VIEW_FEES, { skipRequestScope: true })
   teacherFinancePaymentStatus(@CurrentUser() user: AuthUser, @Query() query: TeacherFinanceScopeQueryDto) {
     return this.teacherPortalFinance.getPaymentStatusBreakdown(user, query);
   }
 
   @Get("teacher/finance/students/export")
-  @RequiresPermission(PermissionAction.VIEW_FEES)
+  @RequiresPermission(PermissionAction.VIEW_FEES, { skipRequestScope: true })
   teacherFinanceStudentsExport(
     @CurrentUser() user: AuthUser,
     @Query() query: TeacherFinanceExportQueryDto,
@@ -542,13 +553,15 @@ export class PortalsController {
   }
 
   @Get("teacher/reports/dashboard")
-  @RequiresPermission(PermissionAction.VIEW_REPORTS)
+  // sectionId is a query param; portalReports scopes it to the teacher's sections
+  // (rejecting out-of-scope ids). Guard scope-check skipped — see teacher/finance.
+  @RequiresPermission(PermissionAction.VIEW_REPORTS, { skipRequestScope: true })
   teacherReportsDashboard(@CurrentUser() user: AuthUser, @Query() query: PortalReportsDashboardQueryDto) {
     return this.portalReports.getDashboard(user, query);
   }
 
   @Get("teacher/reports/export")
-  @RequiresPermission(PermissionAction.VIEW_REPORTS)
+  @RequiresPermission(PermissionAction.VIEW_REPORTS, { skipRequestScope: true })
   teacherReportsExport(
     @CurrentUser() user: AuthUser,
     @Query() query: PortalReportsExportQueryDto,
@@ -687,6 +700,138 @@ export class PortalsController {
       page: pagination.page,
       pageSize: pagination.pageSize
     };
+  }
+
+  // --- Student management (HTPO/CTPO only; STPO rejected in service). Scoped to the
+  // teacher's own sections. Guard only checks portal access; the service enforces role
+  // + section scope and delegates writes to the admin StudentsService.
+  // --- Search Student (Page 1): scoped read. Service enforces HTPO/CTPO + section scope
+  // and treats out-of-scope ids as not-found (IDOR-safe).
+  @Get("teacher/student-search")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherStudentSearch(@CurrentUser() user: AuthUser, @Query() query: StudentSearchQueryDto) {
+    return this.teacherPortalStudentSearch.search(user, query);
+  }
+
+  @Get("teacher/student-search/:studentProfileId")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherStudentSearchProfile(@CurrentUser() user: AuthUser, @Param("studentProfileId") studentProfileId: string) {
+    return this.teacherPortalStudentSearch.profile(user, studentProfileId);
+  }
+
+  @Get("teacher/student-search/:studentProfileId/export")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherStudentSearchExport(
+    @CurrentUser() user: AuthUser,
+    @Param("studentProfileId") studentProfileId: string,
+    @Query() query: StudentProfileExportQueryDto,
+    @Res() response: Response
+  ) {
+    const safeCard = (query.card && PROFILE_CARDS.includes(query.card as ProfileCard) ? query.card : "all") as ProfileCard;
+    return this.teacherPortalStudentSearch.exportProfile(user, studentProfileId, query.format, response, safeCard);
+  }
+
+  // Edit personal/login fields (section/campus excluded). Audited old→new + IP.
+  @Patch("teacher/student-search/:studentProfileId")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherStudentSearchUpdate(
+    @CurrentUser() user: AuthUser,
+    @Param("studentProfileId") studentProfileId: string,
+    @Body() dto: TeacherStudentProfileEditDto,
+    @Req() request: Request
+  ) {
+    return this.teacherPortalStudentSearch.updateProfile(user, studentProfileId, dto, getRequestContext(request));
+  }
+
+  // --- Section Overview (Page 2): team-wise grouping, overdue-first. Scoped + IDOR.
+  @Get("teacher/section-overview/setup")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherSectionOverviewSetup(@CurrentUser() user: AuthUser) {
+    return this.teacherPortalSectionOverview.setup(user);
+  }
+
+  @Get("teacher/section-overview")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherSectionOverview(@CurrentUser() user: AuthUser, @Query() query: SectionOverviewQueryDto) {
+    return this.teacherPortalSectionOverview.overview(user, query);
+  }
+
+  @Get("teacher/section-overview/export")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherSectionOverviewExport(@CurrentUser() user: AuthUser, @Query() query: SectionOverviewExportQueryDto, @Res() response: Response) {
+    return this.teacherPortalSectionOverview.exportOverview(user, query, query.format, response);
+  }
+
+  @Get("teacher/students/setup")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherStudentsSetup(@CurrentUser() user: AuthUser) {
+    return this.teacherPortalStudents.setup(user);
+  }
+
+  @Get("teacher/students/catalog")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherStudentsCatalog(@CurrentUser() user: AuthUser) {
+    return this.teacherPortalStudents.catalog(user);
+  }
+
+  @Get("teacher/students/manage")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherStudentsManageList(@CurrentUser() user: AuthUser, @Query() query: StudentListQueryDto) {
+    return this.teacherPortalStudents.list(user, query);
+  }
+
+  @Post("teacher/students/manage")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherStudentsCreate(@CurrentUser() user: AuthUser, @Body() dto: CreateStudentDto) {
+    return this.teacherPortalStudents.create(user, dto);
+  }
+
+  @Post("teacher/students/manage/bulk")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherStudentsBulk(@CurrentUser() user: AuthUser, @Body() dto: BulkCreateStudentsDto) {
+    return this.teacherPortalStudents.bulk(user, dto);
+  }
+
+  @Get("teacher/students/manage/imports/:jobId")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherStudentsImportJob(@CurrentUser() user: AuthUser, @Param("jobId") jobId: string) {
+    return this.teacherPortalStudents.getImportJob(user, jobId);
+  }
+
+  @Get("teacher/students/manage/:id")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherStudentsManageGet(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.teacherPortalStudents.get(user, id);
+  }
+
+  @Patch("teacher/students/manage/:id")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherStudentsUpdate(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: UpdateStudentDto) {
+    return this.teacherPortalStudents.update(user, id, dto);
+  }
+
+  @Post("teacher/students/manage/:id/deactivate")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherStudentsDeactivate(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.teacherPortalStudents.deactivate(user, id);
+  }
+
+  @Post("teacher/students/manage/:id/reactivate")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherStudentsReactivate(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.teacherPortalStudents.reactivate(user, id);
+  }
+
+  @Post("teacher/students/manage/:id/reset-password")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherStudentsResetPassword(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: ResetStudentPasswordDto) {
+    return this.teacherPortalStudents.resetPassword(user, id, dto);
+  }
+
+  @Delete("teacher/students/manage/:id")
+  @RequiresPermission(PermissionAction.VIEW_TEACHER_PORTAL, { skipRequestScope: true })
+  teacherStudentsArchive(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.teacherPortalStudents.archive(user, id);
   }
 
   @Get("student")

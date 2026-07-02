@@ -45,7 +45,7 @@ export function StudentFeeYearBreakdownCard({ year, view = "total" }: Props) {
                   </td>
                   <td className="sp-fee-td-date">{formatFeeDueDate(item.dueDate)}</td>
                   <td>
-                    <StudentFeeBreakdownStatusBadge status={item.status} />
+                    <StudentFeeBreakdownStatusBadge item={item} />
                   </td>
                   <td>
                     <StudentFeeBreakdownRowActions item={item} view={view} />

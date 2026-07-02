@@ -1108,6 +1108,7 @@ html[data-portal-theme] body {
   border-radius: 10px;
   border: 1px solid var(--bd);
   background: var(--bg2);
+  min-width: 0;
 }
 
 .portal-root .tp-card-head {
@@ -1131,6 +1132,139 @@ html[data-portal-theme] body {
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: 10px;
   margin-bottom: 14px;
+}
+
+/* Teacher portal — Search Student / Section Overview */
+.portal-root .tp-student-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.portal-root .tp-student-toolbar .db-input {
+  flex: 1 1 220px;
+  max-width: 320px;
+}
+.portal-root .tp-section-label {
+  margin: 4px 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--t2);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.portal-root .tp-detail-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px 18px;
+}
+.portal-root .tp-detail-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid var(--bd);
+  padding-bottom: 6px;
+}
+.portal-root .tp-detail-label {
+  font-size: 12px;
+  color: var(--t3);
+}
+.portal-root .tp-detail-value,
+.portal-root .tp-detail-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--t1);
+}
+.portal-root .tp-edit-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--t3);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 2px;
+}
+.portal-root .tp-edit-icon:hover {
+  color: var(--brand, #1d4ed8);
+}
+.portal-root .tp-pay-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+/* Overdue = danger token */
+.portal-root .tp-overdue {
+  color: var(--danger, #dc2626);
+  font-weight: 600;
+}
+.portal-root table.db-table tbody tr.tp-overdue-row td {
+  color: var(--danger, #dc2626) !important;
+}
+
+/* Student detail page: topbar + stacked year/semester blocks */
+.portal-root .tp-detail-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.portal-root .tp-carousel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.portal-root .tp-carousel-card {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--bd);
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--bg1);
+  overflow: hidden;
+}
+.portal-root .tp-table-wrap {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: visible;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 8px;
+  border: 1px solid var(--bd);
+  background: var(--bg2);
+}
+.portal-root .tp-detail-table {
+  width: 100%;
+  min-width: 560px;
+  margin: 0;
+}
+.portal-root .tp-detail-table-subject {
+  min-width: 140px;
+  max-width: 220px;
+  white-space: normal;
+}
+.portal-root .tp-detail-table .db-input {
+  min-width: 72px;
+  width: 100%;
+}
+.portal-root .tp-carousel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: var(--t1);
+}
+.portal-root .tp-carousel-head span {
+  font-size: 12px;
+  color: var(--t2);
 }
 
 .portal-root .tp-kpi {
@@ -1283,6 +1417,11 @@ html[data-portal-theme] body {
   color: var(--t3);
   line-height: 1.45;
   max-width: 52rem;
+}
+
+.portal-root .teacher-portal-panel-wrap {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .portal-root .teacher-portal-panel-wrap > section,
@@ -5445,9 +5584,30 @@ body.htpo-results-import-body-locked {
   color: #eab308 !important;
 }
 
+/* Pending = outstanding but not yet due → neutral (not alarming). */
 .portal-root .teacher-portal-panel-wrap .htpo-finance-status--pending {
-  background: rgb(239 68 68 / 18%) !important;
-  color: #ef4444 !important;
+  background: rgb(100 116 139 / 16%) !important;
+  color: #475569 !important;
+}
+
+/* Overdue = outstanding AND past due date → clear danger red. */
+.portal-root .teacher-portal-panel-wrap .htpo-finance-status--overdue {
+  background: rgb(220 38 38 / 16%) !important;
+  color: #dc2626 !important;
+  border: 1px solid rgb(220 38 38 / 35%);
+}
+
+.portal-root .htpo-finance-row--overdue {
+  background: rgb(220 38 38 / 6%);
+}
+
+.portal-root .htpo-finance-search {
+  min-width: 200px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid rgb(148 163 184 / 45%);
+  font-size: 13px;
+  color: inherit;
 }
 
 .portal-root .htpo-finance-remind-btn {

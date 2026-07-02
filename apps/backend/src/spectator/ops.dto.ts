@@ -1,4 +1,4 @@
-import { IsIn, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength } from "class-validator";
+import { IsIn, IsInt, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength } from "class-validator";
 import { Type } from "class-transformer";
 import { PaginationQueryDto } from "../common/pagination.dto";
 
@@ -16,6 +16,21 @@ export class TrackActivityDto {
   @IsOptional()
   @IsIn(["PAGE_VIEW", "HEARTBEAT"])
   kind?: "PAGE_VIEW" | "HEARTBEAT";
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  latitude?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  longitude?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  location_accuracy?: number;
 }
 
 export class OpsSessionsQueryDto extends PaginationQueryDto {
