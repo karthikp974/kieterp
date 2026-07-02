@@ -1,5 +1,6 @@
 import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { networkErrorMessage, resolveApiUrl } from "../shared/api-base";
+import { deviceLocationPayload, readDeviceLocation } from "../shared/device-location";
 import { AuthContext } from "./auth-context";
 import { AuthResponse, AuthUser } from "./auth-types";
 
@@ -71,11 +72,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (identifier: string, password: string) => {
     let response: Response;
+    const location = await readDeviceLocation();
     try {
       response = await fetch(resolveApiUrl("/api/auth/login"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ identifier, password })
+        body: JSON.stringify({
+          identifier,
+          password,
+          ...deviceLocationPayload(location)
+        })
       });
     } catch (error) {
       throw new Error(networkErrorMessage(error, "Cannot reach the API server."));

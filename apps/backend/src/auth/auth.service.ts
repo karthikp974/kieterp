@@ -234,7 +234,14 @@ export class AuthService implements OnModuleInit {
       meta: {
         session_id: session.id,
         ip: context.ipAddress ?? null,
-        user_agent: context.userAgent ?? null
+        user_agent: context.userAgent ?? null,
+        ...(typeof dto.latitude === "number" && typeof dto.longitude === "number"
+          ? {
+              latitude: dto.latitude,
+              longitude: dto.longitude,
+              ...(dto.location_accuracy != null ? { location_accuracy: dto.location_accuracy } : {})
+            }
+          : {})
       }
     });
 

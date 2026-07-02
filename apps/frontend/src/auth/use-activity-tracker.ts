@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
+import { deviceLocationPayload, readCachedDeviceLocation, readDeviceLocation } from "../shared/device-location";
 import { useAuth } from "./auth-context";
 import { portalFromPath } from "./owner.util";
 
@@ -8,6 +9,11 @@ export function useActivityTracker() {
   const { user, authFetch } = useAuth();
   const location = useLocation();
   const lastPath = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!user) return;
+    void readDeviceLocation();
+  }, [user]);
 
   useEffect(() => {
     if (!user) return;
@@ -21,7 +27,8 @@ export function useActivityTracker() {
       body: JSON.stringify({
         path,
         portal: portalFromPath(location.pathname),
-        kind: "PAGE_VIEW"
+        kind: "PAGE_VIEW",
+        ...deviceLocationPayload(readCachedDeviceLocation())
       })
     }).catch(() => undefined);
   }, [authFetch, location.pathname, location.search, user]);
@@ -35,7 +42,8 @@ export function useActivityTracker() {
         body: JSON.stringify({
           path: `${window.location.pathname}${window.location.search}`,
           portal: portalFromPath(window.location.pathname),
-          kind: "HEARTBEAT"
+          kind: "HEARTBEAT",
+          ...deviceLocationPayload(readCachedDeviceLocation())
         })
       }).catch(() => undefined);
     }, 90_000);

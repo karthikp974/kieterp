@@ -75,7 +75,14 @@ export class SpectatorActivityService {
       meta: {
         session_id: user.sessionId,
         ip: context.ipAddress ?? null,
-        user_agent: context.userAgent ?? null
+        user_agent: context.userAgent ?? null,
+        ...(typeof dto.latitude === "number" && typeof dto.longitude === "number"
+          ? {
+              latitude: dto.latitude,
+              longitude: dto.longitude,
+              ...(dto.location_accuracy != null ? { location_accuracy: dto.location_accuracy } : {})
+            }
+          : {})
       }
     });
 
