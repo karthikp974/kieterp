@@ -29,6 +29,7 @@ import { AuditIdentityService } from "./audit-identity.service";
 import { AuthUser, JwtAccessPayload } from "./auth.types";
 import { LoginDto } from "./login.dto";
 import { SpectatorActivityService } from "../spectator/spectator-activity.service";
+import { forwardActivityToHub } from "../common/erp-hub-forward";
 import { ChangePasswordDto } from "./profile.dto";
 import { ForgotPasswordDto, ResetPasswordDto } from "./password-recovery.dto";
 import { RefreshTokenDto } from "./refresh-token.dto";
@@ -224,6 +225,18 @@ export class AuthService implements OnModuleInit {
       portal,
       "/login"
     );
+
+    void forwardActivityToHub({
+      kind: "LOGIN",
+      userLabel: dto.identifier,
+      portal,
+      path: "/login",
+      meta: {
+        session_id: session.id,
+        ip: context.ipAddress ?? null,
+        user_agent: context.userAgent ?? null
+      }
+    });
 
     return {
       accessToken,

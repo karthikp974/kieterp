@@ -6,6 +6,8 @@ import { toPagination } from "../common/pagination.dto";
 import { PrismaService } from "../prisma/prisma.service";
 import { buildDayHourBreakdown, istHourRange, istTodayRange } from "./ops-breakdown.util";
 import { OpsBreakdownQueryDto, OpsSessionsQueryDto, TrackActivityDto } from "./ops.dto";
+import { forwardActivityToHub } from "../common/erp-hub-forward";
+import { RequestContext } from "../auth/request-context";
 
 const LIVE_WINDOW_MS = 24 * 60 * 60 * 1000;
 const PAST_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
@@ -42,7 +44,7 @@ export class SpectatorActivityService {
     });
   }
 
-  async track(user: AuthUser, dto: TrackActivityDto) {
+  async track(user: AuthUser, dto: TrackActivityDto, context: RequestContext = {}) {
     const now = new Date();
     const kind =
       dto.kind === "HEARTBEAT"
@@ -64,6 +66,19 @@ export class SpectatorActivityService {
         }
       })
     ]);
+
+    void forwardActivityToHub({
+      kind: dto.kind === "HEARTBEAT" ? "HEARTBEAT" : "PAGE_VIEW",
+      userLabel: user.username ?? user.id,
+      portal: dto.portal ?? null,
+      path: dto.path,
+      meta: {
+        session_id: user.sessionId,
+        ip: context.ipAddress ?? null,
+        user_agent: context.userAgent ?? null
+      }
+    });
+
     return { ok: true };
   }
 
